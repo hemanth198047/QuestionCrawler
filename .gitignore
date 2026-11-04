@@ -22,3 +22,31 @@
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 replay_pid*
+
+# ---- Project additions ----
+# Gradle wrapper jar must be committed (the *.jar rule above would hide it)
+!gradle/wrapper/gradle-wrapper.jar
+!backend/gradle/wrapper/gradle-wrapper.jar
+
+# Backend (Gradle / IDE)
+backend/.gradle/
+backend/build/
+backend/out/
+.idea/
+*.iml
+.vscode/
+
+# Frontend (Node / Vite)
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.local
+
+# Secrets, collected internal content, databases (never commit)
+.env
+*.db
+*.sqlite
+*.sqlite3
+/data/
+/storage/
+credentials*
