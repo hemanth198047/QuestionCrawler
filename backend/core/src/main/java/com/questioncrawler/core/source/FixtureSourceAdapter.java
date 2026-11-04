@@ -132,9 +132,11 @@ public final class FixtureSourceAdapter implements SourceAdapter {
     @Override
     public Page<QuestionSummary> listQuestions(TagFilter filter, String modifiedSince, String cursor) throws SourceException {
         var since = Times.parse(modifiedSince);
+        var createdAfter = Times.parse(filter.createdAfter());
         List<FixtureQuestion> matching = questions.values().stream()
                 .filter(FixtureQuestion::available)
                 .filter(q -> filter.matches(q.tags() == null ? List.of() : q.tags()))
+                .filter(q -> createdAfter.isEmpty() || Times.parse(q.createdAt()).map(c -> !c.isBefore(createdAfter.get())).orElse(false))
                 .filter(q -> since.isEmpty() || Times.parse(q.modifiedAt()).map(m -> !m.isBefore(since.get())).orElse(true))
                 .sorted(Comparator.comparing((FixtureQuestion q) -> Times.parse(q.modifiedAt()).orElse(java.time.Instant.EPOCH))
                         .thenComparing(FixtureQuestion::id))

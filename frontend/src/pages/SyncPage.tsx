@@ -8,6 +8,7 @@ export default function SyncPage() {
   const reports = useRemote((signal) => getSyncReports(signal), [])
   const state = useRemote((signal) => getSyncState(signal), [])
   const [message, setMessage] = useState<string | null>(null)
+  const [window_, setWindow] = useState('')
   const running = state.kind === 'ok' && state.data.running
 
   // Poll while a background synchronization is running.
@@ -21,7 +22,7 @@ export default function SyncPage() {
   const run = async (full: boolean) => {
     setMessage(null)
     try {
-      await startSync(full)
+      await startSync(full, window_)
       setMessage(full ? 'Full reconciliation started.' : 'Incremental synchronization started.')
       state.reload()
     } catch (error) {
@@ -33,6 +34,11 @@ export default function SyncPage() {
     <section>
       <h2>Synchronization</h2>
       <p className="muted">Synchronization only happens when you start it here, from the CLI, or from the optional scheduler. Searching never triggers it.</p>
+      <p>
+        <label className="muted">Only collect questions created within{' '}
+          <input value={window_} onChange={(e) => setWindow(e.target.value.trim())} placeholder="e.g. 30d (optional)" size={18} />
+        </label>
+      </p>
       <p>
         <button disabled={running} onClick={() => run(false)}>Sync now (incremental)</button>{' '}
         <button disabled={running} onClick={() => run(true)}>Full reconciliation</button>{' '}

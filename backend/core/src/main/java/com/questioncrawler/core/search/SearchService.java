@@ -47,15 +47,24 @@ public final class SearchService {
 
     private final Path indexDir;
     private final Taxonomy taxonomy;
+    private final java.time.Clock clock;
 
     public SearchService(Path indexDir, Taxonomy taxonomy) {
+        this(indexDir, taxonomy, java.time.Clock.systemUTC());
+    }
+
+    public SearchService(Path indexDir, Taxonomy taxonomy, java.time.Clock clock) {
         this.indexDir = indexDir;
         this.taxonomy = taxonomy;
+        this.clock = clock;
     }
 
     public SearchResponse search(SearchRequest request) {
         if (!SearchIndex.exists(indexDir)) {
             throw new StoreException("Search index not found at " + indexDir + ". Run 'sync' (or 'demo'), or 'reindex' if threads exist.");
+        }
+        if (SearchIndex.readVersion(indexDir) != SearchIndex.INDEX_VERSION) {
+            throw new StoreException("The search index was built by an older version (age filters need the new format). Run 'reindex'.");
         }
         String queryText = request.query() == null ? "" : request.query();
         List<SymbolTokens.Word> words = SymbolTokens.contentWords(queryText);
@@ -74,7 +83,11 @@ public final class SearchService {
                 var doc = searcher.storedFields().document(hit.doc);
                 String text = doc.get(SearchIndex.S_TEXT);
                 String title = doc.get(SearchIndex.S_TITLE);
-                double coverage = coverage(words, SymbolTokens.expand(title + "\n" + text));
+                List<String> docTags = split(doc.get(SearchIndex.S_TAGS));
+                List<String> docCategoryNames = split(doc.get(SearchIndex.S_CATS)).stream().map(taxonomy::displayName).toList();
+                // Tags and category names are searchable metadata, so they count as covered terms too.
+                double coverage = coverage(words, SymbolTokens.expand(title + "\n" + text + "\n" + String.join(" ", docTags)
+                        + "\n" + String.join(" ", docCategoryNames)));
                 boolean exact = normalizedQuery.length() >= 6
                         && (normalizeForExact(text).contains(normalizedQuery) || normalizeForExact(title).contains(normalizedQuery));
                 if (exact) {
@@ -97,7 +110,8 @@ public final class SearchService {
                         emptyToNull(doc.get(SearchIndex.F_AID)), title, passage,
                         emptyToNull(doc.get(SearchIndex.S_URL)), emptyToNull(doc.get(SearchIndex.S_QURL)),
                         cats, cats.stream().map(taxonomy::displayName).toList(), split(doc.get(SearchIndex.S_TAGS)),
-                        accepted, votes, emptyToNull(doc.get(SearchIndex.S_MODIFIED)), emptyToNull(doc.get(SearchIndex.S_SYNCED)),
+                        accepted, votes, emptyToNull(doc.get(SearchIndex.S_CREATED)), emptyToNull(doc.get(SearchIndex.S_QCREATED)),
+                        emptyToNull(doc.get(SearchIndex.S_MODIFIED)), emptyToNull(doc.get(SearchIndex.S_SYNCED)),
                         round(adjusted), round(coverage), doc.get(SearchIndex.S_STATUS), flags, true));
             }
             scored.sort((a, b) -> Double.compare(b.score(), a.score()));
@@ -148,7 +162,31 @@ public final class SearchService {
         all.add(text.build(), BooleanClause.Occur.MUST);
         addFilter(all, SearchIndex.F_TAG, request.tags(), true);
         addFilter(all, SearchIndex.F_CAT, request.categories(), false);
+        addAgeFilters(all, request.age());
         return all.build();
+    }
+
+    /**
+     * Question age applies to every document of a thread. Answer age applies to answer documents only:
+     * question documents always pass it. Documents with an unknown creation time never match an active range.
+     */
+    private void addAgeFilters(BooleanQuery.Builder all, AgeFilter age) {
+        if (age.isEmpty()) {
+            return;
+        }
+        java.time.Instant now = clock.instant();
+        if (age.hasQuestionFilter()) {
+            all.add(org.apache.lucene.document.LongPoint.newRangeQuery(SearchIndex.F_QCREATED, age.questionFrom(now), age.questionTo(now)),
+                    BooleanClause.Occur.FILTER);
+        }
+        if (age.hasAnswerFilter()) {
+            BooleanQuery.Builder answerRule = new BooleanQuery.Builder();
+            answerRule.add(new TermQuery(new Term(SearchIndex.F_DOCTYPE, "question")), BooleanClause.Occur.SHOULD);
+            answerRule.add(org.apache.lucene.document.LongPoint.newRangeQuery(SearchIndex.F_ACREATED, age.answerFrom(now), age.answerTo(now)),
+                    BooleanClause.Occur.SHOULD);
+            answerRule.setMinimumNumberShouldMatch(1);
+            all.add(answerRule.build(), BooleanClause.Occur.FILTER);
+        }
     }
 
     private static Query phraseQuery(String field, List<String> tokens) {
@@ -223,13 +261,14 @@ public final class SearchService {
             budget += cost;
             chosen.add(withRank(e, chosen.size() + 1));
         }
-        return new SearchResponse(request.query(), request.tags(), request.categories(), chosen.size(),
+        return new SearchResponse(request.query(), request.tags(), request.categories(), request.age(), chosen.size(),
                 confidence(chosen), truncated, omitted, null, SearchResponse.NOTICE, chosen);
     }
 
     private static Evidence withRank(Evidence e, int rank) {
         return new Evidence(rank, e.type(), e.questionId(), e.answerId(), e.title(), e.passage(), e.sourceUrl(), e.questionUrl(),
-                e.categories(), e.categoryNames(), e.tags(), e.accepted(), e.votes(), e.sourceModifiedAt(), e.lastSyncedAt(),
+                e.categories(), e.categoryNames(), e.tags(), e.accepted(), e.votes(), e.createdAt(), e.questionCreatedAt(),
+                e.sourceModifiedAt(), e.lastSyncedAt(),
                 e.score(), e.termCoverage(), e.threadStatus(), e.flags(), e.untrusted());
     }
 
@@ -243,7 +282,7 @@ public final class SearchService {
     }
 
     private SearchResponse empty(SearchRequest request) {
-        return new SearchResponse(request.query(), request.tags(), request.categories(), 0, "NONE", false, 0, null,
+        return new SearchResponse(request.query(), request.tags(), request.categories(), request.age(), 0, "NONE", false, 0, null,
                 SearchResponse.NOTICE, List.of());
     }
 

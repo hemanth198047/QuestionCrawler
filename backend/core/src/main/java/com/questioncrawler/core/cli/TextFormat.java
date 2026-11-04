@@ -33,6 +33,15 @@ final class TextFormat {
                 .append("   (heuristic: how well the best passage covers the query terms)\n");
         if (!r.tagFilter().isEmpty()) sb.append("Tag filter: ").append(String.join(", ", r.tagFilter())).append('\n');
         if (!r.categoryFilter().isEmpty()) sb.append("Category filter: ").append(String.join(", ", r.categoryFilter())).append('\n');
+        if (r.ageFilter() != null && !r.ageFilter().isEmpty()) {
+            var f = r.ageFilter();
+            sb.append("Age filter:");
+            if (f.maxQuestionAge() != null) sb.append(" questions newer than ").append(f.maxQuestionAge()).append(';');
+            if (f.minQuestionAge() != null) sb.append(" questions older than ").append(f.minQuestionAge()).append(';');
+            if (f.maxAnswerAge() != null) sb.append(" answers newer than ").append(f.maxAnswerAge()).append(';');
+            if (f.minAnswerAge() != null) sb.append(" answers older than ").append(f.minAnswerAge()).append(';');
+            sb.append(" (posts with unknown creation time are excluded)\n");
+        }
         if (r.freshness() != null) {
             sb.append("Store freshness: ");
             if (r.freshness().lastSuccessfulSyncAt() == null) {
@@ -60,6 +69,8 @@ final class TextFormat {
             sb.append("    Title: ").append(e.title()).append('\n');
             sb.append("    Categories: ").append(String.join(", ", e.categoryNames())).append('\n');
             sb.append("    Source: ").append(e.sourceUrl() == null ? "unknown" : e.sourceUrl()).append('\n');
+            sb.append("    Created: ").append(e.createdAt() == null ? "unknown" : e.createdAt())
+                    .append(e.answerId() == null ? "" : "   (question created " + (e.questionCreatedAt() == null ? "unknown" : e.questionCreatedAt()) + ")").append('\n');
             sb.append("    Source modified: ").append(e.sourceModifiedAt() == null ? "unknown" : e.sourceModifiedAt())
                     .append("   Synced: ").append(e.lastSyncedAt() == null ? "unknown" : e.lastSyncedAt())
                     .append("   Status: ").append(e.threadStatus()).append('\n');
@@ -163,7 +174,7 @@ final class TextFormat {
         StringBuilder sb = new StringBuilder();
         sb.append(l.category().name()).append(" - ").append(l.category().description()).append("\n\n");
         for (var q : l.questions()) {
-            sb.append("  ").append(q.id()).append("  ").append(q.title()).append("  [").append(q.answerCount()).append(" answer(s)")
+            sb.append("  ").append(q.id()).append("  ").append(q.title()).append("  (created ").append(q.createdAt() == null ? "unknown" : q.createdAt()).append(")  [").append(q.answerCount()).append(" answer(s)")
                     .append(q.hasAcceptedAnswer() ? ", accepted" : "").append(q.status().equals("ACTIVE") ? "" : ", " + q.status()).append("]\n");
             sb.append("        ").append(q.url()).append('\n');
         }

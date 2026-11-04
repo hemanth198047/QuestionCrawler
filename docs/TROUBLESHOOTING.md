@@ -11,6 +11,11 @@
 | `Host not in source.allowedHosts` / `Path not in ...` | Add the host/prefix to the config. This allow-list is deliberate. |
 | `HTTP 302 redirect ... was not followed` | Usually a login redirect: you are not authenticated for this URL. |
 | TLS / certificate errors | Provide your organization CA in `source.caCertFile` (PEM). TLS verification cannot be disabled. |
+| `QUOTA_EXHAUSTED` / "request quota is used up" | Stack Exchange anonymous quota (~300/day) is spent. Wait, shorten `sync.maxQuestionAge`, or set an application key in the variable named by `source.stackexchange.keyEnv`. |
+| Stack Overflow sync finds 0 questions | Check the tag slug (`artificial-intelligence`), the `sync.maxQuestionAge` window, and `doctor --connect`. |
+| `The search index was built by an older version` | Run `reindex` (age filters need the new index format). |
+| Age filter returns nothing | Remember ages count back from today to creation; posts without a creation date are excluded. Try a wider age or remove the filter. |
+| `Invalid age 'x'` | Use a number and a unit: h, d, w, m, y (for example `30d`, `6m`). |
 | Sync `PARTIAL` | Some items failed after retries; see the report. The checkpoint did not advance, so the next sync retries them. |
 | Sync was interrupted | Run `sync` again; it resumes (`status` shows "interrupted run pending"). |
 | Search finds nothing but the topic exists | Search is lexical: use the exact error text, identifiers or other wording; check `--tag/--category` filters; check `status` freshness. |

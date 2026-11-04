@@ -118,4 +118,29 @@ class CliTest {
         assertTrue(r.out().contains("DELETED"));
         assertTrue(r.out().contains("No sufficiently relevant evidence"));
     }
+
+    @Test
+    void ageFlagsFilterSearchAndBrowsingAndRejectBadValues() throws Exception {
+        assertEquals(0, cli(withStorage("sync", "--tag", "orbit")).code());
+        // The synthetic questions were created in 2025: "within 30 days" matches nothing, "older than 30 days" matches everything.
+        var recent = cli(withStorage("search", "timeout", "--max-question-age", "30d", "--format", "json"));
+        assertEquals(0, recent.code());
+        assertEquals(0, Json.MAPPER.readTree(recent.out()).get("resultCount").asInt());
+        assertEquals("30d", Json.MAPPER.readTree(recent.out()).at("/ageFilter/maxQuestionAge").asText());
+        var old = cli(withStorage("search", "timeout", "--min-question-age", "30d", "--format", "json"));
+        assertTrue(Json.MAPPER.readTree(old.out()).get("resultCount").asInt() > 0);
+        assertEquals(0, Json.MAPPER.readTree(cli(withStorage("search", "timeout", "--max-answer-age", "30d", "--min-answer-age", "1d", "--format", "json")).out())
+                .path("evidence").findValues("type").stream().filter(n -> n.asText().equals("answer")).count());
+
+        var text = cli(withStorage("search", "timeout", "--min-question-age", "30d"));
+        assertTrue(text.out().contains("Age filter: questions older than 30d"), text.out());
+        assertTrue(text.out().contains("Created: 2025-"), text.out());
+
+        var bad = cli(withStorage("search", "timeout", "--max-question-age", "soon"));
+        assertEquals(1, bad.code());
+        assertTrue(bad.err().contains("Invalid age"), bad.err());
+
+        assertTrue(cli(withStorage("categories", "troubleshooting-errors", "--max-question-age", "30d")).out().contains("(no questions)"));
+        assertTrue(cli(withStorage("categories", "troubleshooting-errors", "--min-question-age", "30d")).out().contains("1001"));
+    }
 }

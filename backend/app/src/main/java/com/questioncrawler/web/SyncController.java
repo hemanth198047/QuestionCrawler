@@ -35,15 +35,16 @@ public class SyncController {
     }
 
     /** All fields optional: defaults come from the configuration file. */
-    public record SyncRequest(List<String> tags, String tagMode, Boolean partialTags, Boolean full) {}
+    /** maxQuestionAge (for example "30d") limits collection to questions created within that age. */
+    public record SyncRequest(List<String> tags, String tagMode, Boolean partialTags, Boolean full, String maxQuestionAge) {}
 
     @PostMapping("/sync")
     public ResponseEntity<?> start(@RequestBody(required = false) SyncRequest request,
                                    @RequestParam(name = "wait", defaultValue = "false") boolean wait) {
-        SyncRequest r = request == null ? new SyncRequest(null, null, null, null) : request;
+        SyncRequest r = request == null ? new SyncRequest(null, null, null, null, null) : request;
         TagMode tagMode = r.tagMode() == null ? null : TagMode.valueOf(r.tagMode().toUpperCase(Locale.ROOT));
         SyncOptions options = config.syncOptions(r.tags(), tagMode, r.partialTags(),
-                Boolean.TRUE.equals(r.full()) ? SyncMode.FULL : SyncMode.INCREMENTAL);
+                Boolean.TRUE.equals(r.full()) ? SyncMode.FULL : SyncMode.INCREMENTAL, r.maxQuestionAge());
         if (options.tags().isEmpty()) {
             throw new IllegalArgumentException("No tags configured: pass tags in the request or set sync.tags in the configuration.");
         }

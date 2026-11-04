@@ -15,6 +15,9 @@ public final class Retrier {
         T run() throws SourceException;
     }
 
+    /** A server asking us to wait longer than this is treated as a failure instead of stalling the run for hours. */
+    static final Duration MAX_HONOURED_RETRY_AFTER = Duration.ofMinutes(5);
+
     private final int maxAttempts;
     private final Duration baseDelay;
     private final Duration maxDelay;
@@ -40,6 +43,9 @@ public final class Retrier {
                 return call.run();
             } catch (SourceException e) {
                 if (!e.kind().isRetryable() || attempt >= maxAttempts) {
+                    throw e;
+                }
+                if (e.retryAfter() != null && e.retryAfter().compareTo(MAX_HONOURED_RETRY_AFTER) > 0) {
                     throw e;
                 }
                 Duration wait = backoff(attempt);

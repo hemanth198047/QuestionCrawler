@@ -59,6 +59,8 @@ Then read [docs/SETUP.md](docs/SETUP.md) to configure your own storage location 
 - [docs/SETUP.md](docs/SETUP.md) - Windows and Linux setup, web app, backup/restore
 - [docs/COPILOT.md](docs/COPILOT.md) - using the skill, permissions, sample outputs
 - [docs/SYNC.md](docs/SYNC.md) - incremental vs full, statuses, retention, scheduling (Task Scheduler / cron)
+- [docs/STACKOVERFLOW.md](docs/STACKOVERFLOW.md) - testing against stackoverflow.com (tag "Artificial Intelligence")
+- [docs/AGE_FILTERS.md](docs/AGE_FILTERS.md) - filtering by age of questions and answers
 - [docs/LIVE_INTEGRATION.md](docs/LIVE_INTEGRATION.md) - what is needed to connect the real site
 - [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
 - [docs/CAPABILITIES.md](docs/CAPABILITIES.md) - verified capabilities and remaining work

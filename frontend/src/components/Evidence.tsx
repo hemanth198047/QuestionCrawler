@@ -17,6 +17,8 @@ export function EvidenceCard({ e }: { e: Evidence }) {
       <footer className="muted">
         {href ? <a href={href} target="_blank" rel="noreferrer noopener">Original source</a> : 'Source URL unknown'}
         {' · '}{e.categoryNames.join(', ')}
+        {' · '}{e.type === 'answer' ? 'answered' : 'asked'} {e.createdAt ?? 'unknown'}
+        {e.type === 'answer' ? ` (question asked ${e.questionCreatedAt ?? 'unknown'})` : ''}
         {' · '}modified {e.sourceModifiedAt ?? 'unknown'} · synced {e.lastSyncedAt ?? 'unknown'}
       </footer>
     </article>

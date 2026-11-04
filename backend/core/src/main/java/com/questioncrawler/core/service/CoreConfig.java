@@ -40,7 +40,8 @@ public record CoreConfig(
         int retentionDays,
         boolean schedulerEnabled,
         Duration schedulerInterval,
-        int staleAfterHours) {
+        int staleAfterHours,
+        String maxQuestionAge) {
 
     public static Path defaultStorageRoot() {
         return Path.of(System.getProperty("user.home"), ".questioncrawler", "data");
@@ -86,20 +87,46 @@ public record CoreConfig(
         String taxonomy = p.getProperty("taxonomy.file", "").strip();
         Path taxonomyFile = taxonomy.isEmpty() ? null : resolve(base, taxonomy);
         String type = p.getProperty("source.type", "fixture").strip().toLowerCase();
+        String site = p.getProperty("source.stackexchange.site", "").strip();
+        if (site.isEmpty()) {
+            site = siteFromUrl(p.getProperty("source.siteUrl", "https://stackoverflow.com/").strip());
+        }
+        boolean stackExchange = type.equals("stackexchange");
+        String apiBase = p.getProperty("source.stackexchange.apiBaseUrl", "https://api.stackexchange.com/2.3").strip();
+        String hosts = p.getProperty("source.allowedHosts", "");
+        String prefixes = p.getProperty("source.allowedPathPrefixes", "/");
+        String systemId = p.getProperty("source.systemId", "").strip();
+        String baseUrl = p.getProperty("source.baseUrl", "").strip();
+        if (stackExchange) {
+            baseUrl = apiBase;
+            if (hosts.isBlank()) {
+                hosts = java.net.URI.create(apiBase).getHost();   // derived from the explicit API base URL
+            }
+            if (prefixes.isBlank() || prefixes.strip().equals("/")) {
+                prefixes = java.net.URI.create(apiBase).getPath() + "/";
+            }
+            if (systemId.isEmpty()) {
+                systemId = site;
+            }
+        } else if (systemId.isEmpty()) {
+            systemId = "internal-qa";
+        }
 
         String ca = p.getProperty("source.caCertFile", "").strip();
         SourceSettings settings = new SourceSettings(
-                p.getProperty("source.systemId", "internal-qa").strip(),
-                p.getProperty("source.baseUrl", "").strip(),
-                csv(p.getProperty("source.allowedHosts", "")),
-                csv(p.getProperty("source.allowedPathPrefixes", "/")),
+                systemId,
+                baseUrl,
+                csv(hosts),
+                csv(prefixes),
                 p.getProperty("source.auth.method", "none").strip(),
                 p.getProperty("source.auth.tokenEnv", "").strip(),
                 p.getProperty("source.auth.headerName", "Authorization").strip(),
                 p.getProperty("source.auth.scheme", "Bearer").strip(),
                 ca.isEmpty() ? null : resolve(base, ca),
                 Duration.ofSeconds(intValue(p, "source.timeoutSeconds", 30)),
-                Boolean.parseBoolean(p.getProperty("source.allowInsecureHttp", "false").strip()));
+                Boolean.parseBoolean(p.getProperty("source.allowInsecureHttp", "false").strip()),
+                site,
+                p.getProperty("source.stackexchange.keyEnv", "STACKEXCHANGE_KEY").strip());
 
         List<Path> fixtureDirs = csv(p.getProperty("source.fixture.dirs", "")).stream().map(s -> resolve(base, s)).toList();
         return new CoreConfig(file, storage, taxonomyFile, type, settings, fixtureDirs,
@@ -113,7 +140,8 @@ public record CoreConfig(
                 intValue(p, "sync.retentionDays", 30),
                 Boolean.parseBoolean(p.getProperty("sync.scheduler.enabled", "false").strip()),
                 Duration.ofMinutes(intValue(p, "sync.scheduler.intervalMinutes", 360)),
-                intValue(p, "status.staleAfterHours", 168));
+                intValue(p, "status.staleAfterHours", 168),
+                p.getProperty("sync.maxQuestionAge", "").strip().isEmpty() ? null : p.getProperty("sync.maxQuestionAge").strip());
     }
 
     public static CoreConfig forStorage(Path storageRoot) {
@@ -124,8 +152,27 @@ public record CoreConfig(
 
     public List<String> validate() {
         List<String> problems = new ArrayList<>();
-        if (!sourceType.equals("fixture") && !sourceType.equals("live")) {
-            problems.add("source.type must be 'fixture' or 'live' (was '" + sourceType + "')");
+        if (!List.of("fixture", "live", "stackexchange").contains(sourceType)) {
+            problems.add("source.type must be 'fixture', 'live' or 'stackexchange' (was '" + sourceType + "')");
+        }
+        if (maxQuestionAge != null && !com.questioncrawler.core.util.AgeSpec.isValid(maxQuestionAge)) {
+            problems.add("sync.maxQuestionAge must look like 30d, 12h, 2w, 6m or 1y (was '" + maxQuestionAge + "')");
+        }
+        if (sourceType.equals("stackexchange")) {
+            if (source.site() == null || source.site().isBlank()) {
+                problems.add("Could not determine the Stack Exchange site; set source.siteUrl or source.stackexchange.site");
+            }
+            try {
+                java.net.URI api = java.net.URI.create(source.baseUrl());
+                if (!"https".equalsIgnoreCase(api.getScheme()) && !source.allowInsecureHttp()) {
+                    problems.add("source.stackexchange.apiBaseUrl must use https");
+                }
+                if (source.allowedHosts().stream().noneMatch(h -> h.equalsIgnoreCase(api.getHost()))) {
+                    problems.add("source.allowedHosts must include the API host '" + api.getHost() + "'");
+                }
+            } catch (IllegalArgumentException e) {
+                problems.add("source.stackexchange.apiBaseUrl is not a valid URL");
+            }
         }
         if (tags.isEmpty()) {
             problems.add("sync.tags is empty: at least one target tag is required to run 'sync'");
@@ -172,6 +219,9 @@ public record CoreConfig(
         if (sourceType.equals("live")) {
             return new LiveSourceAdapter(source, new HttpSourceClient(source));
         }
+        if (sourceType.equals("stackexchange")) {
+            return new com.questioncrawler.core.source.StackExchangeAdapter(source, new HttpSourceClient(source));
+        }
         if (fixtureDirs.isEmpty()) {
             return FixtureSourceAdapter.fromClasspath(fixturePageSize, fixturePageSize, "fixtures/demo-site");
         }
@@ -179,10 +229,17 @@ public record CoreConfig(
     }
 
     public SyncOptions syncOptions(List<String> tagOverride, TagMode modeOverride, Boolean partialOverride, SyncMode mode) {
+        return syncOptions(tagOverride, modeOverride, partialOverride, mode, null);
+    }
+
+    /** {@code maxQuestionAgeOverride} (for example "30d") limits collection to recently created questions. */
+    public SyncOptions syncOptions(List<String> tagOverride, TagMode modeOverride, Boolean partialOverride, SyncMode mode,
+                                   String maxQuestionAgeOverride) {
         return new SyncOptions(tagOverride == null || tagOverride.isEmpty() ? tags : tagOverride,
                 modeOverride == null ? tagMode : modeOverride,
                 partialOverride == null ? partialTags : partialOverride,
-                mode, overlap, concurrency, retentionDays);
+                mode, overlap, concurrency, retentionDays,
+                maxQuestionAgeOverride != null ? maxQuestionAgeOverride : maxQuestionAge);
     }
 
     /** Writes the commented configuration template with the given storage root. */
@@ -200,6 +257,23 @@ public record CoreConfig(
     private static Path resolve(Path base, String value) {
         Path p = Path.of(value.startsWith("~") ? System.getProperty("user.home") + value.substring(1) : value);
         return p.isAbsolute() ? p.normalize() : base.resolve(p).normalize();
+    }
+
+    /** stackoverflow.com -> stackoverflow; unix.stackexchange.com -> unix; serverfault.com -> serverfault. */
+    static String siteFromUrl(String url) {
+        try {
+            String host = java.net.URI.create(url).getHost();
+            if (host == null) {
+                return "";
+            }
+            host = host.toLowerCase().startsWith("www.") ? host.substring(4) : host.toLowerCase();
+            if (host.endsWith(".stackexchange.com")) {
+                return host.substring(0, host.length() - ".stackexchange.com".length());
+            }
+            return host.endsWith(".com") ? host.substring(0, host.length() - 4) : host;
+        } catch (IllegalArgumentException e) {
+            return "";
+        }
     }
 
     private static List<String> csv(String value) {

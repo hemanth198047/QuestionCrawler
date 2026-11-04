@@ -68,6 +68,25 @@ class KnowledgeApiTest {
     }
 
     @Test
+    @Order(3)
+    void ageFiltersApplyToQuestionsAndAnswers() throws Exception {
+        // The synthetic questions are from 2025, so "within 30 days" matches nothing and "older than 30 days" matches.
+        mvc.perform(get("/api/search").param("q", "timeout").param("maxQuestionAge", "30d"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.resultCount").value(0))
+                .andExpect(jsonPath("$.ageFilter.maxQuestionAge").value("30d"));
+        mvc.perform(get("/api/search").param("q", "timeout").param("minQuestionAge", "30d"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.resultCount").value(org.hamcrest.Matchers.greaterThan(0)))
+                .andExpect(jsonPath("$.evidence[0].questionCreatedAt").exists());
+        mvc.perform(get("/api/search").param("q", "timeout").param("maxAnswerAge", "nonsense"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/categories/installation-setup").param("maxQuestionAge", "30d"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.questions.length()").value(0));
+    }
+
+    @Test
     @Order(4)
     void noAnswerQueryReturnsNoEvidence() throws Exception {
         mvc.perform(get("/api/search").param("q", "kubernetes pod eviction policy"))

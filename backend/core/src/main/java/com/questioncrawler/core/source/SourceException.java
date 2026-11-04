@@ -18,6 +18,8 @@ public class SourceException extends Exception {
         FORBIDDEN(false),
         /** Item not found; the source does not say whether it was deleted or hidden. */
         NOT_FOUND(false),
+        /** The source's request quota is used up for a long time (hours). Retrying now is pointless; the run stops. */
+        QUOTA_EXHAUSTED(false),
         /** The live adapter lacks verified endpoint details. See docs/LIVE_INTEGRATION.md. */
         NOT_CONFIGURED(false),
         /** Unexpected response shape or other non-retryable failure. */

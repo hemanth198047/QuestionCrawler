@@ -26,7 +26,7 @@ public final class Views {
 
     public record CategorySummary(String id, String name, String description, int questionCount) {}
 
-    public record QuestionRef(String source, String id, String title, String url, String status, int answerCount, boolean hasAcceptedAnswer, List<String> tags) {}
+    public record QuestionRef(String source, String id, String title, String url, String createdAt, String status, int answerCount, boolean hasAcceptedAnswer, List<String> tags) {}
 
     public record CategoryListing(CategorySummary category, List<QuestionRef> questions) {}
 

@@ -36,7 +36,8 @@ public final class HttpSourceClient {
 
     private static final int MAX_BODY_BYTES = 10 * 1024 * 1024;
 
-    public record Response(int status, String body) {}
+    /** Raw result of one exchange; {@code retryAfter} is the unparsed Retry-After header or null. */
+    public record Response(int status, String body, String retryAfter) {}
 
     private final SourceSettings settings;
     private final HttpClient http;
@@ -58,11 +59,25 @@ public final class HttpSourceClient {
         this.http = builder.build();
     }
 
+    /** GET that returns only on 2xx; every other outcome is thrown as a classified {@link SourceException}. */
     public Response get(String url) throws SourceException {
+        Response response = exchange(url);
+        if (response.status() >= 200 && response.status() < 300) {
+            return response;
+        }
+        throw mapStatus(response.status(), response.retryAfter(), checkAllowed(url));
+    }
+
+    /**
+     * GET that returns the response for ANY HTTP status (the body of an error can carry a more precise reason,
+     * for example Stack Exchange's JSON error_id). Network failures and guard violations are still thrown.
+     */
+    public Response exchange(String url) throws SourceException {
         URI uri = checkAllowed(url);
         HttpRequest.Builder request = HttpRequest.newBuilder(uri)
                 .timeout(settings.timeout())
                 .header("Accept", "application/json, text/html;q=0.8")
+                .header("Accept-Encoding", "gzip")
                 .header("User-Agent", "QuestionCrawler/0.1")
                 .GET();
         applyAuth(request);
@@ -77,12 +92,9 @@ public final class HttpSourceClient {
             Thread.currentThread().interrupt();
             throw new SourceException(SourceException.Kind.FATAL, "Interrupted", null, e);
         }
-        int status = response.statusCode();
-        try (InputStream in = response.body()) {
-            if (status >= 200 && status < 300) {
-                return new Response(status, readBounded(in));
-            }
-            throw mapStatus(status, response, uri);
+        boolean gzip = response.headers().firstValue("Content-Encoding").map(v -> v.equalsIgnoreCase("gzip")).orElse(false);
+        try (InputStream raw = response.body(); InputStream in = gzip ? new java.util.zip.GZIPInputStream(raw) : raw) {
+            return new Response(response.statusCode(), readBounded(in), response.headers().firstValue("Retry-After").orElse(null));
         } catch (IOException e) {
             throw new SourceException(SourceException.Kind.TRANSIENT, "Error reading response from " + describe(uri), null, e);
         }
@@ -127,7 +139,8 @@ public final class HttpSourceClient {
 
     // ---------------------------------------------------------------- mapping
 
-    private SourceException mapStatus(int status, HttpResponse<?> response, URI uri) {
+    /** Maps an HTTP status to a classified failure (never includes query strings). */
+    public SourceException mapStatus(int status, String retryAfterHeader, URI uri) {
         String where = describe(uri);
         if (status == 401) {
             return new SourceException(SourceException.Kind.AUTH_FAILED, "HTTP 401 from " + where + ": credentials missing, expired or rejected");
@@ -142,7 +155,7 @@ public final class HttpSourceClient {
             return new SourceException(SourceException.Kind.GONE, "HTTP 410 from " + where + ": resource reported as deleted");
         }
         if (status == 429 || status == 503) {
-            Duration retryAfter = parseRetryAfter(response.headers().firstValue("Retry-After").orElse(null));
+            Duration retryAfter = parseRetryAfter(retryAfterHeader);
             return new SourceException(SourceException.Kind.RATE_LIMITED, "HTTP " + status + " from " + where, retryAfter, null);
         }
         if (status >= 300 && status < 400) {

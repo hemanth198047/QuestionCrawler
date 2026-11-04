@@ -9,7 +9,8 @@ public record SearchRequest(
         List<String> categories,
         int topK,
         int maxTotalChars,
-        int maxPassageChars) {
+        int maxPassageChars,
+        AgeFilter age) {
 
     public static final int DEFAULT_TOP_K = 5;
     public static final int DEFAULT_MAX_TOTAL_CHARS = 8000;
@@ -21,9 +22,18 @@ public record SearchRequest(
         topK = topK <= 0 ? DEFAULT_TOP_K : Math.min(topK, 50);
         maxTotalChars = maxTotalChars <= 0 ? DEFAULT_MAX_TOTAL_CHARS : maxTotalChars;
         maxPassageChars = maxPassageChars <= 0 ? DEFAULT_MAX_PASSAGE_CHARS : maxPassageChars;
+        age = age == null ? AgeFilter.NONE : age;
+    }
+
+    public SearchRequest(String query, List<String> tags, List<String> categories, int topK, int maxTotalChars, int maxPassageChars) {
+        this(query, tags, categories, topK, maxTotalChars, maxPassageChars, null);
+    }
+
+    public SearchRequest withAge(AgeFilter newAge) {
+        return new SearchRequest(query, tags, categories, topK, maxTotalChars, maxPassageChars, newAge);
     }
 
     public static SearchRequest of(String query) {
-        return new SearchRequest(query, null, null, 0, 0, 0);
+        return new SearchRequest(query, null, null, 0, 0, 0, null);
     }
 }

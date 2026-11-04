@@ -13,6 +13,8 @@ export interface Evidence {
   tags: string[]
   accepted: boolean
   votes: number | null
+  createdAt: string | null
+  questionCreatedAt: string | null
   sourceModifiedAt: string | null
   lastSyncedAt: string | null
   score: number
@@ -29,8 +31,16 @@ export interface Freshness {
   note: string
 }
 
+export interface AgeFilter {
+  maxQuestionAge: string | null
+  minQuestionAge: string | null
+  maxAnswerAge: string | null
+  minAnswerAge: string | null
+}
+
 export interface SearchResponse {
   query: string
+  ageFilter: AgeFilter | null
   resultCount: number
   confidence: 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH'
   truncated: boolean
@@ -61,7 +71,7 @@ export interface ThreadView {
 
 export interface CategorySummary { id: string; name: string; description: string; questionCount: number }
 export interface QuestionRef {
-  source: string; id: string; title: string; url: string | null; status: string
+  source: string; id: string; title: string; url: string | null; createdAt: string | null; status: string
   answerCount: number; hasAcceptedAnswer: boolean; tags: string[]
 }
 export interface CategoryListing { category: CategorySummary; questions: QuestionRef[] }

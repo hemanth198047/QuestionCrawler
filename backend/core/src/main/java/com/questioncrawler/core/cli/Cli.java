@@ -2,6 +2,7 @@ package com.questioncrawler.core.cli;
 
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.questioncrawler.core.cli.Args.UsageException;
+import com.questioncrawler.core.search.AgeFilter;
 import com.questioncrawler.core.search.SearchRequest;
 import com.questioncrawler.core.search.SearchResponse;
 import com.questioncrawler.core.service.CoreConfig;
@@ -56,7 +57,14 @@ public final class Cli {
               --format json     Machine-readable output (also --json)
 
             sync options:   --tag <t> (repeatable)  --tag-mode any|all  --partial-tags  --full
+                            --max-question-age <age>   only collect questions created within this age
             search options: --tag <t>  --category <id>  --top <n>  --max-chars <n>  --max-passage-chars <n>
+            age filters (search, categories <id>): ages look like 12h, 30d, 2w, 6m, 1y and are measured back from now
+                            --max-question-age <age>   only questions created within this age (newer than)
+                            --min-question-age <age>   only questions older than this age
+                            --max-answer-age <age>     only answers created within this age (newer than)
+                            --min-answer-age <age>     only answers older than this age
+                            A question filter excludes the whole thread; an answer filter excludes only answers.
             """;
 
     private final PrintStream out;
@@ -133,6 +141,11 @@ public final class Cli {
         }
     }
 
+    private static AgeFilter ageFilter(Args a) {
+        return new AgeFilter(a.value("--max-question-age"), a.value("--min-question-age"),
+                a.value("--max-answer-age"), a.value("--min-answer-age"));
+    }
+
     // ------------------------------------------------------------------ commands
 
     private int init(Args a) throws IOException {
@@ -175,7 +188,8 @@ public final class Cli {
         KnowledgeBase kb = open(a);
         TagMode mode = a.value("--tag-mode") == null ? null : TagMode.valueOf(a.value("--tag-mode").toUpperCase(Locale.ROOT));
         Boolean partial = a.flag("--partial-tags") ? Boolean.TRUE : null;
-        var options = kb.config().syncOptions(a.all("--tag"), mode, partial, a.flag("--full") ? SyncMode.FULL : SyncMode.INCREMENTAL);
+        var options = kb.config().syncOptions(a.all("--tag"), mode, partial, a.flag("--full") ? SyncMode.FULL : SyncMode.INCREMENTAL,
+                a.value("--max-question-age"));
         if (options.tags().isEmpty()) {
             throw new UsageException("No tags configured. Pass --tag <name> or set sync.tags in the configuration.");
         }
@@ -195,7 +209,7 @@ public final class Cli {
         KnowledgeBase kb = open(a);
         String query = String.join(" ", a.positional);
         SearchResponse response = kb.search(new SearchRequest(query, a.all("--tag"), a.all("--category"),
-                a.intValue("--top", 0), a.intValue("--max-chars", 0), a.intValue("--max-passage-chars", 0)));
+                a.intValue("--top", 0), a.intValue("--max-chars", 0), a.intValue("--max-passage-chars", 0), ageFilter(a)));
         if (a.json()) json(response); else out.print(TextFormat.search(response));
         return 0;
     }
@@ -220,7 +234,7 @@ public final class Cli {
             if (a.json()) json(list); else out.print(TextFormat.categories(list));
             return 0;
         }
-        var listing = kb.category(a.positional.get(0));
+        var listing = kb.category(a.positional.get(0), ageFilter(a));
         if (listing.isEmpty()) {
             err.println("Unknown category '" + a.positional.get(0) + "'. Run 'categories' to list them.");
             return 1;

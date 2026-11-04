@@ -194,15 +194,16 @@ class SyncServiceTest {
     @Test
     void interruptedSyncResumesWithoutRepeatingFinishedWork() {
         var crashing = new TestSupport.Instrumented(TestSupport.siteV1());
+        // Deterministic crash point: listing order is by modification time, so 1002, 1001, 1003, 1004, 1005 are stored first.
         crashing.hook = (op, id) -> {
-            if (op.equals("fetch") && crashing.fetchCalls.get() > 4) {
+            if (op.equals("fetch") && id.equals("1006")) {
                 throw new IllegalStateException("simulated crash (process killed)");
             }
         };
         KnowledgeBase kb = TestSupport.kb(tmp, crashing);
         assertThrows(IllegalStateException.class, () -> kb.sync(TestSupport.opts(SyncMode.INCREMENTAL)));
         int storedBeforeResume = kb.store().allThreads().size();
-        assertTrue(storedBeforeResume > 0 && storedBeforeResume < 10, "some, but not all, threads were stored: " + storedBeforeResume);
+        assertEquals(5, storedBeforeResume);
         assertTrue(kb.status().interruptedRunPending());
 
         var healthy = new TestSupport.Instrumented(TestSupport.siteV1());
@@ -213,7 +214,7 @@ class SyncServiceTest {
         assertEquals(0, healthy.listCalls.get(), "listing was finished before the crash and must not be repeated");
         assertEquals(SyncReport.COMPLETE, report.outcome());
         assertEquals(10, resumed.store().allThreads().size());
-        assertTrue(report.skippedAlreadyCurrent() >= storedBeforeResume - 1, "already fetched threads are skipped");
+        assertEquals(storedBeforeResume, report.skippedAlreadyCurrent(), "already fetched threads are skipped");
         assertFalse(resumed.status().interruptedRunPending());
         assertEquals(10, healthy.fetchedIds.size() + report.skippedAlreadyCurrent());
     }

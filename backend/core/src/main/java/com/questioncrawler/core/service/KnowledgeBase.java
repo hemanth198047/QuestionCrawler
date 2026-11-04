@@ -101,7 +101,7 @@ public final class KnowledgeBase {
 
     public SearchResponse search(SearchRequest request) {
         store.ensureReady();
-        SearchResponse response = new SearchService(store.paths().indexDir(), taxonomy).search(request);
+        SearchResponse response = new SearchService(store.paths().indexDir(), taxonomy, clock).search(request);
         return response.withFreshness(freshness());
     }
 
@@ -135,6 +135,11 @@ public final class KnowledgeBase {
     }
 
     public Optional<CategoryListing> category(String id) {
+        return category(id, com.questioncrawler.core.search.AgeFilter.NONE);
+    }
+
+    /** Only the question-age part of the filter applies when browsing (answers are not listed here). */
+    public Optional<CategoryListing> category(String id, com.questioncrawler.core.search.AgeFilter age) {
         store.ensureReady();
         Taxonomy.Category c = taxonomy.category(id);
         if (c == null) {
@@ -143,9 +148,10 @@ public final class KnowledgeBase {
         Map<String, CategoryOverride> overrides = store.loadOverrides();
         List<QuestionRef> refs = new ArrayList<>();
         for (ThreadRecord t : retrievableThreads()) {
-            if (categoriesOf(t, overrides).contains(id)) {
+            if (categoriesOf(t, overrides).contains(id)
+                    && age.acceptsQuestion(Times.parse(t.question().createdAt()).orElse(null), clock.instant())) {
                 var q = t.question();
-                refs.add(new QuestionRef(t.sourceSystem(), q.id(), q.title(), q.url(), t.status().name(), q.answers().size(), q.hasAcceptedAnswer(), q.tags()));
+                refs.add(new QuestionRef(t.sourceSystem(), q.id(), q.title(), q.url(), q.createdAt(), t.status().name(), q.answers().size(), q.hasAcceptedAnswer(), q.tags()));
             }
         }
         refs.sort(Comparator.comparing(QuestionRef::id));
@@ -204,7 +210,7 @@ public final class KnowledgeBase {
         int threads = 0;
         int skipped = 0;
         try {
-            p.index().clear();
+            p.index().resetForRebuild();
             for (ThreadRecord t : store.allThreads()) {
                 if (t.isPurged() || !t.status().isRetrievable()) {
                     skipped++;

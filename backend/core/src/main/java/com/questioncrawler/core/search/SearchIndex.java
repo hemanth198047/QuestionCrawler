@@ -15,6 +15,7 @@ import java.util.Locale;
 import org.apache.lucene.analysis.core.WhitespaceAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
+import org.apache.lucene.document.LongPoint;
 import org.apache.lucene.document.StoredField;
 import org.apache.lucene.document.StringField;
 import org.apache.lucene.document.TextField;
@@ -32,10 +33,13 @@ import org.apache.lucene.store.NIOFSDirectory;
  */
 public final class SearchIndex implements AutoCloseable {
 
-    public static final int INDEX_VERSION = 1;
+    public static final int INDEX_VERSION = 2;
 
     static final String F_KEY = "key";
     static final String F_TYPE = "type";
+    static final String F_DOCTYPE = "doctype";
+    static final String F_QCREATED = "q_created";
+    static final String F_ACREATED = "a_created";
     static final String F_QID = "qid";
     static final String F_AID = "aid";
     static final String F_TITLE = "title";
@@ -50,6 +54,8 @@ public final class SearchIndex implements AutoCloseable {
     static final String S_ACCEPTED = "s_accepted";
     static final String S_VOTES = "s_votes";
     static final String S_MODIFIED = "s_modified";
+    static final String S_CREATED = "s_created";
+    static final String S_QCREATED = "s_qcreated";
     static final String S_SYNCED = "s_synced";
     static final String S_TAGS = "s_tags";
     static final String S_CATS = "s_cats";
@@ -69,6 +75,8 @@ public final class SearchIndex implements AutoCloseable {
             Path meta = dir.resolve("index-meta.json");
             if (!Files.exists(meta)) {
                 AtomicFiles.write(meta, "{\"indexVersion\": " + INDEX_VERSION + "}");
+            } else if (readVersion(dir) != INDEX_VERSION) {
+                throw new StoreException("The search index at " + dir + " was built by an older version. Run 'reindex' to rebuild it.");
             }
             directory = new NIOFSDirectory(dir);
             IndexWriterConfig config = new IndexWriterConfig(new WhitespaceAnalyzer());
@@ -76,6 +84,34 @@ public final class SearchIndex implements AutoCloseable {
             writer = new IndexWriter(directory, config);
         }
         return writer;
+    }
+
+    /** Index format version recorded next to the index, or -1 when unknown. */
+    public static int readVersion(Path dir) {
+        try {
+            com.fasterxml.jackson.databind.JsonNode n = com.questioncrawler.core.util.Json.MAPPER.readTree(Files.readString(dir.resolve("index-meta.json")));
+            return n.path("indexVersion").asInt(-1);
+        } catch (IOException | RuntimeException e) {
+            return -1;
+        }
+    }
+
+    /** Deletes the whole index (all formats) and starts a fresh one at the current version. Used by 'reindex'. */
+    public void resetForRebuild() {
+        close();
+        try {
+            if (Files.isDirectory(dir)) {
+                try (java.util.stream.Stream<Path> files = Files.list(dir)) {
+                    for (Path p : (Iterable<Path>) files::iterator) {
+                        Files.deleteIfExists(p);
+                    }
+                }
+            }
+            Files.createDirectories(dir);
+            AtomicFiles.write(dir.resolve("index-meta.json"), "{\"indexVersion\": " + INDEX_VERSION + "}");
+        } catch (IOException e) {
+            throw new StoreException("Cannot reset the search index: " + e.getMessage(), e);
+        }
     }
 
     /** Replaces every document of the thread atomically (old answers disappear with the update). */
@@ -106,6 +142,12 @@ public final class SearchIndex implements AutoCloseable {
 
         d.add(new StringField(F_KEY, thread.key(), Field.Store.NO));
         d.add(new StoredField(F_TYPE, isAnswer ? "answer" : "question"));
+        d.add(new StringField(F_DOCTYPE, isAnswer ? "answer" : "question", Field.Store.NO));
+        // Creation times as numeric points so age filters run inside the query (no post-filtering of a truncated list).
+        com.questioncrawler.core.util.Times.parse(q.createdAt()).ifPresent(t -> d.add(new LongPoint(F_QCREATED, t.toEpochMilli())));
+        if (isAnswer) {
+            com.questioncrawler.core.util.Times.parse(answer.createdAt()).ifPresent(t -> d.add(new LongPoint(F_ACREATED, t.toEpochMilli())));
+        }
         d.add(new StoredField(F_QID, q.id()));
         d.add(new StoredField(F_AID, isAnswer ? answer.id() : ""));
         // Titles are only indexed on the question document so a title hit is not repeated for every answer.
@@ -127,6 +169,9 @@ public final class SearchIndex implements AutoCloseable {
         d.add(new StoredField(S_VOTES, votes == null ? "" : String.valueOf(votes)));
         String modified = isAnswer && answer.modifiedAt() != null ? answer.modifiedAt() : q.modifiedAt();
         d.add(new StoredField(S_MODIFIED, modified == null ? "" : modified));
+        String created = isAnswer ? answer.createdAt() : q.createdAt();
+        d.add(new StoredField(S_CREATED, created == null ? "" : created));
+        d.add(new StoredField(S_QCREATED, q.createdAt() == null ? "" : q.createdAt()));
         d.add(new StoredField(S_SYNCED, thread.retrievedAt() == null ? "" : thread.retrievedAt()));
         d.add(new StoredField(S_TAGS, String.join("\u001f", q.tags())));
         d.add(new StoredField(S_CATS, String.join("\u001f", categoryIds)));

@@ -90,6 +90,7 @@ public final class SyncService {
         private final String system = adapter.systemId();
         private final String scopeKey;
         private final TagFilter filter;
+        private final Instant createdAfter;
         private final String runStateName;
         private final String checkpointName;
         private final Instant started = clock.instant();
@@ -107,7 +108,9 @@ public final class SyncService {
         Run(SyncOptions options) {
             this.options = options;
             this.scopeKey = scopeKey(system, options);
-            this.filter = new TagFilter(options.tags(), options.tagMode(), options.partialTags());
+            this.createdAfter = com.questioncrawler.core.util.AgeSpec.beforeIfPresent(options.maxQuestionAge(), started).orElse(null);
+            this.filter = new TagFilter(options.tags(), options.tagMode(), options.partialTags(),
+                    createdAfter == null ? null : createdAfter.toString());
             this.runStateName = "run-" + scopeKey;
             this.checkpointName = "checkpoint-" + scopeKey;
         }
@@ -346,7 +349,7 @@ public final class SyncService {
 
         private void handleFailure(String id, SourceException e, boolean reconciling) {
             switch (e.kind()) {
-                case AUTH_FAILED, NOT_CONFIGURED -> abort(e.kind() + ": " + e.getMessage());
+                case AUTH_FAILED, NOT_CONFIGURED, QUOTA_EXHAUSTED -> abort(e.kind() + ": " + e.getMessage());
                 case GONE -> markStatus(id, ThreadStatus.DELETED, "source reported the post as deleted: " + e.getMessage(), e);
                 case FORBIDDEN -> markStatus(id, ThreadStatus.INACCESSIBLE, "source refused access: " + e.getMessage(), e);
                 case NOT_FOUND -> markStatus(id, ThreadStatus.UNKNOWN, "source says not found (deleted or hidden is not distinguishable)", e);
@@ -394,7 +397,8 @@ public final class SyncService {
             List<String> missing = new ArrayList<>();
             for (ThreadRecord t : store.allThreads()) {
                 if (t.sourceSystem().equals(system) && !t.isPurged() && t.scopes().contains(scopeKey)
-                        && t.status().isRetrievable() && !listed.contains(t.questionId())) {
+                        && t.status().isRetrievable() && !listed.contains(t.questionId())
+                        && !createdBeforeWindow(t)) {
                     missing.add(t.questionId());
                 }
             }
@@ -404,6 +408,14 @@ public final class SyncService {
             warnings.add(missing.size() + " stored question(s) were absent from the listing and were probed individually; "
                     + "only explicit source answers (gone / forbidden / tags changed) changed their status.");
             fetchAll(missing, state, true);
+        }
+
+        /** With a collection-age window, stored questions older than the window are not expected in the listing. */
+        private boolean createdBeforeWindow(ThreadRecord t) {
+            if (createdAfter == null || t.question() == null) {
+                return false;
+            }
+            return Times.parse(t.question().createdAt()).map(c -> c.isBefore(createdAfter)).orElse(false);
         }
 
         // ------------------------------------------------------------ retention
@@ -444,6 +456,10 @@ public final class SyncService {
             List<String> limitations = new ArrayList<>();
             limitations.add("Only content visible to the configured credentials is collected; hidden or restricted items are not counted.");
             limitations.add("A tag-filtered listing cannot prove deletion. Status changes come only from explicit source answers during a full reconciliation.");
+            if (createdAfter != null) {
+                limitations.add("Collection window: only questions created on or after " + createdAfter + " (" + options.maxQuestionAge()
+                        + " ago) were collected; older questions are out of scope, so this is not the complete history.");
+            }
             if (options.mode() == SyncMode.INCREMENTAL) {
                 limitations.add("Incremental sync cannot detect deletions, tag changes or access revocation, and may miss answers added without a question timestamp change. Run a full reconciliation periodically.");
             }

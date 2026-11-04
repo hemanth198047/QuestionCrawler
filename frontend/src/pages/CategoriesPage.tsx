@@ -1,10 +1,12 @@
+import { useState } from 'react'
 import { getCategories, getCategory } from '../api/knowledge'
 import { ErrorBox } from '../components/Freshness'
 import { useRemote } from '../hooks'
 
 export default function CategoriesPage({ selected }: { selected: string | null }) {
   const list = useRemote((signal) => getCategories(signal), [])
-  const detail = useRemote((signal) => (selected ? getCategory(selected, signal) : Promise.resolve(null)), [selected])
+  const [maxAge, setMaxAge] = useState('')
+  const detail = useRemote((signal) => (selected ? getCategory(selected, maxAge, signal) : Promise.resolve(null)), [selected, maxAge])
   return (
     <section className="two-col">
       <div>
@@ -27,10 +29,13 @@ export default function CategoriesPage({ selected }: { selected: string | null }
           <>
             <h2>{detail.data.category.name}</h2>
             <p className="muted">{detail.data.category.description}</p>
+            <label className="muted">Questions newer than{' '}
+              <input value={maxAge} onChange={(e) => setMaxAge(e.target.value.trim())} placeholder="e.g. 90d" size={8} />
+            </label>
             {detail.data.questions.map((q) => (
               <p key={q.id}>
                 <a href={`#/question/${encodeURIComponent(q.id)}`}>{q.title}</a>{' '}
-                <span className="muted">{q.answerCount} answer(s){q.hasAcceptedAnswer ? ', accepted' : ''}{q.status !== 'ACTIVE' ? `, ${q.status}` : ''}</span>
+                <span className="muted">asked {q.createdAt ?? 'unknown'} · {q.answerCount} answer(s){q.hasAcceptedAnswer ? ', accepted' : ''}{q.status !== 'ACTIVE' ? `, ${q.status}` : ''}</span>
               </p>
             ))}
             {detail.data.questions.length === 0 && <p className="muted">No questions in this category.</p>}

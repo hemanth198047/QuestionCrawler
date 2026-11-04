@@ -1,5 +1,6 @@
 package com.questioncrawler.web;
 
+import com.questioncrawler.core.search.AgeFilter;
 import com.questioncrawler.core.search.SearchRequest;
 import com.questioncrawler.core.search.SearchResponse;
 import com.questioncrawler.core.service.KnowledgeBase;
@@ -35,14 +36,21 @@ public class KnowledgeController {
             @RequestParam(name = "tag", required = false) List<String> tags,
             @RequestParam(name = "category", required = false) List<String> categories,
             @RequestParam(name = "top", defaultValue = "5") int top,
-            @RequestParam(name = "maxChars", defaultValue = "0") int maxChars) {
+            @RequestParam(name = "maxChars", defaultValue = "0") int maxChars,
+            @RequestParam(name = "maxQuestionAge", required = false) String maxQuestionAge,
+            @RequestParam(name = "minQuestionAge", required = false) String minQuestionAge,
+            @RequestParam(name = "maxAnswerAge", required = false) String maxAnswerAge,
+            @RequestParam(name = "minAnswerAge", required = false) String minAnswerAge) {
         if (query == null || query.isBlank()) {
             throw new IllegalArgumentException("Query parameter 'q' must not be blank.");
         }
         if (query.length() > MAX_QUERY_LENGTH) {
             throw new IllegalArgumentException("Query is longer than " + MAX_QUERY_LENGTH + " characters.");
         }
-        return knowledgeBase.search(new SearchRequest(query, tags, categories, top, maxChars, 0));
+        // Ages such as 30d, 6m, 1y; an invalid value is rejected with 400. Question filters drop whole threads,
+        // answer filters drop only answers.
+        AgeFilter age = new AgeFilter(maxQuestionAge, minQuestionAge, maxAnswerAge, minAnswerAge);
+        return knowledgeBase.search(new SearchRequest(query, tags, categories, top, maxChars, 0, age));
     }
 
     /** The id may be a bare question id or "source:id". */
@@ -58,8 +66,10 @@ public class KnowledgeController {
     }
 
     @GetMapping("/categories/{id}")
-    public Views.CategoryListing category(@PathVariable("id") String id) {
-        return knowledgeBase.category(id)
+    public Views.CategoryListing category(@PathVariable("id") String id,
+                                          @RequestParam(name = "maxQuestionAge", required = false) String maxQuestionAge,
+                                          @RequestParam(name = "minQuestionAge", required = false) String minQuestionAge) {
+        return knowledgeBase.category(id, new AgeFilter(maxQuestionAge, minQuestionAge, null, null))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown category " + id));
     }
 

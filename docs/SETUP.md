@@ -76,6 +76,9 @@ scripts\qc.ps1 status
 
 Exit codes: `0` ok, `1` error, `2` usage error, `3` partial sync / confirmation missing.
 
+Age filters: `search ... --max-question-age 90d --max-answer-age 30d` (see [AGE_FILTERS.md](AGE_FILTERS.md)).
+Stack Overflow test run: see [STACKOVERFLOW.md](STACKOVERFLOW.md).
+
 ### Authentication (live source)
 
 Set the token in the **environment**, never in a file:

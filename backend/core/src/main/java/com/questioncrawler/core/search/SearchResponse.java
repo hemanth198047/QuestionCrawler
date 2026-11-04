@@ -6,6 +6,7 @@ public record SearchResponse(
         String query,
         List<String> tagFilter,
         List<String> categoryFilter,
+        AgeFilter ageFilter,
         int resultCount,
         String confidence,
         boolean truncated,
@@ -22,6 +23,6 @@ public record SearchResponse(
     public record Freshness(String lastSuccessfulSyncAt, Long ageHours, boolean stale, String note) {}
 
     public SearchResponse withFreshness(Freshness f) {
-        return new SearchResponse(query, tagFilter, categoryFilter, resultCount, confidence, truncated, omittedForBudget, f, notice, evidence);
+        return new SearchResponse(query, tagFilter, categoryFilter, ageFilter, resultCount, confidence, truncated, omittedForBudget, f, notice, evidence);
     }
 }

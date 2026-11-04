@@ -1,5 +1,7 @@
 # Connecting the real internal site
 
+> For **public** Stack Exchange sites (such as stackoverflow.com) use `source.type=stackexchange` instead: see [STACKOVERFLOW.md](STACKOVERFLOW.md). The rest of this page is about your private internal site.
+
 `LiveSourceAdapter` is intentionally a stub: **no endpoint, authentication flow or HTML selector has been invented.**
 
 ## Already implemented (transport)

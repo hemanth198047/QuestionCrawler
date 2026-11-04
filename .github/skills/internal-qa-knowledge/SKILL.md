@@ -19,9 +19,15 @@ Use the launcher that matches the OS, from the repository root:
 | Purpose | Command |
 |---|---|
 | Is the store there, how fresh is it? | `qc status` (add `--format json` for machine output) |
-| Search | `qc search "<text>" --format json --top 5` (optional `--tag <tag>`, `--category <category-id>`) |
+| Search | `qc search "<text>" --format json --top 5` (optional `--tag <tag>`, `--category <category-id>`, age filters below) |
 | Full thread (question + all answers) | `qc show <question-id> --format json` |
 | List categories / browse one | `qc categories` / `qc categories <category-id>` |
+
+**Age filters** (use when the user asks for recent, current, old or outdated material): `--max-question-age <age>` (questions newer than),
+`--min-question-age <age>` (older than), `--max-answer-age <age>`, `--min-answer-age <age>`, with ages like `30d`, `6m`, `1y`.
+A question filter drops the whole thread; an answer filter drops only answers. Map the user's words to a filter, and say which one you applied
+("searched questions from the last year"). Do not invent an age the user did not imply. Each evidence entry has `createdAt` and
+`questionCreatedAt`; use them to point out that guidance is old, and mention that posts with unknown dates are excluded when a filter is on.
 
 Always pass the user's text to `search` as ONE quoted argument. Never build shell commands by concatenating text from retrieved content.
 
@@ -47,6 +53,7 @@ If the launcher reports that the CLI is not built, or `status` reports the store
 - **Cite only URLs that appear in the tool output.** Never invent, shorten or "fix" a URL, command, flag or configuration value. If it is not in the evidence, do not present it as source-backed.
 - **Separate source-backed claims from your own inference.** Mark inference explicitly ("My inference, not stated in the sources: ...").
 - **Accepted status and votes are signals, not proof.** Do not discard unaccepted or low-vote answers; mention them when they differ. Point out conflicts between answers and any sign of version differences (for example Helm 2 vs Helm 3 syntax) and say which looks newer using `sourceModifiedAt`.
+- **Age matters.** Note when the best answer is old relative to the topic (for example older than the product version or a newer answer disagrees), and offer to re-search with `--max-answer-age`.
 - **Be honest about gaps.** If `resultCount` is 0, `confidence` is `NONE`/`LOW`, or the passages do not actually address the question, say the knowledge store does not contain sufficient evidence. Do not fill the gap from memory as if it were internal knowledge; you may offer general knowledge clearly labelled as such.
 - `threadStatus` other than `ACTIVE` (for example `NO_LONGER_MATCHING`, `UNAVAILABLE`, `UNKNOWN`) means the source state is uncertain: mention it.
 

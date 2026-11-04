@@ -19,3 +19,5 @@ button { padding: .45rem .9rem; cursor: pointer; }
 .passage { white-space: pre-wrap; overflow-x: auto; background: color-mix(in srgb, currentColor 6%, transparent); padding: .6rem; border-radius: 6px; font-size: .85rem; }
 .two-col { display: grid; grid-template-columns: 280px 1fr; gap: 1.5rem; } @media (max-width: 700px) { .two-col { grid-template-columns: 1fr; } }
 .plain { list-style: none; padding: 0; } .active { font-weight: 700; }
+.age-filters { flex: 1 1 100%; } .age-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: .5rem; }
+.age-grid label { display: flex; flex-direction: column; font-size: .8rem; } .age-grid input { padding: .35rem; }
