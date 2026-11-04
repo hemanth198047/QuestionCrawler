@@ -1,0 +1,678 @@
+{
+  "version": 1,
+  "minScore": 2.0,
+  "fallbackCategory": "uncategorized",
+  "categories": [
+    {
+      "id": "installation-setup",
+      "name": "Installation and setup",
+      "description": "Installing, upgrading and first-time setup of the product.",
+      "rules": [
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "install",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "installer",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "installation",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "setup",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "upgrade",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "prerequisites",
+          "weight": 1.0
+        },
+        {
+          "type": "tag",
+          "field": "tags",
+          "pattern": "installation",
+          "weight": 2.0
+        },
+        {
+          "type": "tag",
+          "field": "tags",
+          "pattern": "setup",
+          "weight": 2.0
+        }
+      ]
+    },
+    {
+      "id": "authentication-authorization",
+      "name": "Authentication and authorization",
+      "description": "Login, tokens, SSO, roles and permissions.",
+      "rules": [
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "authentication",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "authorization",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "login",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "token",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "sso",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "permission",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "permissions",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "role",
+          "weight": 1.0
+        },
+        {
+          "type": "regex",
+          "field": "any",
+          "pattern": "\\b401\\b|\\b403\\b",
+          "weight": 1.0
+        },
+        {
+          "type": "tag",
+          "field": "tags",
+          "pattern": "auth",
+          "weight": 2.0
+        },
+        {
+          "type": "tag",
+          "field": "tags",
+          "pattern": "security",
+          "weight": 2.0
+        }
+      ]
+    },
+    {
+      "id": "configuration",
+      "name": "Configuration",
+      "description": "Settings, properties, environment variables and config files.",
+      "rules": [
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "configure",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "configuration",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "config",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "property",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "properties",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "environment variable",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "yaml",
+          "weight": 1.0
+        },
+        {
+          "type": "tag",
+          "field": "tags",
+          "pattern": "configuration",
+          "weight": 2.0
+        },
+        {
+          "type": "tag",
+          "field": "tags",
+          "pattern": "config",
+          "weight": 2.0
+        }
+      ]
+    },
+    {
+      "id": "data-ingestion",
+      "name": "Data ingestion",
+      "description": "Loading, importing and streaming data into the system.",
+      "rules": [
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "ingest",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "ingestion",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "import",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "load",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "csv",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "batch",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "pipeline",
+          "weight": 1.0
+        },
+        {
+          "type": "tag",
+          "field": "tags",
+          "pattern": "ingestion",
+          "weight": 2.0
+        },
+        {
+          "type": "tag",
+          "field": "tags",
+          "pattern": "import",
+          "weight": 2.0
+        }
+      ]
+    },
+    {
+      "id": "dataset-mapping-manifests",
+      "name": "Dataset mapping and manifests",
+      "description": "Mapping source datasets to targets, manifests and schemas.",
+      "rules": [
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "manifest",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "mapping",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "dataset",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "schema",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "field mapping",
+          "weight": 1.0
+        },
+        {
+          "type": "tag",
+          "field": "tags",
+          "pattern": "manifest",
+          "weight": 2.0
+        },
+        {
+          "type": "tag",
+          "field": "tags",
+          "pattern": "mapping",
+          "weight": 2.0
+        }
+      ]
+    },
+    {
+      "id": "apis-integrations",
+      "name": "APIs and integrations",
+      "description": "REST/SOAP APIs, webhooks, SDKs and third-party integrations.",
+      "rules": [
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "api",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "rest",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "endpoint",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "webhook",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "integration",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "sdk",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "json",
+          "weight": 1.0
+        },
+        {
+          "type": "tag",
+          "field": "tags",
+          "pattern": "api",
+          "weight": 2.0
+        },
+        {
+          "type": "tag",
+          "field": "tags",
+          "pattern": "integration",
+          "weight": 2.0
+        }
+      ]
+    },
+    {
+      "id": "deployment",
+      "name": "Deployment",
+      "description": "Releasing and running in environments: containers, clusters, CI/CD.",
+      "rules": [
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "deploy",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "deployment",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "docker",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "kubernetes",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "helm",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "rollout",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "release",
+          "weight": 1.0
+        },
+        {
+          "type": "tag",
+          "field": "tags",
+          "pattern": "deployment",
+          "weight": 2.0
+        },
+        {
+          "type": "tag",
+          "field": "tags",
+          "pattern": "docker",
+          "weight": 2.0
+        }
+      ]
+    },
+    {
+      "id": "troubleshooting-errors",
+      "name": "Troubleshooting and errors",
+      "description": "Error messages, exceptions, failures and their fixes.",
+      "rules": [
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "error",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "exception",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "failed",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "failure",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "timeout",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "crash",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "stack trace",
+          "weight": 1.0
+        },
+        {
+          "type": "regex",
+          "field": "any",
+          "pattern": "\\b[A-Z]{2,}[-_][A-Z0-9_-]{2,}\\b",
+          "weight": 2.0
+        },
+        {
+          "type": "tag",
+          "field": "tags",
+          "pattern": "error",
+          "weight": 2.0
+        },
+        {
+          "type": "tag",
+          "field": "tags",
+          "pattern": "troubleshooting",
+          "weight": 2.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "fails",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "performance",
+      "name": "Performance",
+      "description": "Slowness, throughput, latency, memory and tuning.",
+      "rules": [
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "performance",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "slow",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "latency",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "throughput",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "memory",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "tuning",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "optimize",
+          "weight": 1.0
+        },
+        {
+          "type": "tag",
+          "field": "tags",
+          "pattern": "performance",
+          "weight": 2.0
+        }
+      ]
+    },
+    {
+      "id": "monitoring-operations",
+      "name": "Monitoring and operations",
+      "description": "Logging, metrics, alerting, backups and day-2 operations.",
+      "rules": [
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "monitoring",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "metrics",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "logging",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "alert",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "backup",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "health check",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "observability",
+          "weight": 1.0
+        },
+        {
+          "type": "tag",
+          "field": "tags",
+          "pattern": "monitoring",
+          "weight": 2.0
+        },
+        {
+          "type": "tag",
+          "field": "tags",
+          "pattern": "operations",
+          "weight": 2.0
+        }
+      ]
+    },
+    {
+      "id": "general-usage",
+      "name": "General usage",
+      "description": "How-to questions about everyday use of the product.",
+      "rules": [
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "how to",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "how do i",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "usage",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "best practice",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "example",
+          "weight": 1.0
+        },
+        {
+          "type": "keyword",
+          "field": "any",
+          "pattern": "tutorial",
+          "weight": 1.0
+        },
+        {
+          "type": "tag",
+          "field": "tags",
+          "pattern": "usage",
+          "weight": 2.0
+        },
+        {
+          "type": "tag",
+          "field": "tags",
+          "pattern": "howto",
+          "weight": 2.0
+        }
+      ]
+    },
+    {
+      "id": "uncategorized",
+      "name": "Uncategorized",
+      "description": "Fallback when no rule reaches the minimum score. Review these and refine the taxonomy.",
+      "rules": []
+    }
+  ]
+}

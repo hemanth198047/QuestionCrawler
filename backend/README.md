@@ -1,13 +1,16 @@
-# QuestionCrawler – Backend
+# QuestionCrawler - Backend
 
-Spring Boot 3.5 · Java 21 · Gradle (Groovy DSL). Standalone project: build it from this directory.
+Gradle multi-project, Java 21.
+
+- `core/` - framework-free library + CLI (`com.questioncrawler.core`): source adapters, sync, normalization, classification,
+  file storage, Lucene search. Main class `com.questioncrawler.core.cli.Main` (`installDist` produces `bin/questioncrawler`).
+- `app/` - Spring Boot 3.5 REST API and optional scheduler over `core`.
 
 ```bash
-gradle wrapper --gradle-version 8.14   # one-time, generates gradlew + wrapper jar
-./gradlew test
-./gradlew bootRun                      # http://localhost:8080/api/health
+gradle wrapper --gradle-version 8.14   # one-time
+./gradlew :core:test :app:test
+./gradlew :core:installDist            # CLI used by scripts/qc.sh and the Copilot skill
+./gradlew :app:bootRun                 # http://127.0.0.1:8080
 ```
 
-Package layout (`com.questioncrawler.*`): `source`, `sync`, `normalize`,
-`classification`, `storage`, `search`, `web`, `config`. Each maps to one responsibility
-from the project requirements.
+See ../docs/ARCHITECTURE.md.

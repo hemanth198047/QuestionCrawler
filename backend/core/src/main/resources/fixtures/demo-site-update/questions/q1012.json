@@ -1,0 +1,33 @@
+{
+  "id": "1012",
+  "title": "Retry policy for webhook deliveries",
+  "body": "When our webhook receiver is down, how often does Orbit retry failed deliveries and when does it give up?",
+  "bodyFormat": "markdown",
+  "url": "https://qa.example.internal/questions/1012",
+  "tags": [
+    "orbit",
+    "api",
+    "integration",
+    "webhook"
+  ],
+  "author": "asker",
+  "score": 2,
+  "createdAt": "2026-01-09T09:00:00Z",
+  "modifiedAt": "2026-01-09T12:00:00Z",
+  "comments": [],
+  "answers": [
+    {
+      "id": "2019",
+      "body": "Orbit retries with exponential backoff: 1, 5, 25 and 125 minutes, then marks the delivery `FAILED`. Tune it with `webhook.maxAttempts`.",
+      "bodyFormat": "markdown",
+      "url": "https://qa.example.internal/questions/1012#answer-2019",
+      "accepted": true,
+      "score": 4,
+      "author": "li",
+      "createdAt": "2026-01-09T12:00:00Z",
+      "modifiedAt": "2026-01-09T12:00:00Z",
+      "comments": []
+    }
+  ],
+  "access": "available"
+}

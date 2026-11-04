@@ -1,0 +1,33 @@
+{
+  "id": "1007",
+  "title": "Importing a large CSV is very slow",
+  "body": "A 2 GB CSV takes over two hours to import. CPU is idle. How can I speed up the import?",
+  "bodyFormat": "markdown",
+  "url": "https://qa.example.internal/questions/1007",
+  "tags": [
+    "orbit",
+    "performance",
+    "ingestion",
+    "csv"
+  ],
+  "author": "asker",
+  "score": 5,
+  "createdAt": "2025-03-10T09:00:00Z",
+  "modifiedAt": "2025-03-12T09:00:00Z",
+  "comments": [],
+  "answers": [
+    {
+      "id": "2010",
+      "body": "The default batch size is 50, so you spend most of the time on round trips. Increase it and import in parallel:\n\n```java\nOrbitClient client = OrbitClient.builder()\n    .batchSize(500)\n    .parallelism(4)\n    .build();\nclient.importCsv(Path.of(\"customers.csv\"));\n```\n\nOn our data this cut the import from 2h to 11 minutes.",
+      "bodyFormat": "markdown",
+      "url": "https://qa.example.internal/questions/1007#answer-2010",
+      "accepted": true,
+      "score": 11,
+      "author": "li",
+      "createdAt": "2025-03-11T09:00:00Z",
+      "modifiedAt": "2025-03-11T09:00:00Z",
+      "comments": []
+    }
+  ],
+  "access": "available"
+}

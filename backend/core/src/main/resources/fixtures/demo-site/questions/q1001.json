@@ -1,0 +1,64 @@
+{
+  "id": "1001",
+  "title": "Connection timeout when ingesting via the REST API",
+  "body": "<p>When I push a batch of 5000 records to the ingest endpoint I get:</p>\n<pre><code class=\"language-text\">ERR_CONN_TIMEOUT: connection timed out after 30 seconds\n\tat com.example.orbit.client.IngestClient.send(IngestClient.java:88)</code></pre>\n<p>Small batches work. What setting controls this? See also <a href=\"https://qa.example.internal/questions/1007\">the slow CSV import question</a>.</p>",
+  "bodyFormat": "html",
+  "url": "https://qa.example.internal/questions/1001",
+  "tags": [
+    "orbit",
+    "ingestion",
+    "timeout",
+    "api"
+  ],
+  "author": "asker",
+  "score": 8,
+  "createdAt": "2025-01-10T09:00:00Z",
+  "modifiedAt": "2025-02-02T12:00:00Z",
+  "comments": [
+    {
+      "id": "c1",
+      "author": "sam",
+      "body": "Which Orbit version?",
+      "createdAt": "2025-01-10T09:30:00Z"
+    }
+  ],
+  "answers": [
+    {
+      "id": "2001",
+      "body": "The default client timeout is 30 seconds. Raise it in `orbit.yaml`:\n\n```yaml\ningest:\n  http:\n    timeout: 120s\n    batchSize: 1000\n```\n\nIf you use the Java client call `OrbitClient.setTimeout(Duration.ofSeconds(120))`.",
+      "bodyFormat": "markdown",
+      "url": "https://qa.example.internal/questions/1001#answer-2001",
+      "accepted": true,
+      "score": 12,
+      "author": "dana",
+      "createdAt": "2025-01-10T11:00:00Z",
+      "modifiedAt": "2025-01-12T08:00:00Z",
+      "comments": []
+    },
+    {
+      "id": "2002",
+      "body": "In our case the corporate proxy dropped idle connections. Setting `NO_PROXY=orbit.internal` fixed `ERR_CONN_TIMEOUT` for us.",
+      "bodyFormat": "markdown",
+      "url": "https://qa.example.internal/questions/1001#answer-2002",
+      "accepted": false,
+      "score": 2,
+      "author": "li",
+      "createdAt": "2025-01-15T10:00:00Z",
+      "modifiedAt": "2025-01-15T10:00:00Z",
+      "comments": []
+    },
+    {
+      "id": "2003",
+      "body": "Check the server side `max_request_seconds`; it is 60 by default in Orbit 2.x, so raising the client timeout above 60s does not help.",
+      "bodyFormat": "markdown",
+      "url": "https://qa.example.internal/questions/1001#answer-2003",
+      "accepted": false,
+      "score": 0,
+      "author": "omar",
+      "createdAt": "2025-02-02T12:00:00Z",
+      "modifiedAt": "2025-02-02T12:00:00Z",
+      "comments": []
+    }
+  ],
+  "access": "available"
+}

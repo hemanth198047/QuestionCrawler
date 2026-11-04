@@ -1,0 +1,45 @@
+{
+  "id": "1006",
+  "title": "Deploying Orbit on Kubernetes with Helm",
+  "body": "What is the correct command to deploy Orbit to our cluster with the Helm chart and a custom `values.yaml`?",
+  "bodyFormat": "markdown",
+  "url": "https://qa.example.internal/questions/1006",
+  "tags": [
+    "orbit",
+    "deployment",
+    "kubernetes",
+    "helm"
+  ],
+  "author": "asker",
+  "score": 7,
+  "createdAt": "2025-03-01T09:00:00Z",
+  "modifiedAt": "2025-03-09T09:00:00Z",
+  "comments": [],
+  "answers": [
+    {
+      "id": "2008",
+      "body": "With Helm 3:\n\n```bash\nhelm upgrade --install orbit ./chart -f values.yaml --namespace orbit --create-namespace\n```",
+      "bodyFormat": "markdown",
+      "url": "https://qa.example.internal/questions/1006#answer-2008",
+      "accepted": true,
+      "score": 9,
+      "author": "omar",
+      "createdAt": "2025-03-02T09:00:00Z",
+      "modifiedAt": "2025-03-02T09:00:00Z",
+      "comments": []
+    },
+    {
+      "id": "2009",
+      "body": "For Orbit 1.x use the Helm 2 syntax `helm install --name orbit ./chart -f values.yaml`. (Note: `--name` was removed in Helm 3.)",
+      "bodyFormat": "markdown",
+      "url": "https://qa.example.internal/questions/1006#answer-2009",
+      "accepted": false,
+      "score": 4,
+      "author": "sam",
+      "createdAt": "2025-03-09T09:00:00Z",
+      "modifiedAt": "2025-03-09T09:00:00Z",
+      "comments": []
+    }
+  ],
+  "access": "available"
+}

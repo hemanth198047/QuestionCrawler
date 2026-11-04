@@ -1,0 +1,33 @@
+{
+  "id": "1009",
+  "title": "403 Forbidden when calling /api/v2/datasets with a service token",
+  "body": "My service account token works for `GET /api/v2/datasets` but `POST` returns `403 Forbidden`. What permission is missing?",
+  "bodyFormat": "markdown",
+  "url": "https://qa.example.internal/questions/1009",
+  "tags": [
+    "orbit",
+    "api",
+    "authorization",
+    "security"
+  ],
+  "author": "asker",
+  "score": 4,
+  "createdAt": "2025-03-20T09:00:00Z",
+  "modifiedAt": "2026-01-07T11:00:00Z",
+  "comments": [],
+  "answers": [
+    {
+      "id": "2013",
+      "body": "The token needs the `dataset-writer` role. Grant it with:\n\n```bash\norbitctl role grant --subject svc-ingest --role dataset-writer\n```\n\nReads only need `dataset-reader`.",
+      "bodyFormat": "markdown",
+      "url": "https://qa.example.internal/questions/1009#answer-2013",
+      "accepted": true,
+      "score": 8,
+      "author": "dana",
+      "createdAt": "2025-03-21T09:00:00Z",
+      "modifiedAt": "2025-03-21T09:00:00Z",
+      "comments": []
+    }
+  ],
+  "access": "forbidden"
+}

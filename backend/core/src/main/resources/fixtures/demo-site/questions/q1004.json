@@ -1,0 +1,33 @@
+{
+  "id": "1004",
+  "title": "How do I map CSV columns to a dataset in manifest.yaml?",
+  "body": "I have a CSV with `cust_id`, `cust_name`, `signup` and want it loaded into the `customers` dataset. This is my manifest so far:\n\n```yaml\ndataset: customers\nsource: customers.csv\nmapping:\n  cust_id: id\n```\n\nHow do I map the other columns and set types?",
+  "bodyFormat": "markdown",
+  "url": "https://qa.example.internal/questions/1004",
+  "tags": [
+    "orbit",
+    "manifest",
+    "mapping",
+    "dataset"
+  ],
+  "author": "asker",
+  "score": 5,
+  "createdAt": "2025-02-12T09:00:00Z",
+  "modifiedAt": "2025-02-14T09:00:00Z",
+  "comments": [],
+  "answers": [
+    {
+      "id": "2007",
+      "body": "<p>List every column under <code>mapping</code> and add a <code>type</code>:</p>\n<pre><code class=\"language-yaml\">dataset: customers\nsource: customers.csv\nmapping:\n  cust_id:\n    to: id\n    type: string\n  signup:\n    to: signed_up_at\n    type: timestamp\n</code></pre>\n<p>Supported types:</p>\n<table><tr><th>type</th><th>notes</th></tr><tr><td>string</td><td>default</td></tr><tr><td>timestamp</td><td>ISO-8601</td></tr><tr><td>integer</td><td>64-bit</td></tr></table>",
+      "bodyFormat": "html",
+      "url": "https://qa.example.internal/questions/1004#answer-2007",
+      "accepted": true,
+      "score": 9,
+      "author": "dana",
+      "createdAt": "2025-02-13T09:00:00Z",
+      "modifiedAt": "2025-02-13T09:00:00Z",
+      "comments": []
+    }
+  ],
+  "access": "available"
+}

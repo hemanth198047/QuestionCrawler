@@ -1,0 +1,31 @@
+{
+  "id": "1010",
+  "title": "Payroll export totals do not match",
+  "body": "The monthly payroll export shows different totals than the ledger.",
+  "bodyFormat": "markdown",
+  "url": "https://qa.example.internal/questions/1010",
+  "tags": [
+    "payroll",
+    "export"
+  ],
+  "author": "asker",
+  "score": 0,
+  "createdAt": "2025-03-25T09:00:00Z",
+  "modifiedAt": "2025-03-25T09:00:00Z",
+  "comments": [],
+  "answers": [
+    {
+      "id": "2014",
+      "body": "Check rounding rules per currency.",
+      "bodyFormat": "markdown",
+      "url": "https://qa.example.internal/questions/1010#answer-2014",
+      "accepted": true,
+      "score": 1,
+      "author": "sam",
+      "createdAt": "2025-03-26T09:00:00Z",
+      "modifiedAt": "2025-03-26T09:00:00Z",
+      "comments": []
+    }
+  ],
+  "access": "available"
+}

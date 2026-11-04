@@ -1,0 +1,43 @@
+{
+  "id": "1003",
+  "title": "How do I configure SSO login with OIDC?",
+  "body": "We want users to sign in with our identity provider instead of local accounts. Which settings does Orbit need for OIDC authentication, and why do I get a 401 after the redirect?",
+  "bodyFormat": "markdown",
+  "url": "https://qa.example.internal/questions/1003",
+  "tags": [
+    "authentication",
+    "sso"
+  ],
+  "author": "asker",
+  "score": 6,
+  "createdAt": "2025-02-01T09:00:00Z",
+  "modifiedAt": "2026-01-08T10:00:00Z",
+  "comments": [],
+  "answers": [
+    {
+      "id": "2005",
+      "body": "Enable the OIDC provider in `orbit.yaml`:\n\n```yaml\nauth:\n  oidc:\n    issuer: https://login.example.internal/realms/corp\n    clientId: orbit\n    redirectUri: https://orbit.example.internal/callback\n```\n\nThe 401 after redirect usually means `redirectUri` does not exactly match what is registered at the provider.",
+      "bodyFormat": "markdown",
+      "url": "https://qa.example.internal/questions/1003#answer-2005",
+      "accepted": true,
+      "score": 15,
+      "author": "li",
+      "createdAt": "2025-02-02T09:00:00Z",
+      "modifiedAt": "2025-02-02T09:00:00Z",
+      "comments": []
+    },
+    {
+      "id": "2006",
+      "body": "Map the `roles` claim to Orbit roles, otherwise every user lands with no permissions after a successful login.",
+      "bodyFormat": "markdown",
+      "url": "https://qa.example.internal/questions/1003#answer-2006",
+      "accepted": false,
+      "score": 3,
+      "author": "sam",
+      "createdAt": "2025-02-10T09:00:00Z",
+      "modifiedAt": "2025-02-10T09:00:00Z",
+      "comments": []
+    }
+  ],
+  "access": "available"
+}

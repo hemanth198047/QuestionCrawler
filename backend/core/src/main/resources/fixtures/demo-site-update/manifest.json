@@ -1,0 +1,11 @@
+{
+  "description": "Synthetic fixture data. Not real internal content.",
+  "files": [
+    "questions/q1001.json",
+    "questions/q1005.json",
+    "questions/q1007.json",
+    "questions/q1009.json",
+    "questions/q1003.json",
+    "questions/q1012.json"
+  ]
+}

@@ -1,10 +1,21 @@
-:root {
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  color-scheme: light dark;
-  line-height: 1.5;
-}
+:root { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; color-scheme: light dark; line-height: 1.5;
+  --border: color-mix(in srgb, currentColor 18%, transparent); --ok: #1a7f37; --warn: #b26a00; --danger: #c62828; }
 body { margin: 0; }
-.app { max-width: 960px; margin: 0 auto; padding: 2rem 1rem; }
-.subtitle { margin-top: -0.5rem; opacity: 0.7; }
-dt { font-weight: 600; }
-dd { margin: 0 0 0.5rem; }
+.app { max-width: 1000px; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+.top { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap; border-bottom: 1px solid var(--border); margin-bottom: 1rem; }
+.top h1 { font-size: 1.3rem; margin: 0 0 .5rem; }
+.top nav a { margin-left: 1rem; }
+.search-form { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.search-form input { flex: 1 1 320px; padding: .5rem; } .search-form .narrow { flex: 0 1 160px; }
+button { padding: .45rem .9rem; cursor: pointer; }
+.card { border: 1px solid var(--border); border-radius: 8px; padding: .75rem 1rem; margin: .75rem 0; }
+.card h3 { margin: .4rem 0; font-size: 1.05rem; }
+.card-head { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+.badge { font-size: .75rem; border: 1px solid var(--border); border-radius: 999px; padding: 0 .55rem; }
+.badge.ok { color: var(--ok); border-color: var(--ok); } .badge.warn { color: var(--warn); border-color: var(--warn); } .badge.danger { color: var(--danger); border-color: var(--danger); }
+.muted { opacity: .7; font-size: .85rem; }
+.notice { border-left: 3px solid var(--border); padding: .25rem .75rem; font-size: .85rem; }
+.notice.warn { border-color: var(--warn); } .notice.danger { border-color: var(--danger); color: var(--danger); }
+.passage { white-space: pre-wrap; overflow-x: auto; background: color-mix(in srgb, currentColor 6%, transparent); padding: .6rem; border-radius: 6px; font-size: .85rem; }
+.two-col { display: grid; grid-template-columns: 280px 1fr; gap: 1.5rem; } @media (max-width: 700px) { .two-col { grid-template-columns: 1fr; } }
+.plain { list-style: none; padding: 0; } .active { font-weight: 700; }

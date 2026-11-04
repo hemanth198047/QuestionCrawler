@@ -1,0 +1,22 @@
+{
+  "description": "Small retrieval evaluation set over the synthetic demo site (tag: orbit). Expected ids are question ids; a hit on the question or any of its answers counts.",
+  "store": "fixtures/demo-site",
+  "k": 3,
+  "queries": [
+    {"id": "e01", "query": "ERR_CONN_TIMEOUT connection timed out after 30 seconds", "expectedQuestionIds": ["1001"], "kind": "exact error message"},
+    {"id": "e02", "query": "ingest batch timeout raise client timeout", "expectedQuestionIds": ["1001"], "kind": "natural language"},
+    {"id": "e03", "query": "ORB-1042", "expectedQuestionIds": ["1002"], "kind": "error code"},
+    {"id": "e04", "query": "installer prerequisite JDK 17 JAVA_HOME", "expectedQuestionIds": ["1002"], "kind": "natural language"},
+    {"id": "e05", "query": "how do I configure SSO login with OIDC", "expectedQuestionIds": ["1003"], "kind": "natural language"},
+    {"id": "e06", "query": "401 after redirect redirectUri", "expectedQuestionIds": ["1003"], "kind": "natural language"},
+    {"id": "e07", "query": "map csv columns to dataset manifest.yaml", "expectedQuestionIds": ["1004"], "kind": "natural language"},
+    {"id": "e08", "query": "helm upgrade --install orbit values.yaml", "expectedQuestionIds": ["1006"], "kind": "command"},
+    {"id": "e09", "query": "batchSize parallelism slow csv import", "expectedQuestionIds": ["1007"], "kind": "code symbol"},
+    {"id": "e10", "query": "log rotation maxFileSize disk", "expectedQuestionIds": ["1008"], "kind": "natural language"},
+    {"id": "e11", "query": "403 Forbidden service token dataset-writer role", "expectedQuestionIds": ["1009"], "kind": "error + identifier"},
+    {"id": "e12", "query": "ManifestLoader.loadFromPath NullPointerException", "expectedQuestionIds": ["1011"], "kind": "code symbol"},
+    {"id": "e13", "query": "prometheus metrics endpoint scrape", "expectedQuestionIds": ["1005"], "kind": "unanswered question is still findable"},
+    {"id": "n01", "query": "kubernetes pod eviction policy", "expectedQuestionIds": [], "kind": "no answer in the store"},
+    {"id": "n02", "query": "payroll export totals ledger rounding", "expectedQuestionIds": [], "kind": "outside the collection scope"}
+  ]
+}

@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: questioncrawler-backend
+
+server:
+  port: 8080
+  # Bind to localhost only. The API has no authentication of its own: it serves collected internal
+  # content to whoever can reach it. Put an approved authenticating reverse proxy in front before
+  # changing this (see docs/ARCHITECTURE.md, "Shared deployment").
+  address: 127.0.0.1
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+questioncrawler:
+  # Path of the shared questioncrawler.properties (empty = same lookup order as the CLI:
+  # $QUESTIONCRAWLER_CONFIG, ./questioncrawler.properties, ~/.questioncrawler/config.properties).
+  config-file:
+  storage-root:
+  cors:
+    # Empty by default. In development the Vite proxy makes CORS unnecessary.
+    allowed-origins: []

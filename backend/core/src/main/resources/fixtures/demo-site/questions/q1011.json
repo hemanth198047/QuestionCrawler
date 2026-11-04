@@ -1,0 +1,44 @@
+{
+  "id": "1011",
+  "title": "NullPointerException in ManifestLoader.loadFromPath",
+  "body": "Loading my manifest crashes:\n\n```text\nException in thread \"main\" java.lang.NullPointerException\n\tat com.example.orbit.manifest.ManifestLoader.loadFromPath(ManifestLoader.java:57)\n\tat com.example.orbit.cli.ImportCommand.run(ImportCommand.java:31)\n```\n\nThe file exists. What is wrong?",
+  "bodyFormat": "markdown",
+  "url": "https://qa.example.internal/questions/1011",
+  "tags": [
+    "orbit",
+    "manifest",
+    "error"
+  ],
+  "author": "asker",
+  "score": 3,
+  "createdAt": "2025-04-01T09:00:00Z",
+  "modifiedAt": "2025-04-03T09:00:00Z",
+  "comments": [],
+  "answers": [
+    {
+      "id": "2015",
+      "body": "`loadFromPath` returns null for relative paths when the working directory differs. Pass an absolute path:\n\n```java\nManifest m = ManifestLoader.loadFromPath(\n    Path.of(\"/etc/orbit/manifest.yaml\"));\n```",
+      "bodyFormat": "markdown",
+      "url": "https://qa.example.internal/questions/1011#answer-2015",
+      "accepted": true,
+      "score": 7,
+      "author": "dana",
+      "createdAt": "2025-04-02T09:00:00Z",
+      "modifiedAt": "2025-04-02T09:00:00Z",
+      "comments": []
+    },
+    {
+      "id": "2016",
+      "body": "Make sure the YAML file is not empty; an empty document also produces this NullPointerException.",
+      "bodyFormat": "markdown",
+      "url": "https://qa.example.internal/questions/1011#answer-2016",
+      "accepted": false,
+      "score": 1,
+      "author": "li",
+      "createdAt": "2025-04-03T09:00:00Z",
+      "modifiedAt": "2025-04-03T09:00:00Z",
+      "comments": []
+    }
+  ],
+  "access": "available"
+}

@@ -1,0 +1,32 @@
+{
+  "id": "1005",
+  "title": "Where does Orbit expose Prometheus metrics?",
+  "body": "I want to scrape Orbit with Prometheus and alert on failed ingests. Which endpoint and port expose the metrics?",
+  "bodyFormat": "markdown",
+  "url": "https://qa.example.internal/questions/1005",
+  "tags": [
+    "orbit",
+    "monitoring",
+    "operations"
+  ],
+  "author": "asker",
+  "score": 2,
+  "createdAt": "2025-02-20T09:00:00Z",
+  "modifiedAt": "2026-01-06T10:00:00Z",
+  "comments": [],
+  "answers": [
+    {
+      "id": "2018",
+      "body": "Metrics are exposed at `/actuator/prometheus` on port 9404. Example scrape config:\n\n```yaml\nscrape_configs:\n  - job_name: orbit\n    metrics_path: /actuator/prometheus\n    static_configs:\n      - targets: ['orbit.example.internal:9404']\n```",
+      "bodyFormat": "markdown",
+      "url": "https://qa.example.internal/questions/1005#answer-2018",
+      "accepted": true,
+      "score": 5,
+      "author": "dana",
+      "createdAt": "2026-01-06T10:00:00Z",
+      "modifiedAt": "2026-01-06T10:00:00Z",
+      "comments": []
+    }
+  ],
+  "access": "available"
+}

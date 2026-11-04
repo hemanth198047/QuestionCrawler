@@ -1,0 +1,34 @@
+plugins {
+    id 'java-library'
+    id 'application'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+dependencies {
+    // Versions for Jackson and JUnit come from the Spring Boot BOM so that core and app agree.
+    implementation platform('org.springframework.boot:spring-boot-dependencies:3.5.0')
+    testImplementation platform('org.springframework.boot:spring-boot-dependencies:3.5.0')
+
+    // JSON persistence of all stored data (threads, state, reports, config templates).
+    api 'com.fasterxml.jackson.core:jackson-databind'
+    // Embedded full-text index kept as plain files under <storage-root>/index. No server, no database.
+    implementation 'org.apache.lucene:lucene-core:9.12.0'
+    implementation 'org.apache.lucene:lucene-analysis-common:9.12.0'
+
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+application {
+    mainClass = 'com.questioncrawler.core.cli.Main'
+    applicationName = 'questioncrawler'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
