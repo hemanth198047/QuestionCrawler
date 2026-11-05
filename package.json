@@ -4,10 +4,12 @@
   "type": "module",
   "description": "Internal Q&A knowledge assistant. One command builds and starts backend and frontend.",
   "scripts": {
-    "start": "node scripts/start.mjs",
-    "start:prod": "node scripts/start.mjs --prod",
-    "test": "node scripts/start.mjs --test",
-    "check": "node scripts/start.mjs --check"
+    "start": "node scripts/launch.cjs",
+    "start:prod": "node scripts/launch.cjs --prod",
+    "test": "node scripts/launch.cjs --test",
+    "check": "node scripts/launch.cjs --check"
   },
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=20"
+  }
 }

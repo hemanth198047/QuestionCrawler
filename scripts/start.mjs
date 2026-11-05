@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// One command to build and run everything:  npm start
+// One command to build and run everything:  npm start   (starts via scripts/launch.cjs, which checks the Node version first)
 //   npm start               backend + frontend in development mode, opens the browser
 //   npm start -- --prod     builds the UI and serves everything from one server (http://localhost:8080)
 //   npm start -- --no-open  do not open a browser
