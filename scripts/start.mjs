@@ -7,7 +7,7 @@
 //   npm start -- --check    only check prerequisites
 // No dependencies: plain Node 20+.
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import http from 'node:http'
 import net from 'node:net'
 import path from 'node:path'
@@ -140,12 +140,25 @@ async function prepareBackend() {
   } else ok('Gradle wrapper present')
 }
 
+/** Names of declared dependencies that are not installed yet (an old node_modules from an earlier version is common). */
+function missingPackages() {
+  try {
+    const pkg = JSON.parse(readFileSync(path.join(FRONTEND, 'package.json'), 'utf8'))
+    return Object.keys({ ...pkg.dependencies, ...pkg.devDependencies })
+      .filter((name) => !existsSync(path.join(FRONTEND, 'node_modules', ...name.split('/'), 'package.json')))
+  } catch { return ['(package.json unreadable)'] }
+}
+
 async function prepareFrontend() {
   step('Preparing the frontend')
-  if (!existsSync(path.join(FRONTEND, 'node_modules'))) {
-    say(`  ${dim('Installing packages (first run only)…')}`)
+  const missing = existsSync(path.join(FRONTEND, 'node_modules')) ? missingPackages() : ['everything (first run)']
+  if (missing.length > 0) {
+    say(`  ${dim(`Installing packages: ${missing.slice(0, 4).join(', ')}${missing.length > 4 ? '…' : ''}`)}`)
     const code = await run('npm', ['install', '--no-fund', '--no-audit'], { cwd: FRONTEND })
-    if (code !== 0) fail('Installing the frontend packages failed', ['Check your internet connection or npm proxy settings, then try again.'])
+    if (code !== 0) fail('Installing the frontend packages failed', ['Check your internet connection or npm proxy settings, then try again.',
+      'You can also run it yourself:  cd frontend && npm install'])
+    const still = missingPackages()
+    if (still.length > 0) fail('Some frontend packages are still missing', [still.join(', '), 'Try:  cd frontend && npm install'])
   }
   ok('Frontend packages ready')
 }
