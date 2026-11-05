@@ -47,6 +47,12 @@ few days, or packages with known issues. Either ask for it to be allowed, or pin
 | `SELF_SIGNED_CERT_IN_CHAIN`, `UNABLE_TO_VERIFY_LEAF_SIGNATURE` | npm does not trust your company certificate. Get the root certificate (.pem) from IT: `npm config set cafile C:\certs\company-ca.pem`. Do not turn certificate checking off. |
 | `E401 Unauthorized` | Missing or expired token: see "needs you to log in" above. |
 
+## Versions that are pinned
+`lucide-react` is pinned to `1.65.0` and `oxlint` to `1.90.0` because those are the newest versions a company registry with a
+"newest versions are quarantined" policy offered. Other packages use ranges, so npm picks the newest version your registry allows.
+`frontend/package-lock.json` is deliberately **not** committed, so no machine is forced onto versions its registry does not have.
+If another package is blocked, pin an older version of it the same way (see "One specific package" above).
+
 ## Notes
 - The lock file lists the public registry address; npm automatically uses your configured registry instead (setting `replace-registry-host`).
   If it does not, run `cd frontend && npm install --replace-registry-host=always`.

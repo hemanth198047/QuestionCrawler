@@ -50,3 +50,7 @@ frontend/.env.local
 /data/
 /storage/
 credentials*
+
+# The frontend lock file is intentionally not committed: it would pin exact versions (and registry addresses) from one network,
+# while company registries often only offer some versions. Each machine resolves versions from its own registry.
+frontend/package-lock.json
