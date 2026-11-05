@@ -32,13 +32,16 @@ To apply a script only for one run without copying it: `$env:QC_GRADLE_ARGS="--i
 The example is a widely used pattern but could not be tested against your repository. If it does not work, send me the first
 error line from the `api │` output and what your platform team says the repository URLs and authentication are.
 
-## 3. "Plugin ... was not found; the available version is X"
+## 3. "Plugin ... was not found" or "available version is ..."
 
-Your mirror offers different versions than the ones the project asks for. All versions live in **one file**, `backend/gradle.properties`:
+The backend build **does not use any Gradle plugins from a plugin portal** (no Spring Boot or dependency-management plugin): company mirrors
+often lack the plugin "marker" files, which produces exactly this error. Only ordinary Maven libraries are downloaded, so you only need a
+Maven repository (Maven Central or your internal mirror of it).
+
+If a *library* version is missing from your mirror, the versions live in **one file**, `backend/gradle.properties`:
 
 ```properties
 springBootVersion=3.3.1
-dependencyManagementVersion=1.1.5
 luceneVersion=9.11.1
 ```
 Change a value to a version your mirror has (Spring Boot 3.3.x, 3.4.x and 3.5.x all work) and run `npm start` again. You can also override one run

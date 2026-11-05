@@ -1,7 +1,8 @@
+// The web application. It deliberately does NOT use the Spring Boot or dependency-management Gradle *plugins*:
+// company repository mirrors often lack Gradle plugin markers. The Spring Boot libraries are ordinary Maven artifacts,
+// and their versions come from the official Spring Boot BOM (platform), so only a Maven repository is needed.
 plugins {
     id 'java'
-    id 'org.springframework.boot'
-    id 'io.spring.dependency-management'
 }
 
 java {
@@ -10,7 +11,15 @@ java {
     }
 }
 
+tasks.withType(JavaCompile).configureEach {
+    options.compilerArgs << '-parameters'   // what the Spring Boot plugin would have enabled
+}
+
 dependencies {
+    implementation platform("org.springframework.boot:spring-boot-dependencies:${springBootVersion}")
+    annotationProcessor platform("org.springframework.boot:spring-boot-dependencies:${springBootVersion}")
+    testImplementation platform("org.springframework.boot:spring-boot-dependencies:${springBootVersion}")
+
     implementation project(':core')
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
@@ -20,8 +29,16 @@ dependencies {
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
+// Start the application:  gradle :app:bootRun --args="--server.port=8080"
+tasks.register('bootRun', JavaExec) {
+    group = 'application'
+    description = 'Runs the QuestionCrawler web application.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.questioncrawler.QuestionCrawlerApplication'
+}
+
 // When the React app has been built (npm run build in frontend/), package it as static files so that one
-// process serves both the API and the UI at http://localhost:8080. Nothing is copied if it was not built.
+// process serves both the API and the UI. Nothing is copied if it was not built.
 def frontendDist = file("${rootDir}/../frontend/dist")
 tasks.named('processResources') {
     if (frontendDist.exists()) {

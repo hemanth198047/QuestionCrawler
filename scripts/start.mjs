@@ -89,7 +89,6 @@ function startService(label, color, cmd, cmdArgs, opts) {
 // ------------------------------------------------------------------ explaining Gradle problems
 const VERSION_SETTINGS = [
   [/org\.springframework\.boot/, 'springBootVersion'],
-  [/io\.spring\.dependency-management/, 'dependencyManagementVersion'],
   [/org\.apache\.lucene/, 'luceneVersion'],
 ]
 /** Reads Gradle's "could not resolve / plugin not found" messages and says which setting to change. */
