@@ -7,6 +7,7 @@ import com.questioncrawler.core.service.ConnectionReport.Requirement;
 import com.questioncrawler.core.service.ConnectionReport.Route;
 import com.questioncrawler.core.service.ConnectionReport.Stage;
 import com.questioncrawler.core.source.HttpSourceClient;
+import com.questioncrawler.core.source.ProxyConfig;
 import com.questioncrawler.core.source.SourceException;
 import com.questioncrawler.core.source.SourceSettings;
 import com.questioncrawler.core.source.StackExchangeAdapter;
@@ -56,7 +57,13 @@ public final class SiteDiagnostics {
 
     /** What to check. {@code target} is the API/base address to probe (for Stack Exchange: the API base). */
     public record Input(String sourceType, String target, String site, List<String> tags, String authMethod,
-                        String tokenEnv, String keyEnv, Path caCertFile, boolean allowInsecureHttp, int timeoutSeconds) {}
+                        String tokenEnv, String keyEnv, Path caCertFile, boolean allowInsecureHttp, int timeoutSeconds,
+                        ProxyConfig proxy) {
+        public Input(String sourceType, String target, String site, List<String> tags, String authMethod,
+                     String tokenEnv, String keyEnv, Path caCertFile, boolean allowInsecureHttp, int timeoutSeconds) {
+            this(sourceType, target, site, tags, authMethod, tokenEnv, keyEnv, caCertFile, allowInsecureHttp, timeoutSeconds, ProxyConfig.NONE);
+        }
+    }
 
     private static final Pattern LOGIN_WORDS = Pattern.compile("login|signin|sign-in|sso|oauth|saml|adfs|okta|microsoftonline|auth0|accounts\\.|/auth", Pattern.CASE_INSENSITIVE);
     private static final List<String> API_DESCRIPTION_PATHS = List.of("/openapi.json", "/swagger.json", "/v3/api-docs", "/api-docs");
@@ -132,6 +139,29 @@ public final class SiteDiagnostics {
 
     // ================================================================== stage 1: network
 
+    /** The proxy that applies to this request: settings first, then HTTPS_PROXY, otherwise none. */
+    private ProxyConfig effectiveProxy(Input in, String host) {
+        ProxyConfig p = (in.proxy() == null ? ProxyConfig.NONE : in.proxy()).orEnvironment(env);
+        return p.appliesTo(host) ? p : ProxyConfig.NONE;
+    }
+
+    /** A connected plain socket to host:port, directly or through the proxy tunnel. */
+    private java.net.Socket openSocket(Input in, String host, int port) throws IOException {
+        int timeout = Math.max(1, in.timeoutSeconds()) * 1000;
+        ProxyConfig proxy = effectiveProxy(in, host);
+        if (proxy.configured()) {
+            return proxy.tunnel(host, port, timeout, env);
+        }
+        java.net.Socket socket = new java.net.Socket();
+        try {
+            socket.connect(new InetSocketAddress(host, port), timeout);
+            return socket;
+        } catch (IOException e) {
+            socket.close();
+            throw e;
+        }
+    }
+
     private Stage networkStage(Input in, URI uri) {
         long t0 = System.nanoTime();
         String title = "Reach the site";
@@ -143,6 +173,10 @@ public final class SiteDiagnostics {
         List<Fact> facts = new ArrayList<>();
         int port = uri.getPort() > 0 ? uri.getPort() : "https".equalsIgnoreCase(uri.getScheme()) ? 443 : 80;
         facts.add(new Fact("Address", uri.getHost() + ":" + port));
+        ProxyConfig px = effectiveProxy(in, uri.getHost());
+        if (px.configured()) {
+            return networkViaProxy(in, uri, port, px, facts, t0);
+        }
         String proxy = proxyHint();
         if (proxy != null) {
             facts.add(new Fact("Proxy", proxy));
@@ -154,6 +188,7 @@ public final class SiteDiagnostics {
             return stage("network", title, q, "FAIL", "The name '" + uri.getHost() + "' could not be found.", facts, List.of(
                     new Need("The correct host name", "A typo is the most common cause.", "You"),
                     new Need("A connection to the company network (VPN)", "Internal sites are usually invisible from outside the company network.", "You or your IT help desk"),
+                    new Need("A web proxy address, if your company uses one", "With a proxy, name lookup is done by the proxy. Enter it under 'Web proxy address' and 'Web proxy port'.", "You or your IT help desk"),
                     new Need("Working DNS", "Your computer must be able to look up names on the network it is on.", "IT / network team")), t0);
         }
         facts.add(new Fact("Resolved to", addresses[0].getHostAddress() + (addresses.length > 1 ? " (+" + (addresses.length - 1) + " more)" : "")));
@@ -164,10 +199,10 @@ public final class SiteDiagnostics {
         } catch (IOException e) {
             boolean timeout = e instanceof java.net.SocketTimeoutException;
             return stage("network", title, q, "FAIL", timeout
-                    ? "The site did not answer in time. A firewall or missing VPN is the usual reason."
-                    : "The site refused the connection.", facts, List.of(
-                    new Need("Network access to " + uri.getHost() + " on port " + port, "A firewall, proxy or VPN is blocking the path from this computer.", "IT / network team"),
-                    new Need("Proxy settings (if your company uses a proxy)", "Java applications need the proxy told to them explicitly.", "You or your IT help desk")), t0);
+                    ? "The site did not answer in time. A firewall, a missing VPN or a required web proxy is the usual reason."
+                    : "The site refused the direct connection. If your company uses a web proxy, this computer must connect through it.", facts, List.of(
+                    new Need("The address of your company's web proxy (host and port)", "Direct connections to the internet are usually blocked; traffic must go through the proxy. Enter it under 'Web proxy address' and 'Web proxy port' (or set the HTTPS_PROXY environment variable).", "You or your IT help desk"),
+                    new Need("Network access to " + uri.getHost() + " on port " + port, "If there is no proxy, a firewall or VPN is blocking the path from this computer.", "IT / network team")), t0);
         }
         return stage("network", title, q, "PASS", "The site is reachable from this computer.", facts, List.of(), t0);
     }
@@ -181,6 +216,56 @@ public final class SiteDiagnostics {
     }
 
     // ================================================================== stage 2: TLS
+
+    private Stage networkViaProxy(Input in, URI uri, int port, ProxyConfig px, List<Fact> facts, long t0) {
+        String title = "Reach the site";
+        String q = "Can this computer reach the site?";
+        facts.add(new Fact("Proxy", px.describe()));
+        long c0 = System.nanoTime();
+        boolean https = "https".equalsIgnoreCase(uri.getScheme());
+        try {
+            if (https) {
+                // HTTPS passes a web proxy through a CONNECT tunnel; the proxy (not this computer) looks up the name.
+                try (Socket tunnel = px.tunnel(uri.getHost(), port, Math.max(1, in.timeoutSeconds()) * 1000, env)) {
+                    facts.add(new Fact("Tunnel through the proxy", (System.nanoTime() - c0) / 1_000_000 + " ms"));
+                }
+            } else {
+                try (Socket s = new Socket()) {
+                    s.connect(new InetSocketAddress(px.host(), px.port()), Math.max(1, in.timeoutSeconds()) * 1000);
+                }
+            }
+        } catch (ProxyConfig.ProxyException e) {
+            return stage("network", title, q, "FAIL", proxyRefusal(e, uri.getHost()), facts, proxyNeeds(e, uri.getHost()), t0);
+        } catch (IOException e) {
+            boolean timeout = e instanceof java.net.SocketTimeoutException;
+            return stage("network", title, q, "FAIL", timeout
+                    ? "The web proxy " + px.host() + ":" + px.port() + " did not answer in time."
+                    : "We cannot reach your web proxy at " + px.host() + ":" + px.port() + ".", facts, List.of(
+                    new Need("The correct proxy host name and port", "A typo, or an old proxy address, is the most common cause.", "You or your IT help desk"),
+                    new Need("To be on the company network or VPN", "Proxies are usually only reachable from inside the company network.", "You or your IT help desk")), t0);
+        }
+        return stage("network", title, q, "PASS", "The site is reachable through your web proxy.", facts, List.of(), t0);
+    }
+
+    private static String proxyRefusal(ProxyConfig.ProxyException e, String host) {
+        return switch (e.status()) {
+            case 407 -> "Your web proxy wants you to sign in (HTTP 407) before it connects to " + host + ".";
+            case 403 -> "Your web proxy refused to connect to " + host + " (HTTP 403): it blocks this site by policy.";
+            case 502, 503, 504 -> "Your web proxy could not reach " + host + " (HTTP " + e.status() + ").";
+            default -> "Your web proxy refused the connection to " + host + " (" + e.getMessage() + ").";
+        };
+    }
+
+    private static List<Need> proxyNeeds(ProxyConfig.ProxyException e, String host) {
+        if (e.status() == 407) {
+            return List.of(new Need("Proxy sign-in details (a user name and password)", "Set the variable names under 'Proxy user variable name' and 'Proxy password variable name' (advanced settings) and set those variables in your terminal.", "You or your IT help desk"),
+                    new Need("A local sign-in helper such as CNTLM, if your proxy uses Windows sign-in", "Java cannot use Windows sign-in (NTLM/Kerberos) with a proxy by itself.", "Your IT help desk"));
+        }
+        if (e.status() == 403) {
+            return List.of(new Need(host + " allowed through the web proxy", "The proxy's rules (often a website category) block this address.", "IT / network security team"));
+        }
+        return List.of(new Need("A working route from the proxy to " + host, "The proxy accepted our request but could not complete it.", "IT / network team"));
+    }
 
     private Stage secureStage(Input in, URI uri, boolean https) {
         long t0 = System.nanoTime();
@@ -200,8 +285,7 @@ public final class SiteDiagnostics {
             if (in.caCertFile() != null) {
                 context = trustWith(in.caCertFile());
             }
-            try (SSLSocket socket = (SSLSocket) context.getSocketFactory().createSocket()) {
-                socket.connect(new InetSocketAddress(uri.getHost(), port), Math.max(1, in.timeoutSeconds()) * 1000);
+            try (SSLSocket socket = (SSLSocket) context.getSocketFactory().createSocket(openSocket(in, uri.getHost(), port), uri.getHost(), port, true)) {
                 socket.setSoTimeout(Math.max(1, in.timeoutSeconds()) * 1000);
                 var params = socket.getSSLParameters();
                 params.setEndpointIdentificationAlgorithm("HTTPS");
@@ -248,7 +332,7 @@ public final class SiteDiagnostics {
     private static List<Need> tlsNeeds(Exception e) {
         String m = String.valueOf(e.getMessage());
         if (m.contains("PKIX") || m.contains("unable to find valid certification path") || m.contains("trustAnchors")) {
-            return List.of(new Need("The company's root certificate (a .pem or .crt file)", "It lets this computer trust the site. Then set 'Company certificate file' in Settings.", "IT / security team"));
+            return List.of(new Need("The company's root certificate (a .pem or .crt file)", "It lets this computer trust the site. Web proxies that inspect secure traffic present the company's own certificate, so this is common behind a proxy. Then set 'Company certificate file' in Settings.", "IT / security team"));
         }
         if (m.contains("No subject alternative") || m.contains("No name matching")) {
             return List.of(new Need("The address the certificate was issued for", "Use the exact host name from the certificate.", "The site owners"));
@@ -266,8 +350,7 @@ public final class SiteDiagnostics {
                 @Override public void checkServerTrusted(X509Certificate[] c, String a) { }
                 @Override public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
             }}, null);
-            try (SSLSocket socket = (SSLSocket) probe.getSocketFactory().createSocket()) {
-                socket.connect(new InetSocketAddress(uri.getHost(), port), Math.max(1, in.timeoutSeconds()) * 1000);
+            try (SSLSocket socket = (SSLSocket) probe.getSocketFactory().createSocket(openSocket(in, uri.getHost(), port), uri.getHost(), port, true)) {
                 socket.startHandshake();
                 if (socket.getSession().getPeerCertificates()[0] instanceof X509Certificate cert) {
                     describe(cert, out);
@@ -700,6 +783,14 @@ public final class SiteDiagnostics {
         long t0 = System.nanoTime();
         try {
             HttpClient.Builder b = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(Math.max(1, in.timeoutSeconds()))).followRedirects(HttpClient.Redirect.NEVER);
+            ProxyConfig proxy = effectiveProxy(in, URI.create(url).getHost());
+            if (proxy.configured()) {
+                b.proxy(proxy.selector());
+                java.net.Authenticator auth = proxy.authenticator(env);
+                if (auth != null) {
+                    b.authenticator(auth);
+                }
+            }
             if (in.caCertFile() != null) {
                 b.sslContext(trustWith(in.caCertFile()));
             }
@@ -726,7 +817,8 @@ public final class SiteDiagnostics {
 
     private StackExchangeAdapter stackExchange(Input in) {
         SourceSettings s = new SourceSettings(in.site(), in.target(), List.of(URI.create(in.target()).getHost()), List.of(URI.create(in.target()).getPath() + "/"),
-                "none", null, null, null, in.caCertFile(), Duration.ofSeconds(Math.max(1, in.timeoutSeconds())), in.allowInsecureHttp(), in.site(), in.keyEnv());
+                "none", null, null, null, in.caCertFile(), Duration.ofSeconds(Math.max(1, in.timeoutSeconds())), in.allowInsecureHttp(), in.site(), in.keyEnv(),
+                in.proxy());
         return new StackExchangeAdapter(s, new HttpSourceClient(s, env), env, d -> { });
     }
 

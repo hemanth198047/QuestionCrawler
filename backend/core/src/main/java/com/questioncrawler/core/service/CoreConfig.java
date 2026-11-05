@@ -126,7 +126,9 @@ public record CoreConfig(
                 Duration.ofSeconds(intValue(p, "source.timeoutSeconds", 30)),
                 Boolean.parseBoolean(p.getProperty("source.allowInsecureHttp", "false").strip()),
                 site,
-                p.getProperty("source.stackexchange.keyEnv", "STACKEXCHANGE_KEY").strip());
+                p.getProperty("source.stackexchange.keyEnv", "STACKEXCHANGE_KEY").strip(),
+                com.questioncrawler.core.source.ProxyConfig.parse(p.getProperty("network.proxyHost", ""), p.getProperty("network.proxyPort", ""),
+                        p.getProperty("network.noProxy", ""), p.getProperty("network.proxyUserEnv", ""), p.getProperty("network.proxyPasswordEnv", "")));
 
         List<Path> fixtureDirs = csv(p.getProperty("source.fixture.dirs", "")).stream().map(s -> resolve(base, s)).toList();
         return new CoreConfig(file, storage, taxonomyFile, type, settings, fixtureDirs,

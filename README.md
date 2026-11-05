@@ -75,7 +75,7 @@ and press *Check access*.
 - [docs/COPILOT.md](docs/COPILOT.md): using it from GitHub Copilot
 - [docs/SYNC.md](docs/SYNC.md): quick update vs full check, statuses, scheduling
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/SETUP.md](docs/SETUP.md) (manual and CLI setup), [docs/LIVE_INTEGRATION.md](docs/LIVE_INTEGRATION.md) (your internal site)
-- [docs/ORG_GRADLE.md](docs/ORG_GRADLE.md) and [docs/ORG_NPM.md](docs/ORG_NPM.md) (company Gradle / npm, internal repositories, tokens, proxies), [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md), [docs/CAPABILITIES.md](docs/CAPABILITIES.md) (what is verified and what is not)
+- [docs/ORG_PROXY.md](docs/ORG_PROXY.md) (web proxy), [docs/ORG_GRADLE.md](docs/ORG_GRADLE.md) and [docs/ORG_NPM.md](docs/ORG_NPM.md) (company Gradle / npm, internal repositories, tokens, proxies), [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md), [docs/CAPABILITIES.md](docs/CAPABILITIES.md) (what is verified and what is not)
 
 ## Honest status
 

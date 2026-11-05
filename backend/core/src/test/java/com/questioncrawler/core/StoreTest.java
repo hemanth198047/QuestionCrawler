@@ -123,11 +123,15 @@ class StoreTest {
         List<String> problems = c.validate();
         assertTrue(problems.stream().anyMatch(p -> p.contains("source.baseUrl")), problems.toString());
         assertEquals("INTERNAL_QA_TOKEN", c.source().tokenEnv());   // only the variable NAME is configuration
-        // No key may carry a secret value: the only credential-related key holds the NAME of an environment variable.
+        // No key may carry a secret VALUE. Keys ending in "Env" only NAME an environment variable (and may be set to such a name).
         List<String> secretLikeAssignments = Files.readAllLines(cfg).stream()
                 .filter(l -> !l.stripLeading().startsWith("#") && l.contains("="))
-                .filter(l -> l.substring(0, l.indexOf('=')).toLowerCase().matches(".*(password|secret|apikey|api-key).*")
-                        || (l.substring(0, l.indexOf('=')).toLowerCase().endsWith("token") && !l.substring(l.indexOf('=') + 1).isBlank()))
+                .filter(l -> {
+                    String key = l.substring(0, l.indexOf('=')).toLowerCase();
+                    String value = l.substring(l.indexOf('=') + 1);
+                    boolean secretKey = key.matches(".*(password|secret|apikey|api-key|token).*") && !key.endsWith("env");
+                    return secretKey && !value.isBlank();
+                })
                 .toList();
         assertEquals(List.of(), secretLikeAssignments);
     }

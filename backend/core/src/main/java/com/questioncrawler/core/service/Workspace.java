@@ -139,7 +139,9 @@ public final class Workspace {
         int timeout = parseInt(v.get("source.timeoutSeconds"), 15);
         SiteDiagnostics.Input input = new SiteDiagnostics.Input(type, target, site, tags, v.getOrDefault("source.auth.method", "none"),
                 v.getOrDefault("source.auth.tokenEnv", ""), v.getOrDefault("source.stackexchange.keyEnv", ""),
-                ca.isEmpty() ? null : Path.of(ca), Boolean.parseBoolean(v.getOrDefault("source.allowInsecureHttp", "false")), Math.min(timeout, 30));
+                ca.isEmpty() ? null : Path.of(ca), Boolean.parseBoolean(v.getOrDefault("source.allowInsecureHttp", "false")), Math.min(timeout, 30),
+                com.questioncrawler.core.source.ProxyConfig.parse(v.getOrDefault("network.proxyHost", ""), v.getOrDefault("network.proxyPort", ""),
+                        v.getOrDefault("network.noProxy", ""), v.getOrDefault("network.proxyUserEnv", ""), v.getOrDefault("network.proxyPasswordEnv", "")));
         ConnectionReport report = new SiteDiagnostics(env, clock).run(input);
         try {
             knowledgeBase.store().init();

@@ -96,6 +96,16 @@ public final class ConfigService {
                                 Type.TAGS, "/", "/api/", LIVE, true, null),
                         f("source.caCertFile", "Company certificate file", "Only needed if your company uses its own security certificate authority. Path to a .pem/.crt file.",
                                 Type.PATH, "", "C:\\certs\\company-ca.pem", REMOTE, true, null),
+                        f("network.proxyHost", "Web proxy address", "Only if your company reaches the internet through a web proxy. Enter the host name, for example webproxy.mycompany.com (leave empty if there is none). If the HTTPS_PROXY environment variable is already set, you can leave this empty.",
+                                Type.TEXT, "", "webproxy.mycompany.com", REMOTE, false, null),
+                        f("network.proxyPort", "Web proxy port", "The proxy's port number, usually 8080 or 3128.",
+                                Type.NUMBER, "", "8080", REMOTE, false, null),
+                        f("network.noProxy", "Addresses that skip the proxy", "Host names that should be reached directly, not through the proxy. Local addresses always skip it.",
+                                Type.TAGS, "", "intranet.mycompany.com", REMOTE, true, null),
+                        f("network.proxyUserEnv", "Proxy user variable name", "Only if the proxy asks you to sign in (a user name and password). Name of the environment variable that holds the user name. Proxies that use Windows sign-in need a local helper such as CNTLM.",
+                                Type.ENV_NAME, "", "PROXY_USER", REMOTE, true, null),
+                        f("network.proxyPasswordEnv", "Proxy password variable name", "Name of the environment variable that holds the proxy password. The password itself is never stored in a file.",
+                                Type.ENV_NAME, "", "PROXY_PASSWORD", REMOTE, true, null),
                         f("source.timeoutSeconds", "Wait at most", "How long to wait for the site to answer before giving up.",
                                 Type.NUMBER, "30", null, REMOTE, true, "seconds"),
                         f("source.allowInsecureHttp", "Allow unencrypted http", "For local testing only. Never turn this on for a real site.",
@@ -246,6 +256,17 @@ public final class ConfigService {
             if (!ca.isEmpty() && !Files.isReadable(Path.of(ca))) {
                 issues.add(new Issue("source.caCertFile", "error", "We cannot read that certificate file.", "Check the path, or leave it empty if you do not need a company certificate."));
             }
+        }
+        if (!type.equals("fixture")) {
+            com.questioncrawler.core.source.ProxyConfig px = com.questioncrawler.core.source.ProxyConfig.parse(
+                    v.getOrDefault("network.proxyHost", ""), v.getOrDefault("network.proxyPort", ""), "", "", "");
+            if (px.host() != null && px.port() <= 0) {
+                issues.add(new Issue("network.proxyPort", "error", "Enter the proxy's port number.", "Usually 8080 or 3128. Ask your IT help desk if you are not sure."));
+            } else if (px.port() > 65535) {
+                issues.add(new Issue("network.proxyPort", "error", "A port number is between 1 and 65535.", null));
+            }
+            checkEnvName(issues, "network.proxyUserEnv", v.get("network.proxyUserEnv"), false);
+            checkEnvName(issues, "network.proxyPasswordEnv", v.get("network.proxyPasswordEnv"), false);
         }
         String tags = v.getOrDefault("sync.tags", "").strip();
         if (tags.isEmpty()) {

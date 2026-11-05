@@ -56,6 +56,14 @@ public final class HttpSourceClient {
         if (settings.caCertFile() != null) {
             builder.sslContext(buildSslContext(settings.caCertFile()));
         }
+        ProxyConfig proxy = settings.proxy().orEnvironment(env);
+        if (proxy.configured()) {
+            builder.proxy(proxy.selector());
+            java.net.Authenticator auth = proxy.authenticator(env);
+            if (auth != null) {
+                builder.authenticator(auth);
+            }
+        }
         this.http = builder.build();
     }
 
@@ -144,6 +152,9 @@ public final class HttpSourceClient {
         String where = describe(uri);
         if (status == 401) {
             return new SourceException(SourceException.Kind.AUTH_FAILED, "HTTP 401 from " + where + ": credentials missing, expired or rejected");
+        }
+        if (status == 407) {
+            return new SourceException(SourceException.Kind.AUTH_FAILED, "HTTP 407 from the web proxy: it wants you to sign in. Set the proxy user/password variable names in the settings (or ask IT for an allow-listed route).");
         }
         if (status == 403) {
             return new SourceException(SourceException.Kind.FORBIDDEN, "HTTP 403 from " + where + ": access refused");
