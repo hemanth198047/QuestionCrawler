@@ -87,11 +87,16 @@ public final class KnowledgeBase {
     // ================================================================== synchronization
 
     public SyncReport sync(SyncOptions options) {
+        return sync(options, null);
+    }
+
+    /** Same as {@link #sync(SyncOptions)} but reports live progress (used by the web UI). */
+    public SyncReport sync(SyncOptions options, java.util.function.Consumer<com.questioncrawler.core.sync.SyncProgress> progress) {
         store.init();
         SourceAdapter adapter = adapterOverride != null ? adapterOverride : config.createAdapter();
         Pipeline pipeline = new Pipeline();
         try {
-            return new SyncService(store, adapter, pipeline, retrier, clock).run(options);
+            return new SyncService(store, adapter, pipeline, retrier, clock).withProgress(progress).run(options);
         } finally {
             pipeline.close();
         }

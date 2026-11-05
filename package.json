@@ -1,0 +1,13 @@
+{
+  "name": "questioncrawler",
+  "private": true,
+  "type": "module",
+  "description": "Internal Q&A knowledge assistant. One command builds and starts backend and frontend.",
+  "scripts": {
+    "start": "node scripts/start.mjs",
+    "start:prod": "node scripts/start.mjs --prod",
+    "test": "node scripts/start.mjs --test",
+    "check": "node scripts/start.mjs --check"
+  },
+  "engines": { "node": ">=20" }
+}

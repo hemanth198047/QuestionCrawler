@@ -20,6 +20,15 @@ dependencies {
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
+// When the React app has been built (npm run build in frontend/), package it as static files so that one
+// process serves both the API and the UI at http://localhost:8080. Nothing is copied if it was not built.
+def frontendDist = file("${rootDir}/../frontend/dist")
+tasks.named('processResources') {
+    if (frontendDist.exists()) {
+        from(frontendDist) { into 'static' }
+    }
+}
+
 tasks.named('test') {
     useJUnitPlatform()
 }

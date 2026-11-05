@@ -242,6 +242,13 @@ public final class StackExchangeAdapter implements SourceAdapter {
         return new Page<>(answers, root.path("has_more").asBoolean(false) ? "p:" + (page + 1) : null);
     }
 
+    /** Number of questions carrying the tag on the whole site (documented /tags/{tag}/info), or -1 when the tag does not exist. */
+    public long tagCount(String tag) throws SourceException {
+        JsonNode root = call("/tags/" + enc(TagFilter.normalize(tag)) + "/info", new LinkedHashMap<>());
+        JsonNode items = root.path("items");
+        return items.isArray() && !items.isEmpty() ? items.get(0).path("count").asLong(0) : -1;
+    }
+
     @Override
     public String ping() throws SourceException {
         JsonNode root = call("/info", new LinkedHashMap<>());

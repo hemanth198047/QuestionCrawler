@@ -1,5 +1,8 @@
 # Setup (Windows and Linux)
 
+> **Easiest way:** install JDK 21 and Node.js 20+, then run `npm start` in the repository folder. It builds and starts the backend and
+> the visual app together and opens the browser. Everything below is the manual / command-line route, used by Copilot and scripts.
+
 ## 1. Prerequisites
 
 - JDK 21 (verify: `java -version`)

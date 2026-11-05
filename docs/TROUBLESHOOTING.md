@@ -2,6 +2,11 @@
 
 | Symptom | Cause / fix |
 |---|---|
+| `npm start` says Java/Node not found or too old | Install JDK 21 and Node 20+, open a NEW terminal, run `npm run check`. |
+| `Gradle is needed once` | Install Gradle once (https://gradle.org/install); the launcher then creates the wrapper. |
+| `Port 8080 / 5173 is already in use` | Another copy is running. Close it, or set `QC_API_PORT` / `QC_UI_PORT`. |
+| The backend does not start (long wait, then error) | Read the `api │` lines. Usually a blocked Gradle/Maven download: set a proxy or an internal mirror. Send me the first error line. |
+| The page says the service is not reachable | The backend is still starting or stopped; watch the `api │` lines in the terminal. |
 | `QuestionCrawler is not built yet` | Run `./gradlew :core:installDist` in `backend/` (JDK 21). |
 | `Knowledge store not found at ...` | Run `init` and `sync` (or `demo`), or fix `storage.root`/`--storage`. |
 | `Search index not found` | Run `reindex` (threads exist) or `sync`. |

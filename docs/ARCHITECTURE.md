@@ -20,7 +20,9 @@
 | Facade used by CLI and web | `service/KnowledgeBase` |
 | CLI | `cli/` |
 
-The Spring Boot app (`backend/app`) only wires `KnowledgeBase` into HTTP endpoints. The Copilot skill only
+`service/Workspace` is the running application's single point of truth: where the settings file is, the current `KnowledgeBase`, the sync
+runner with live progress, the connection diagnostics (`SiteDiagnostics`), the settings service (`ConfigService`) and category editing.
+Saving settings reloads everything. The Spring Boot app (`backend/app`) only wires `Workspace` into HTTP endpoints (and serves the built UI). The Copilot skill only
 teaches Copilot to run the CLI. The skill provides no scheduler, authentication or background execution.
 
 ## Storage: files, no database

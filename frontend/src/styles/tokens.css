@@ -1,0 +1,37 @@
+/* Design tokens. Milk-white canvas, ink text, one confident indigo accent, soft warm neutrals. */
+:root {
+  --bg: #fbf9f4;            /* milk white */
+  --bg-sunken: #f5f2ea;
+  --surface: #ffffff;
+  --surface-warm: #fdfcf8;
+  --line: #ebe6db;
+  --line-strong: #ddd6c6;
+
+  --ink: #1d2230;
+  --ink-2: #4a5164;
+  --ink-3: #7a8194;
+  --ink-4: #a3a9b8;
+
+  --brand: #3d4fe0;
+  --brand-600: #3142c4;
+  --brand-100: #e3e7fd;
+  --brand-50: #f0f2fe;
+
+  --ok: #1d9a68;     --ok-bg: #e5f5ed;     --ok-line: #bfe6d2;
+  --warn: #b97800;   --warn-bg: #fdf1d9;   --warn-line: #f2d9a1;
+  --bad: #d0443a;    --bad-bg: #fce8e6;    --bad-line: #f3c3bf;
+  --info: #2a78d2;   --info-bg: #e4effb;   --info-line: #bdd7f3;
+  --mute-bg: #f1eee6;
+
+  --r-sm: 8px; --r-md: 12px; --r-lg: 18px; --r-xl: 26px; --r-pill: 999px;
+  --shadow-sm: 0 1px 2px rgba(29, 34, 48, 0.05), 0 0 0 1px rgba(29, 34, 48, 0.02);
+  --shadow-md: 0 8px 24px -12px rgba(29, 34, 48, 0.16), 0 1px 3px rgba(29, 34, 48, 0.05);
+  --shadow-lg: 0 24px 60px -24px rgba(29, 34, 48, 0.28), 0 2px 6px rgba(29, 34, 48, 0.05);
+  --ring: 0 0 0 3px rgba(61, 79, 224, 0.22);
+
+  --font: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace;
+
+  --sidebar-w: 268px;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+}

@@ -58,6 +58,13 @@ public final class SyncService {
     private final ThreadPublisher publisher;
     private final Retrier retrier;
     private final Clock clock;
+    private volatile java.util.function.Consumer<SyncProgress> progressListener = p -> { };
+
+    /** Receives a snapshot after every meaningful step (listing page, fetched thread, phase change). */
+    public SyncService withProgress(java.util.function.Consumer<SyncProgress> listener) {
+        this.progressListener = listener == null ? p -> { } : listener;
+        return this;
+    }
 
     public SyncService(KnowledgeStore store, SourceAdapter adapter, ThreadPublisher publisher, Retrier retrier, Clock clock) {
         this.store = store;
@@ -104,6 +111,17 @@ public final class SyncService {
         private int purged;
         private String abortReason;
         private boolean resumed;
+        private RunState current;
+        private int toFetchCount;
+        private int fetchedCount;
+
+        private void emit(String phase, String message) {
+            if (current == null) {
+                return;
+            }
+            progressListener.accept(new SyncProgress(current.runId, phase, message, current.pagesListed, current.candidates.size(),
+                    toFetchCount, fetchedCount, added, updated, unchanged, failures.size()));
+        }
 
         Run(SyncOptions options) {
             this.options = options;
@@ -118,6 +136,8 @@ public final class SyncService {
         SyncReport execute() {
             Checkpoint checkpoint = store.readState(checkpointName, Checkpoint.class).orElse(null);
             RunState state = loadOrCreateRunState(checkpoint);
+            current = state;
+            emit(SyncProgress.LISTING, resumed ? "Resuming an interrupted run" : "Looking up which questions exist");
             try {
                 listPhase(state);
                 if (abortReason == null) {
@@ -130,6 +150,7 @@ public final class SyncService {
                     applyRetention();
                 }
             } finally {
+                emit(SyncProgress.FINISHING, "Organizing and indexing what was collected");
                 publisher.finish();
             }
             return finish(state, checkpoint);
@@ -207,6 +228,7 @@ public final class SyncService {
                     state.listingCursor = page.nextCursor();
                 }
                 store.writeState(runStateName, state);
+                emit(SyncProgress.LISTING, "Found " + state.candidates.size() + " question(s) so far");
             }
         }
 
@@ -233,6 +255,8 @@ public final class SyncService {
                     ensureScope(stored.get());
                 }
             }
+            toFetchCount = toFetch.size();
+            emit(SyncProgress.FETCHING, toFetch.isEmpty() ? "Nothing new to download" : "Downloading " + toFetch.size() + " question(s) with their answers");
             fetchAll(toFetch, state, false);
         }
 
@@ -276,6 +300,9 @@ public final class SyncService {
                         } else {
                             storeFetched(id, fetched, state, reconciling);
                         }
+                        fetchedCount++;
+                        emit(reconciling ? SyncProgress.RECONCILING : SyncProgress.FETCHING,
+                                (reconciling ? "Verifying question " : "Saved question ") + id);
                     }
                 }
             } finally {
@@ -421,6 +448,8 @@ public final class SyncService {
             if (missing.isEmpty()) {
                 return;
             }
+            toFetchCount += missing.size();
+            emit(SyncProgress.RECONCILING, "Checking " + missing.size() + " stored question(s) that were not in the listing");
             warnings.add(missing.size() + " stored question(s) were absent from the listing and were probed individually; "
                     + "only explicit source answers (gone / forbidden / tags changed) changed their status.");
             fetchAll(missing, state, true);
@@ -486,6 +515,7 @@ public final class SyncService {
                     added, updated, unchanged, skipped, statusChanges.size(), purged, List.copyOf(failures),
                     List.copyOf(statusChanges), List.copyOf(warnings), completeness(state, outcome), List.copyOf(limitations), abortReason);
             store.writeReport(state.runId, report);
+            emit(aborted ? SyncProgress.FAILED : SyncProgress.DONE, aborted ? abortReason : "Finished");
             return report;
         }
 

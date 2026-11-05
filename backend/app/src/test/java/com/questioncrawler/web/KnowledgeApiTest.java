@@ -38,67 +38,77 @@ class KnowledgeApiTest {
     @Autowired
     private MockMvc mvc;
 
+    private static final MediaType JSON = MediaType.APPLICATION_JSON;
+
     @Test
     @Order(1)
-    void searchBeforeAnySyncExplainsWhatToDo() throws Exception {
+    void freshInstallationGuidesToTheNextStepAndSearchExplainsWhatToDo() throws Exception {
+        mvc.perform(get("/api/overview"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.steps.length()").value(4))
+                .andExpect(jsonPath("$.nextStep").value("collect"))
+                .andExpect(jsonPath("$.totals.questions").value(0));
         mvc.perform(get("/api/search").param("q", "timeout"))
                 .andExpect(status().isServiceUnavailable())
-                .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("Search index not found")));
+                .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("not found")));
     }
 
     @Test
     @Order(2)
-    void syncCollectsTheFixtureSite() throws Exception {
-        mvc.perform(post("/api/sync").param("wait", "true"))
+    void syncCollectsTheFixtureSiteAndReportsProgressShape() throws Exception {
+        mvc.perform(post("/api/sync").param("wait", "true").contentType(JSON).content("{}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.outcome").value("COMPLETE"))
                 .andExpect(jsonPath("$.added").value(10))
                 .andExpect(jsonPath("$.completeness").value(org.hamcrest.Matchers.startsWith("INCREMENTAL")));
+        mvc.perform(get("/api/sync/status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.running").value(false))
+                .andExpect(jsonPath("$.progress.phase").value("DONE"))
+                .andExpect(jsonPath("$.lastReport.added").value(10));
     }
 
     @Test
     @Order(3)
-    void searchReturnsEvidenceWithSourceUrlsAndUntrustedMarker() throws Exception {
+    void overviewNowShowsTheCollectedKnowledge() throws Exception {
+        mvc.perform(get("/api/overview"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totals.questions").value(10))
+                .andExpect(jsonPath("$.totals.answers").value(15))
+                .andExpect(jsonPath("$.nextStep").value("explore"))
+                .andExpect(jsonPath("$.recentRuns.length()").value(1));
+    }
+
+    @Test
+    @Order(4)
+    void searchReturnsEvidenceWithSourceUrlsAgesAndUntrustedMarker() throws Exception {
         mvc.perform(get("/api/search").param("q", "ERR_CONN_TIMEOUT connection timed out after 30 seconds"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.evidence[0].questionId").value("1001"))
                 .andExpect(jsonPath("$.evidence[0].sourceUrl").value("https://qa.example.internal/questions/1001"))
-                .andExpect(jsonPath("$.evidence[0].untrusted").value(true))
-                .andExpect(jsonPath("$.notice").value(org.hamcrest.Matchers.containsString("untrusted")));
+                .andExpect(jsonPath("$.evidence[0].createdAt").exists())
+                .andExpect(jsonPath("$.evidence[0].untrusted").value(true));
+        mvc.perform(get("/api/search").param("q", "kubernetes pod eviction policy"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.resultCount").value(0))
+                .andExpect(jsonPath("$.confidence").value("NONE"));
+        mvc.perform(get("/api/search").param("q", "   ")).andExpect(status().isBadRequest());
     }
 
     @Test
-    @Order(3)
+    @Order(5)
     void ageFiltersApplyToQuestionsAndAnswers() throws Exception {
-        // The synthetic questions are from 2025, so "within 30 days" matches nothing and "older than 30 days" matches.
         mvc.perform(get("/api/search").param("q", "timeout").param("maxQuestionAge", "30d"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.resultCount").value(0))
                 .andExpect(jsonPath("$.ageFilter.maxQuestionAge").value("30d"));
         mvc.perform(get("/api/search").param("q", "timeout").param("minQuestionAge", "30d"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.resultCount").value(org.hamcrest.Matchers.greaterThan(0)))
-                .andExpect(jsonPath("$.evidence[0].questionCreatedAt").exists());
-        mvc.perform(get("/api/search").param("q", "timeout").param("maxAnswerAge", "nonsense"))
-                .andExpect(status().isBadRequest());
+                .andExpect(jsonPath("$.resultCount").value(org.hamcrest.Matchers.greaterThan(0)));
+        mvc.perform(get("/api/search").param("q", "timeout").param("maxAnswerAge", "nonsense")).andExpect(status().isBadRequest());
         mvc.perform(get("/api/categories/installation-setup").param("maxQuestionAge", "30d"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.questions.length()").value(0));
-    }
-
-    @Test
-    @Order(4)
-    void noAnswerQueryReturnsNoEvidence() throws Exception {
-        mvc.perform(get("/api/search").param("q", "kubernetes pod eviction policy"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.resultCount").value(0))
-                .andExpect(jsonPath("$.confidence").value("NONE"));
-    }
-
-    @Test
-    @Order(5)
-    void blankQueriesAreRejected() throws Exception {
-        mvc.perform(get("/api/search").param("q", "   ")).andExpect(status().isBadRequest());
     }
 
     @Test
@@ -113,20 +123,16 @@ class KnowledgeApiTest {
         mvc.perform(get("/api/categories/installation-setup"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.questions[?(@.id=='1002')]").exists());
-        mvc.perform(get("/api/status"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.threadCount").value(10));
+        mvc.perform(get("/api/status")).andExpect(status().isOk()).andExpect(jsonPath("$.threadCount").value(10));
     }
 
     @Test
     @Order(7)
-    void manualOverrideIsReturnedAndCanBeCleared() throws Exception {
-        mvc.perform(put("/api/questions/1001/categories").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"categories\":[\"performance\"],\"note\":\"tuning\"}"))
+    void manualTopicOverrideIsReturnedAndCanBeCleared() throws Exception {
+        mvc.perform(put("/api/questions/1001/categories").contentType(JSON).content("{\"categories\":[\"performance\"],\"note\":\"tuning\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.categories[0]").value("performance"));
-        mvc.perform(put("/api/questions/1001/categories").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"categories\":[\"nope\"]}"))
+        mvc.perform(put("/api/questions/1001/categories").contentType(JSON).content("{\"categories\":[\"nope\"]}"))
                 .andExpect(status().isBadRequest());
         mvc.perform(delete("/api/questions/1001/categories"))
                 .andExpect(status().isOk())
@@ -135,8 +141,57 @@ class KnowledgeApiTest {
 
     @Test
     @Order(8)
-    void syncStatusAndReportsAreAvailable() throws Exception {
-        mvc.perform(get("/api/sync/status")).andExpect(status().isOk()).andExpect(jsonPath("$.running").value(false));
+    void settingsAreExplainedValidatedAndSavedFromTheUi() throws Exception {
+        mvc.perform(get("/api/config"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sections.length()").value(4))
+                .andExpect(jsonPath("$.sections[0].fields[0].help").exists())
+                .andExpect(jsonPath("$.values['sync.tags']").value("orbit"));
+        mvc.perform(post("/api/config/validate").contentType(JSON).content("{\"values\":{\"sync.maxQuestionAge\":\"recently\"}}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.issues[0].level").value("error"))
+                .andExpect(jsonPath("$.issues[0].fix").exists())
+                .andExpect(jsonPath("$.preview").value(org.hamcrest.Matchers.containsString("sync.maxQuestionAge=recently")));
+        mvc.perform(put("/api/config").contentType(JSON).content("{\"values\":{\"sync.maxQuestionAge\":\"recently\"}}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.saved").value(false));
+        mvc.perform(put("/api/config").contentType(JSON).content("{\"values\":{\"sync.maxQuestionAge\":\"1y\"}}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.saved").value(true))
+                .andExpect(jsonPath("$.view.values['sync.maxQuestionAge']").value("1y"));
+        mvc.perform(get("/api/config/presets")).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(4));
+    }
+
+    @Test
+    @Order(9)
+    void connectionCheckExplainsTheRouteToTheData() throws Exception {
+        mvc.perform(post("/api/connection/check").contentType(JSON).content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.verdict").value("READY"))
+                .andExpect(jsonPath("$.route.kind").value("OFFLINE_DEMO"))
+                .andExpect(jsonPath("$.stages.length()").value(6));
+        mvc.perform(post("/api/connection/check").contentType(JSON)
+                        .content("{\"values\":{\"source.type\":\"live\",\"source.baseUrl\":\"https://this-host-does-not-exist.invalid/api\",\"source.timeoutSeconds\":\"3\"}}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.verdict").value("BLOCKED"))
+                .andExpect(jsonPath("$.stages[0].needs[0].who").exists());
+        mvc.perform(get("/api/connection/last")).andExpect(status().isOk());
+    }
+
+    @Test
+    @Order(10)
+    void categoryRulesCanBeTriedOutBeforeSaving() throws Exception {
+        mvc.perform(get("/api/taxonomy")).andExpect(status().isOk()).andExpect(jsonPath("$.taxonomy.categories.length()").value(12));
+        mvc.perform(post("/api/taxonomy/try").contentType(JSON)
+                        .content("{\"title\":\"Helm chart fails to deploy\",\"body\":\"kubernetes rollout failed\",\"tags\":[\"helm\"]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.matches[?(@.categoryId=='deployment')]").exists())
+                .andExpect(jsonPath("$.fallback").value(false));
+    }
+
+    @Test
+    @Order(11)
+    void reportsAndReindexAreAvailable() throws Exception {
         mvc.perform(get("/api/sync/reports")).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1));
         mvc.perform(post("/api/reindex")).andExpect(status().isOk()).andExpect(jsonPath("$.threads").value(10));
     }

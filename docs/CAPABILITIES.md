@@ -4,7 +4,7 @@
 
 Environment used: JDK 21 on Linux, **Lucene 9.10, Jackson 2.14, JUnit 5.10 from Ubuntu packages** (the sandbox could not reach Maven Central).
 
-- `backend/core` compiled with `javac`; **103 automated tests passed**, 0 failed (stable over repeated runs): question/answer pagination, accepted and unaccepted
+- `backend/core` compiled with `javac`; **135 automated tests passed**, 0 failed (stable over repeated runs): question/answer pagination, accepted and unaccepted
   answers, unanswered questions, code-block/link/table preservation, duplicate IDs, incremental updates, interrupted-sync resume,
   rate limits (Retry-After, exponential backoff) and auth failures, per-item failures and checkpoint behaviour, deleted /
   inaccessible / no-longer-matching handling, retention, concurrency lock, classification + explanations + persistent overrides,
@@ -15,6 +15,15 @@ Environment used: JDK 21 on Linux, **Lucene 9.10, Jackson 2.14, JUnit 5.10 from 
 - Age filters (question/answer, min/max, combined, unknown dates, browsing, collection window) and the **Stack Exchange adapter**
   (documented parameters, batching, pagination, backoff, error mapping, gzip, key handling, end-to-end sync) are tested against a
   **local mock** of the documented API.
+- The access diagnostics (network, TLS explanations, sign-in redirects, 401 methods, published API descriptions, robots.txt, script-built
+  pages, bot protection, Stack Exchange quota and tag size) run against local servers that play each kind of site, plus the settings
+  service (every setting explained, validation with fixes, readable file round trip), sync progress events, the workspace/overview,
+  and the editable category rules with the "try it" tester.
+- The **launcher** (`npm start`) was run end to end with the dev API standing in for Spring: it started both servers, waited for health,
+  the UI proxied to the API, and Ctrl+C left nothing running.
+- The **UI** was built and rendered in headless Firefox against real data (Overview, Connect with a blocked route map, Collect, Explore with
+  age sliders, Question, Organize with the rule tester, Settings, Help, and the first-run state); the 32 expectations of the new Spring API
+  tests were replayed against the same logic and all held.
 - The offline demo (`demo`) runs end to end.
 - `frontend` installs, type-checks, builds (Vite) and lints with no warnings.
 
@@ -24,8 +33,9 @@ Environment used: JDK 21 on Linux, **Lucene 9.10, Jackson 2.14, JUnit 5.10 from 
   service; request shapes follow the official API documentation and a mock. See STACKOVERFLOW.md.
 - **Gradle build** (multi-module, wrapper properties): not run; no Gradle/Maven access in the sandbox. Versions (Spring Boot 3.5.0,
   Lucene 9.12.0, Gradle 8.14) were chosen from knowledge, not checked against a registry. The wrapper jar must be generated (`gradle wrapper`).
-- **Spring Boot app** (`backend/app`) and its MockMvc tests: written, not compiled or run. Lucene 9.12 (vs 9.10 tested) and Jackson 2.19 (vs 2.14) are expected to be API-compatible but unconfirmed.
-- **Web UI against the live backend** (only built, not exercised in a browser).
+- **Spring Boot app** (`backend/app`) and its MockMvc tests: the controllers were only **type-checked against stand-ins for the Spring annotations**, never compiled or run with real Spring, and the MockMvc tests have not been run. This is the riskiest part of a first `npm start`. Lucene 9.12 (vs 9.10 tested) and Jackson 2.19 (vs 2.14) are expected to be API-compatible but unconfirmed.
+- **Web UI against the real Spring backend** (it was exercised against an equivalent test-scope server, in Firefox only; no Chrome/Safari/Edge).
+- **The launcher on Windows and macOS** (run on Linux only), and the Gradle bootRun and static-UI packaging steps.
 - **Windows**: PowerShell launcher, Task Scheduler commands and path handling were written for Windows but not executed on it.
 - **Copilot**: the skill follows the documented Agent Skills format (checked against GitHub documentation), but activation in your VS Code
   / managed environment, and the quality of Copilot's answers, were not tested.

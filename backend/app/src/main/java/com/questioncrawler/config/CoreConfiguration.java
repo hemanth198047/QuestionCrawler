@@ -1,7 +1,6 @@
 package com.questioncrawler.config;
 
-import com.questioncrawler.core.service.CoreConfig;
-import com.questioncrawler.core.service.KnowledgeBase;
+import com.questioncrawler.core.service.Workspace;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
@@ -15,19 +14,12 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 public class CoreConfiguration {
 
     @Bean
-    public CoreConfig coreConfig(AppProperties properties) {
-        Path file = CoreConfig.locate(properties.configFile());
+    public Workspace workspace(AppProperties properties) {
+        Path file = properties.configFile() == null || properties.configFile().isBlank() ? null : Path.of(properties.configFile());
         Map<String, String> overrides = new HashMap<>();
         if (properties.storageRoot() != null && !properties.storageRoot().isBlank()) {
             overrides.put("storage.root", properties.storageRoot());
         }
-        return CoreConfig.load(file, overrides);
-    }
-
-    @Bean
-    public KnowledgeBase knowledgeBase(CoreConfig config) {
-        KnowledgeBase knowledgeBase = new KnowledgeBase(config);
-        knowledgeBase.init();
-        return knowledgeBase;
+        return new Workspace(file, overrides);
     }
 }

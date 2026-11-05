@@ -1,26 +1,42 @@
+import { CheckCircle2, ExternalLink, HelpCircle, MessageSquareText, ShieldAlert, ThumbsUp } from 'lucide-react'
+import { safeUrl } from '../lib/url'
+import { dateOnly, timeAgo } from '../lib/format'
 import type { Evidence } from '../types/api'
-import { safeUrl } from '../url'
+import { Badge, Chip, InfoTip } from './ui'
+import { Markdown } from './Markdown'
 
-export function EvidenceCard({ e }: { e: Evidence }) {
+export function EvidenceCard({ e, onCategory }: { e: Evidence; onCategory?: (id: string) => void }) {
   const href = safeUrl(e.sourceUrl)
+  const isAnswer = e.type === 'answer'
+  const cov = Math.round(e.termCoverage * 100)
   return (
-    <article className="card">
-      <header className="card-head">
-        <span className="badge">{e.type === 'answer' ? `Answer ${e.answerId}` : 'Question'}</span>
-        {e.accepted && <span className="badge ok">Accepted</span>}
-        {e.threadStatus !== 'ACTIVE' && <span className="badge warn">{e.threadStatus}</span>}
-        {e.flags.length > 0 && <span className="badge danger">Possible injected instructions</span>}
-        <span className="muted">votes {e.votes ?? 'unknown'} · relevance {e.score} · coverage {e.termCoverage}</span>
-      </header>
-      <h3><a href={`#/question/${encodeURIComponent(e.questionId)}`}>{e.title}</a></h3>
-      <pre className="passage" aria-label="Untrusted crawled passage">{e.passage}</pre>
-      <footer className="muted">
-        {href ? <a href={href} target="_blank" rel="noreferrer noopener">Original source</a> : 'Source URL unknown'}
-        {' · '}{e.categoryNames.join(', ')}
-        {' · '}{e.type === 'answer' ? 'answered' : 'asked'} {e.createdAt ?? 'unknown'}
-        {e.type === 'answer' ? ` (question asked ${e.questionCreatedAt ?? 'unknown'})` : ''}
-        {' · '}modified {e.sourceModifiedAt ?? 'unknown'} · synced {e.lastSyncedAt ?? 'unknown'}
-      </footer>
+    <article className={`evidence rise ${e.accepted ? 'accepted' : ''}`}>
+      <div className={`ev-icon ${isAnswer ? 'ans' : 'q'}`}>{isAnswer ? (e.accepted ? <CheckCircle2 size={20} /> : <MessageSquareText size={20} />) : <HelpCircle size={20} />}</div>
+      <div className="ev-main">
+        <div className="ev-badges">
+          <Badge tone={isAnswer ? 'info' : 'neutral'}>{isAnswer ? 'Answer' : 'Question'}</Badge>
+          {e.accepted && <Badge tone="ok" icon={<CheckCircle2 size={12} />}>Accepted</Badge>}
+          <Badge tone="neutral" icon={<ThumbsUp size={12} />}>{e.votes ?? '?'} votes</Badge>
+          <span className="ev-age" title={dateOnly(e.createdAt)}>{isAnswer ? 'answered' : 'asked'} {timeAgo(e.createdAt)}</span>
+          {isAnswer && <span className="ev-age muted">· question asked {timeAgo(e.questionCreatedAt)}</span>}
+          {e.threadStatus !== 'ACTIVE' && <Badge tone="warn">{e.threadStatus.toLowerCase().replace('_', ' ')}</Badge>}
+          <InfoTip term={e.accepted ? 'accepted' : 'votes'} />
+        </div>
+        <h3 className="ev-title"><a href={`#/question/${encodeURIComponent(e.questionId)}`}>{e.title}</a></h3>
+        {e.flags.length > 0 && (
+          <div className="ev-flag"><ShieldAlert size={16} /> This text contains wording that looks like instructions to an AI assistant. It is shown only as reading material and is never acted on.</div>
+        )}
+        <div className="ev-passage"><Markdown text={e.passage} compact /></div>
+        <div className="ev-foot">
+          <div className="row" style={{ gap: 6 }}>
+            {e.categoryNames.slice(0, 3).map((n, i) => <Chip key={n} onClick={onCategory ? () => onCategory(e.categories[i]) : undefined}>{n}</Chip>)}
+          </div>
+          <div className="row" style={{ gap: 14 }}>
+            <span className="match" title="How many of your search words this passage contains"><span className="match-bar"><i style={{ width: `${cov}%` }} /></span>{cov}% of your words</span>
+            {href ? <a href={href} target="_blank" rel="noreferrer noopener" className="small">Original source <ExternalLink size={12} style={{ verticalAlign: -1 }} /></a> : <span className="muted small">source link unknown</span>}
+          </div>
+        </div>
+      </div>
     </article>
   )
 }
