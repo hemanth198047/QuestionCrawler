@@ -31,8 +31,8 @@ Environment used: JDK 21 on Linux, **Lucene 9.10, Jackson 2.14, JUnit 5.10 from 
 
 - **Live Stack Overflow access.** The sandbox has no outbound access to api.stackexchange.com, so the adapter has never talked to the real
   service; request shapes follow the official API documentation and a mock. See STACKOVERFLOW.md.
-- **Gradle build** (multi-module, wrapper properties): not run; no Gradle/Maven access in the sandbox. Versions (Spring Boot 3.5.0,
-  Lucene 9.12.0, Gradle 8.14) were chosen from knowledge, not checked against a registry. The wrapper jar must be generated (`gradle wrapper`).
+- **Gradle build** (multi-module, wrapper properties): not run; no Gradle/Maven access in the sandbox. Versions (Spring Boot 3.4.8 after a company mirror only offered that,
+  Lucene 9.12.0) live in `backend/gradle.properties`; the build files were checked to resolve those versions with a real Gradle (9.3.1) that had no network, so downloading and compiling remain unverified. The wrapper jar must be generated (`gradle wrapper`).
 - **Spring Boot app** (`backend/app`) and its MockMvc tests: the controllers were only **type-checked against stand-ins for the Spring annotations**, never compiled or run with real Spring, and the MockMvc tests have not been run. This is the riskiest part of a first `npm start`. Lucene 9.12 (vs 9.10 tested) and Jackson 2.19 (vs 2.14) are expected to be API-compatible but unconfirmed.
 - **Web UI against the real Spring backend** (it was exercised against an equivalent test-scope server, in Firefox only; no Chrome/Safari/Edge).
 - **The launcher on Windows and macOS** (run on Linux only), and the Gradle bootRun and static-UI packaging steps.

@@ -11,14 +11,14 @@ java {
 
 dependencies {
     // Versions for Jackson and JUnit come from the Spring Boot BOM so that core and app agree.
-    implementation platform('org.springframework.boot:spring-boot-dependencies:3.5.0')
-    testImplementation platform('org.springframework.boot:spring-boot-dependencies:3.5.0')
+    implementation platform("org.springframework.boot:spring-boot-dependencies:${springBootVersion}")
+    testImplementation platform("org.springframework.boot:spring-boot-dependencies:${springBootVersion}")
 
     // JSON persistence of all stored data (threads, state, reports, config templates).
     api 'com.fasterxml.jackson.core:jackson-databind'
     // Embedded full-text index kept as plain files under <storage-root>/index. No server, no database.
-    implementation 'org.apache.lucene:lucene-core:9.12.0'
-    implementation 'org.apache.lucene:lucene-analysis-common:9.12.0'
+    implementation "org.apache.lucene:lucene-core:${luceneVersion}"
+    implementation "org.apache.lucene:lucene-analysis-common:${luceneVersion}"
 
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'

@@ -32,12 +32,24 @@ To apply a script only for one run without copying it: `$env:QC_GRADLE_ARGS="--i
 The example is a widely used pattern but could not be tested against your repository. If it does not work, send me the first
 error line from the `api │` output and what your platform team says the repository URLs and authentication are.
 
-## 3. Some other places that may need a mirror
+## 3. "Plugin ... was not found; the available version is X"
+
+Your mirror offers different versions than the ones the project asks for. All versions live in **one file**, `backend/gradle.properties`:
+
+```properties
+springBootVersion=3.4.8
+dependencyManagementVersion=1.1.7
+luceneVersion=9.12.0
+```
+Change a value to a version your mirror has (Spring Boot 3.4.x and 3.5.x both work) and run `npm start` again. You can also override one run
+without editing the file: `$env:QC_GRADLE_ARGS="-PspringBootVersion=3.4.8"; npm start`.
+
+## 4. Some other places that may need a mirror
 
 - **npm** (the frontend): `npm config set registry https://your-internal-npm-registry/` (ask your platform team).
 - **Gradle's own distribution**: not needed when you use your organization's installed Gradle. Only a wrapper downloads one.
 
-## 4. Using a wrapper anyway
+## 5. Using a wrapper anyway
 
 If your organization prefers a wrapper, run `gradle wrapper --gradle-version 8.14` in `backend/`, and change `distributionUrl` in
 `backend/gradle/wrapper/gradle-wrapper.properties` to your internal mirror of the Gradle distribution. The launcher will then use it.

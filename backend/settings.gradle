@@ -1,2 +1,10 @@
+pluginManagement {
+    // Plugin versions come from gradle.properties so they can be changed in one place.
+    plugins {
+        id 'org.springframework.boot' version "${springBootVersion}"
+        id 'io.spring.dependency-management' version "${dependencyManagementVersion}"
+    }
+}
+
 rootProject.name = 'questioncrawler-backend'
 include 'core', 'app'
