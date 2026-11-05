@@ -3,6 +3,7 @@
 | Symptom | Cause / fix |
 |---|---|
 | `npm start` says Java/Node not found or too old | Install JDK 21 and Node 20+, open a NEW terminal, run `npm run check`. |
+| npm says `403 Forbidden` / `E401` / certificate or proxy errors while installing the frontend | Your company network controls npm. See [ORG_NPM.md](ORG_NPM.md): set the internal registry (`QC_NPM_REGISTRY` or `npm config set registry`), add your token to your user `.npmrc`, or ask for a blocked package to be allowed. |
 | `Gradle was not found` / `Gradle is too old` | No wrapper is needed. Use your organization's Gradle (8.5+): put it on PATH or set `QC_GRADLE`. See [ORG_GRADLE.md](ORG_GRADLE.md). |
 | The backend fails while resolving plugins or libraries | Your network blocks Maven Central / the plugin portal. Use an internal mirror: see [ORG_GRADLE.md](ORG_GRADLE.md). |
 | `Port 8080 / 5173 is already in use` | Another copy is running. Close it, or set `QC_API_PORT` / `QC_UI_PORT`. |

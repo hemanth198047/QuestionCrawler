@@ -44,6 +44,17 @@ function run(cmd, cmdArgs, opts = {}) {
     p.on('close', (code) => resolve(code ?? 1))
   })
 }
+/** Runs a command, shows its output live, and also returns it so errors can be explained. */
+function runTee(cmd, cmdArgs, opts = {}) {
+  return new Promise((resolve) => {
+    let out = ''
+    const p = spawn(cmd, cmdArgs, { cwd: opts.cwd ?? ROOT, shell: WIN, env: { ...process.env, ...opts.env } })
+    const take = (stream, sink) => stream.on('data', (d) => { sink.write(d); out = (out + d.toString()).slice(-40000) })
+    take(p.stdout, process.stdout); take(p.stderr, process.stderr)
+    p.on('error', () => resolve({ code: 127, out }))
+    p.on('close', (code) => resolve({ code: code ?? 1, out }))
+  })
+}
 function capture(cmd, cmdArgs) {
   const r = spawnSync(cmd, cmdArgs, { encoding: 'utf8', shell: WIN })
   return { code: r.status ?? 127, out: `${r.stdout ?? ''}${r.stderr ?? ''}` }
@@ -175,14 +186,45 @@ function missingPackages() {
   } catch { return ['(package.json unreadable)'] }
 }
 
+/** Turns an npm failure into plain steps. */
+function npmHelp(out, registry) {
+  const lines = []
+  if (/E403|\b403\b|Forbidden/i.test(out)) {
+    lines.push('npm was refused (HTTP 403 Forbidden) by the registry it is using:', `    ${registry}`, '',
+      'This usually means one of these:',
+      '  1. Your company blocks the public npm registry and expects you to use its internal one.',
+      '     Ask your platform team for the internal npm registry URL, then run (use your URL):',
+      WIN ? '       $env:QC_NPM_REGISTRY="https://npm.mycompany.com/"; npm start' : '       QC_NPM_REGISTRY=https://npm.mycompany.com/ npm start',
+      '     To make it permanent for all projects:   npm config set registry https://npm.mycompany.com/',
+      '  2. The internal registry needs a login/token. Get an access token from your platform team and add it to YOUR user file',
+      '     (not the repository):  ' + (WIN ? '%USERPROFILE%\\.npmrc' : '~/.npmrc'),
+      '       //npm.mycompany.com/:_authToken=YOUR_TOKEN',
+      '  3. Only one package is blocked by a security policy (the error above names it). Ask for it to be allowed.',
+      '', 'Full steps: docs/ORG_NPM.md')
+  } else if (/E401|\b401\b|Unauthorized/i.test(out)) {
+    lines.push('The npm registry asked for a login (HTTP 401).', 'Add your access token to your user .npmrc (not the repository). See docs/ORG_NPM.md.')
+  } else if (/SELF_SIGNED|UNABLE_TO_VERIFY|CERT_|certificate/i.test(out)) {
+    lines.push('npm does not trust your company\'s security certificate.', 'Ask IT for the company root certificate (.pem), then run:   npm config set cafile C:\\path\\company-ca.pem', 'Full steps: docs/ORG_NPM.md')
+  } else if (/ENOTFOUND|ETIMEDOUT|ECONNREFUSED|EAI_AGAIN|ECONNRESET|proxy/i.test(out)) {
+    lines.push('npm could not reach the registry (a network or proxy problem).', 'If your company uses a proxy:   npm config set proxy http://proxy.mycompany.com:8080   and   npm config set https-proxy http://proxy.mycompany.com:8080', 'Full steps: docs/ORG_NPM.md')
+  } else {
+    lines.push('Read the npm error above. If it mentions a registry, proxy or certificate, see docs/ORG_NPM.md.')
+  }
+  lines.push('', 'To retry only this step:  cd frontend && npm install')
+  return lines
+}
+
 async function prepareFrontend() {
   step('Preparing the frontend')
   const missing = existsSync(path.join(FRONTEND, 'node_modules')) ? missingPackages() : ['everything (first run)']
   if (missing.length > 0) {
+    const registry = process.env.QC_NPM_REGISTRY || capture('npm', ['config', 'get', 'registry']).out.trim().split(/\r?\n/).pop()
     say(`  ${dim(`Installing packages: ${missing.slice(0, 4).join(', ')}${missing.length > 4 ? '…' : ''}`)}`)
-    const code = await run('npm', ['install', '--no-fund', '--no-audit'], { cwd: FRONTEND })
-    if (code !== 0) fail('Installing the frontend packages failed', ['Check your internet connection or npm proxy settings, then try again.',
-      'You can also run it yourself:  cd frontend && npm install'])
+    say(`  ${dim(`npm registry: ${registry}`)}`)
+    const npmArgs = ['install', '--no-fund', '--no-audit']
+    if (process.env.QC_NPM_REGISTRY) npmArgs.push('--registry', process.env.QC_NPM_REGISTRY)
+    const r = await runTee('npm', npmArgs, { cwd: FRONTEND })
+    if (r.code !== 0) fail('Installing the frontend packages failed', npmHelp(r.out, registry))
     const still = missingPackages()
     if (still.length > 0) fail('Some frontend packages are still missing', [still.join(', '), 'Try:  cd frontend && npm install'])
   }
