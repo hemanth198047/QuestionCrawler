@@ -26,8 +26,8 @@ That checks your setup, prepares the backend and the frontend, starts both, wait
 | `npm start -- --no-open` | Start without opening a browser |
 
 The first start downloads and compiles the backend, so it can take a few minutes; later starts take seconds.
-It uses whatever Gradle 8.5+ you already have (including your organization's: see [docs/ORG_GRADLE.md](docs/ORG_GRADLE.md)); no wrapper is required. Ports 8080 and 5173 are
-used; change them with `QC_API_PORT` and `QC_UI_PORT`.
+It uses whatever Gradle 8.5+ you already have (including your organization's: see [docs/ORG_GRADLE.md](docs/ORG_GRADLE.md)); no wrapper is required. It prefers ports 8080 (backend) and 5173 (interface). If either is busy it **picks the next free port automatically** and tells you; the
+address it opens is always printed. To prefer other ports, set `QC_API_PORT` and `QC_UI_PORT`.
 
 ## What you will see
 

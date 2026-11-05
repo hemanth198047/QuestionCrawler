@@ -18,8 +18,10 @@ const BACKEND = path.join(ROOT, 'backend')
 const FRONTEND = path.join(ROOT, 'frontend')
 const WIN = process.platform === 'win32'
 const args = new Set(process.argv.slice(2))
-const API_PORT = Number(process.env.QC_API_PORT ?? 8080)
-const UI_PORT = Number(process.env.QC_UI_PORT ?? 5173)
+const PREFERRED_API_PORT = Number(process.env.QC_API_PORT ?? 8080)
+const PREFERRED_UI_PORT = Number(process.env.QC_UI_PORT ?? 5173)
+let API_PORT = PREFERRED_API_PORT // the ports actually used: chosen in serve() if the preferred ones are busy
+let UI_PORT = PREFERRED_UI_PORT
 const PROD = args.has('--prod')
 
 const useColor = process.stdout.isTTY && !process.env.NO_COLOR
@@ -94,10 +96,23 @@ function shutdown(code = 0) {
 process.on('SIGINT', () => shutdown(0))
 process.on('SIGTERM', () => shutdown(0))
 
-const portFree = (port) => new Promise((resolve) => {
+const canListen = (port, host) => new Promise((resolve) => {
   const s = net.createServer().once('error', () => resolve(false)).once('listening', () => s.close(() => resolve(true)))
-  s.listen(port, '127.0.0.1')
+  host ? s.listen(port, host) : s.listen(port)
 })
+/** Free only if nothing holds it on loopback or on any interface (Windows allows some overlaps that later fail). */
+const portFree = async (port) => (await canListen(port, '127.0.0.1')) && (await canListen(port))
+/** The preferred port if free, otherwise the next free one. */
+async function pickPort(preferred, label, avoid = []) {
+  for (let p = preferred; p < preferred + 200 && p < 65536; p++) {
+    if (avoid.includes(p)) continue
+    if (await portFree(p)) {
+      if (p !== preferred) warn(`Port ${preferred} is already in use, so the ${label} will use port ${p} instead.`)
+      return p
+    }
+  }
+  return fail(`No free port found near ${preferred}`, ['Close some programs, or set QC_API_PORT / QC_UI_PORT to a free port range.'])
+}
 const httpOk = (url) => new Promise((resolve) => {
   const req = http.get(url, { timeout: 2500 }, (res) => { res.resume(); resolve(res.statusCode !== undefined && res.statusCode < 500) })
   req.on('error', () => resolve(false)); req.on('timeout', () => { req.destroy(); resolve(false) })
@@ -244,14 +259,10 @@ async function testMode() {
 }
 
 async function serve() {
-  const apiBusy = !(await portFree(API_PORT))
-  const uiBusy = !PROD && !(await portFree(UI_PORT))
-  if (apiBusy || uiBusy) {
-    fail(`Port ${apiBusy ? API_PORT : UI_PORT} is already in use`, [
-      'Another copy of QuestionCrawler (or another program) is running.',
-      'Close it and try again, or pick other ports:',
-      WIN ? '  $env:QC_API_PORT=8081; $env:QC_UI_PORT=5174; npm start' : '  QC_API_PORT=8081 QC_UI_PORT=5174 npm start'])
-  }
+  step('Choosing ports')
+  API_PORT = await pickPort(PREFERRED_API_PORT, 'backend')
+  UI_PORT = PROD ? API_PORT : await pickPort(PREFERRED_UI_PORT, 'interface', [API_PORT])
+  ok(`Backend port ${API_PORT}${PROD ? '' : `, interface port ${UI_PORT}`}`)
   if (PROD) {
     step('Building the user interface')
     const code = await run('npm', ['run', 'build'], { cwd: FRONTEND })

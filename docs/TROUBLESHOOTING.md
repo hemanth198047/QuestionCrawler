@@ -6,7 +6,7 @@
 | npm says `403 Forbidden` / `E401` / certificate or proxy errors while installing the frontend | Your company network controls npm. See [ORG_NPM.md](ORG_NPM.md): set the internal registry (`QC_NPM_REGISTRY` or `npm config set registry`), add your token to your user `.npmrc`, or ask for a blocked package to be allowed. |
 | `Gradle was not found` / `Gradle is too old` | No wrapper is needed. Use your organization's Gradle (8.5+): put it on PATH or set `QC_GRADLE`. See [ORG_GRADLE.md](ORG_GRADLE.md). |
 | The backend fails while resolving plugins or libraries | Your network blocks Maven Central / the plugin portal. Use an internal mirror: see [ORG_GRADLE.md](ORG_GRADLE.md). |
-| `Port 8080 / 5173 is already in use` | Another copy is running. Close it, or set `QC_API_PORT` / `QC_UI_PORT`. |
+| `Port 8080 is already in use ... will use port 8081 instead` | Not a problem: the launcher picked a free port and opens the right address. (It only happens when something else, or an older copy, is using 8080.) |
 | The backend does not start (long wait, then error) | Read the `api │` lines. Usually a blocked Gradle/Maven download: set a proxy or an internal mirror. Send me the first error line. |
 | The page says the service is not reachable | The backend is still starting or stopped; watch the `api │` lines in the terminal. |
 | `QuestionCrawler is not built yet` | Run `./gradlew :core:installDist` in `backend/` (JDK 21). |
