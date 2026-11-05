@@ -1,5 +1,16 @@
 # Troubleshooting
 
+## Seeing backend errors clearly
+
+When the backend fails, the launcher prints a box titled **THE FIRST PROBLEM IN THE BACKEND OUTPUT** (the first Java compile error, Gradle's
+"What went wrong", or Spring's "APPLICATION FAILED TO START") followed by what to do. The complete output of each run is saved in:
+
+- `logs/backend.log` (Gradle + Spring)
+- `logs/frontend.log` (Vite)
+
+To see the backend alone, unmixed: `npm run backend`. To only compile it (fast, shows code errors): `npm run build:backend`.
+When asking for help, send the box and the first ~30 lines of `logs/backend.log`.
+
 | Symptom | Cause / fix |
 |---|---|
 | `npm start` says Java/Node not found or too old | Install JDK 21 and Node 20+, open a NEW terminal, run `npm run check`. |

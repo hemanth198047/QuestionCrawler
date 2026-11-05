@@ -7,7 +7,7 @@
 //   npm start -- --check    only check prerequisites
 // No dependencies: plain Node 20+.
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { createWriteStream, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import http from 'node:http'
 import net from 'node:net'
 import path from 'node:path'
@@ -23,6 +23,8 @@ const PREFERRED_UI_PORT = Number(process.env.QC_UI_PORT ?? 5173)
 let API_PORT = PREFERRED_API_PORT // the ports actually used: chosen in serve() if the preferred ones are busy
 let UI_PORT = PREFERRED_UI_PORT
 const PROD = args.has('--prod')
+const BACKEND_ONLY = args.has('--backend-only')
+const LOG_DIR = path.join(ROOT, 'logs')
 
 const useColor = process.stdout.isTTY && !process.env.NO_COLOR
 const c = (code, s) => (useColor ? `\x1b[${code}m${s}\x1b[0m` : s)
@@ -65,6 +67,9 @@ function startService(label, color, cmd, cmdArgs, opts) {
   const p = spawn(cmd, cmdArgs, { cwd: opts.cwd, shell: WIN || opts.shell, detached: !WIN, env: { ...process.env, ...opts.env } })
   children.push(p)
   p.captured = ''
+  mkdirSync(LOG_DIR, { recursive: true })
+  p.logFile = path.join(LOG_DIR, label === 'api' ? 'backend.log' : 'frontend.log')
+  const log = createWriteStream(p.logFile, { flags: 'w' })
   const tag = color(label.padEnd(4))
   const pipe = (stream) => {
     let buf = ''
@@ -73,14 +78,15 @@ function startService(label, color, cmd, cmdArgs, opts) {
       p.captured = (p.captured + d.toString()).slice(-60000)
       const lines = buf.split(/\r?\n/)
       buf = lines.pop() ?? ''
-      for (const line of lines) if (line.trim()) console.log(`${tag} ${dim('│')} ${line}`)
+      for (const line of lines) { log.write(line + '\n'); if (line.trim()) console.log(`${tag} ${dim('│')} ${line}`) }
     })
   }
   pipe(p.stdout); pipe(p.stderr)
   p.on('close', (code) => {
+    log.end()
     if (shuttingDown) return
     say(`\n${red('✗')} ${label} stopped unexpectedly (exit code ${code}).`)
-    if (label === 'api') for (const h of gradleHints(p.captured)) say(`  ${h}`)
+    if (label === 'api') explainBackendFailure(p)
     shutdown(1)
   })
   return p
@@ -106,6 +112,34 @@ function gradleHints(out) {
   if (/\b40[13]\b|Unauthorized|Forbidden/i.test(out)) hints.push('• The repository answered 401/403: it may need a token or refuse this artifact. See docs/ORG_GRADLE.md.')
   if (hints.length > 0) hints.push('• Details and examples: docs/ORG_GRADLE.md')
   return hints
+}
+
+/** Pulls the first real problem out of a long Gradle/Spring log and shows it in one clear place. */
+function firstProblems(out) {
+  const lines = out.split(/\r?\n/)
+  const picked = []
+  const compile = lines.findIndex((l) => /\.java:\d+: error:/.test(l))
+  if (compile >= 0) picked.push('Java compile error:', ...lines.slice(compile, compile + 4))
+  const wrong = lines.findIndex((l) => /What went wrong:/.test(l))
+  if (wrong >= 0) picked.push('Gradle says:', ...lines.slice(wrong + 1, wrong + 9).filter((l) => l.trim()))
+  const cause = lines.findIndex((l) => /^Caused by:|APPLICATION FAILED TO START|Exception in thread/.test(l))
+  if (cause >= 0) picked.push('Application error:', ...lines.slice(cause, cause + 8).filter((l) => l.trim()))
+  if (picked.length === 0) picked.push('Last lines of output:', ...lines.filter((l) => l.trim()).slice(-14))
+  return picked
+}
+function explainBackendFailure(proc) {
+  const out = proc.captured ?? ''
+  const bar = '─'.repeat(70)
+  say(`\n${red(bar)}`)
+  say(`${bold(red(' THE FIRST PROBLEM IN THE BACKEND OUTPUT'))}`)
+  say(red(bar))
+  for (const l of firstProblems(out)) say(`  ${/^(Java compile error|Gradle says|Application error|Last lines)/.test(l) ? bold(l) : l}`)
+  say(red(bar))
+  const hints = gradleHints(out)
+  if (hints.length) { say(`${bold(' What to do')}`); hints.forEach((h) => say(`  ${h}`)) }
+  say(`\n  Full backend output saved to:  ${bold(proc.logFile ?? path.join(LOG_DIR, 'backend.log'))}`)
+  say(`  Run only the backend to see it unmixed:  ${bold('npm run backend')}`)
+  say(`  Only compile (fast, shows code errors):   ${bold('npm run build:backend')}`)
 }
 let shuttingDown = false
 function killTree(p) {
@@ -287,11 +321,19 @@ async function testMode() {
   say(`\n${green('All checks passed.')}`)
 }
 
+async function compileMode() {
+  step('Compiling the backend (errors are shown unmixed)')
+  const code = await run(quote(GRADLE.cmd), [':core:compileJava', ':app:compileJava', '--console=plain', ...extraGradleArgs()], { cwd: BACKEND })
+  if (code !== 0) fail('The backend does not compile', ['The first "error:" line above is the problem. Copy it and send it to the developer.'])
+  ok('Backend compiled')
+}
+
 async function serve() {
   step('Choosing ports')
   API_PORT = await pickPort(PREFERRED_API_PORT, 'backend')
-  UI_PORT = PROD ? API_PORT : await pickPort(PREFERRED_UI_PORT, 'interface', [API_PORT])
-  ok(`Backend port ${API_PORT}${PROD ? '' : `, interface port ${UI_PORT}`}`)
+  const withUi = !PROD && !BACKEND_ONLY
+  UI_PORT = withUi ? await pickPort(PREFERRED_UI_PORT, 'interface', [API_PORT]) : API_PORT
+  ok(`Backend port ${API_PORT}${withUi ? `, interface port ${UI_PORT}` : ''}`)
   if (PROD) {
     step('Building the user interface')
     const code = await run('npm', ['run', 'build'], { cwd: FRONTEND })
@@ -305,24 +347,24 @@ async function serve() {
     ? startService('api', magenta, backendCmd, [], { cwd: ROOT, shell: true, env: { PORT: String(API_PORT) } })
     : startService('api', magenta, quote(GRADLE.cmd), [':app:bootRun', `--args=--server.port=${API_PORT}`, '--console=plain', ...extraGradleArgs()], { cwd: BACKEND })
   let ui = null
-  if (!PROD) {
+  if (!PROD && !BACKEND_ONLY) {
     const uiCmd = process.env.QC_FRONTEND_CMD
     ui = uiCmd
       ? startService('ui', blue, uiCmd, [], { cwd: ROOT, shell: true, env: { PORT: String(UI_PORT) } })
       : startService('ui', blue, 'npm', ['run', 'dev', '--', '--port', String(UI_PORT), '--strictPort', '--host', '127.0.0.1'], { cwd: FRONTEND, env: { VITE_BACKEND_URL: `http://127.0.0.1:${API_PORT}` } })
   }
   const apiUp = await waitFor('the backend', `http://127.0.0.1:${API_PORT}/api/health`, Number(process.env.QC_WAIT_SECONDS ?? 420), () => api.exitCode === null)
-  if (!apiUp) { const hints = gradleHints(api.captured ?? ''); shutdown(1); return fail('The backend did not start', hints.length ? hints : ['Scroll up for the error from the [api] lines. A common cause is a Gradle download blocked by a proxy or an unavailable version.']) }
+  if (!apiUp) { explainBackendFailure(api); shutdown(1); return fail('The backend did not start', ['See the box above for the first problem.']) }
   ok(`Backend is up at http://127.0.0.1:${API_PORT}`)
   if (ui) {
     const uiUp = await waitFor('the interface', `http://127.0.0.1:${UI_PORT}/`, 90, () => ui.exitCode === null)
     if (!uiUp) { shutdown(1); return fail('The interface did not start', ['Scroll up for the error from the [ui] lines.']) }
     ok(`Interface is up at http://localhost:${UI_PORT}`)
   }
-  const url = PROD ? `http://localhost:${API_PORT}/` : `http://localhost:${UI_PORT}/`
-  say(`\n${green('●')} ${bold('QuestionCrawler is running')}   ${bold(url)}`)
+  const url = PROD || BACKEND_ONLY ? `http://localhost:${API_PORT}/` : `http://localhost:${UI_PORT}/`
+  say(`\n${green('●')} ${bold(BACKEND_ONLY ? 'Backend is running (no interface)' : 'QuestionCrawler is running')}   ${bold(BACKEND_ONLY ? `${url}api/health` : url)}`)
   say(`  ${dim('Press Ctrl+C to stop both.')}`)
-  if (!args.has('--no-open')) openBrowser(url)
+  if (!args.has('--no-open') && !BACKEND_ONLY) openBrowser(url)
 }
 
 // ------------------------------------------------------------------ main
@@ -330,6 +372,8 @@ say(bold('QuestionCrawler'))
 if (!process.env.QC_BACKEND_CMD) await prerequisites()
 if (args.has('--check')) { say(`\n${green('Everything needed is installed.')}`); process.exit(0) }
 if (!process.env.QC_BACKEND_CMD) await prepareBackend()
-if (!process.env.QC_FRONTEND_CMD) await prepareFrontend()
+const needsFrontend = !args.has('--compile') && !BACKEND_ONLY
+if (!process.env.QC_FRONTEND_CMD && needsFrontend) await prepareFrontend()
 if (args.has('--test')) await testMode()
+else if (args.has('--compile')) await compileMode()
 else await serve()

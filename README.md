@@ -23,6 +23,8 @@ That checks your setup, prepares the backend and the frontend, starts both, wait
 | `npm run start:prod` | Builds the UI and serves everything from one server at http://localhost:8080 |
 | `npm test` | Runs all backend tests and the frontend build and lint |
 | `npm run check` | Only checks that Java and Node are installed |
+| `npm run backend` | Runs **only the backend**, so its output is not mixed with the frontend's |
+| `npm run build:backend` | Only **compiles** the backend and shows code errors (fast) |
 | `npm start -- --no-open` | Start without opening a browser |
 
 The first start downloads and compiles the backend, so it can take a few minutes; later starts take seconds.

@@ -7,7 +7,9 @@
     "start": "node scripts/launch.cjs",
     "start:prod": "node scripts/launch.cjs --prod",
     "test": "node scripts/launch.cjs --test",
-    "check": "node scripts/launch.cjs --check"
+    "check": "node scripts/launch.cjs --check",
+    "backend": "node scripts/launch.cjs --backend-only",
+    "build:backend": "node scripts/launch.cjs --compile"
   },
   "engines": {
     "node": ">=20"
