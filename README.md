@@ -58,7 +58,7 @@ and press *Check access*.
 | Path | What | Stack |
 |---|---|---|
 | `frontend/` | The visual app | React 19, TypeScript, Vite |
-| `backend/app/` | REST API, optional scheduler, serves the built UI | Spring Boot 3.4+, Java 21 |
+| `backend/app/` | REST API, optional scheduler, serves the built UI | Spring Boot 3.3+, Java 21 |
 | `backend/core/` | Collecting, syncing, categories, search, diagnostics, **CLI**. No Spring. | Java 21, Jackson, Lucene |
 | `scripts/start.mjs` | The one-command launcher | Node (no packages) |
 | `scripts/qc.sh`, `qc.ps1` | Command-line launchers used by Copilot | |

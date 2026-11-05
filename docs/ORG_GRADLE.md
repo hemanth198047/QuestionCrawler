@@ -37,12 +37,12 @@ error line from the `api │` output and what your platform team says the reposi
 Your mirror offers different versions than the ones the project asks for. All versions live in **one file**, `backend/gradle.properties`:
 
 ```properties
-springBootVersion=3.4.8
-dependencyManagementVersion=1.1.7
-luceneVersion=9.12.0
+springBootVersion=3.3.1
+dependencyManagementVersion=1.1.5
+luceneVersion=9.11.1
 ```
-Change a value to a version your mirror has (Spring Boot 3.4.x and 3.5.x both work) and run `npm start` again. You can also override one run
-without editing the file: `$env:QC_GRADLE_ARGS="-PspringBootVersion=3.4.8"; npm start`.
+Change a value to a version your mirror has (Spring Boot 3.3.x, 3.4.x and 3.5.x all work) and run `npm start` again. You can also override one run
+without editing the file: `$env:QC_GRADLE_ARGS="-PspringBootVersion=3.3.1"; npm start`.
 
 ## 4. Some other places that may need a mirror
 

@@ -64,19 +64,49 @@ function capture(cmd, cmdArgs) {
 function startService(label, color, cmd, cmdArgs, opts) {
   const p = spawn(cmd, cmdArgs, { cwd: opts.cwd, shell: WIN || opts.shell, detached: !WIN, env: { ...process.env, ...opts.env } })
   children.push(p)
+  p.captured = ''
   const tag = color(label.padEnd(4))
   const pipe = (stream) => {
     let buf = ''
     stream.on('data', (d) => {
       buf += d.toString()
+      p.captured = (p.captured + d.toString()).slice(-60000)
       const lines = buf.split(/\r?\n/)
       buf = lines.pop() ?? ''
       for (const line of lines) if (line.trim()) console.log(`${tag} ${dim('│')} ${line}`)
     })
   }
   pipe(p.stdout); pipe(p.stderr)
-  p.on('close', (code) => { if (!shuttingDown) { say(`\n${red('✗')} ${label} stopped unexpectedly (exit code ${code}).`); shutdown(1) } })
+  p.on('close', (code) => {
+    if (shuttingDown) return
+    say(`\n${red('✗')} ${label} stopped unexpectedly (exit code ${code}).`)
+    if (label === 'api') for (const h of gradleHints(p.captured)) say(`  ${h}`)
+    shutdown(1)
+  })
   return p
+}
+
+// ------------------------------------------------------------------ explaining Gradle problems
+const VERSION_SETTINGS = [
+  [/org\.springframework\.boot/, 'springBootVersion'],
+  [/io\.spring\.dependency-management/, 'dependencyManagementVersion'],
+  [/org\.apache\.lucene/, 'luceneVersion'],
+]
+/** Reads Gradle's "could not resolve / plugin not found" messages and says which setting to change. */
+function gradleHints(out) {
+  const found = new Map()
+  for (const m of out.matchAll(/Plugin \[id: '?([\w.\-]+)'?, version:? '?([\w.\-]+)'?\]/g)) found.set(`${m[1]}`, m[2])
+  for (const m of out.matchAll(/Could not (?:resolve|find) ([\w.\-]+):([\w.\-]+):([\w.\-]+)/g)) found.set(`${m[1]}:${m[2]}`, m[3].replace(/\.$/, ''))
+  const hints = []
+  for (const [name, version] of found) {
+    const setting = VERSION_SETTINGS.find(([re]) => re.test(name))
+    hints.push(setting
+      ? `• ${name} ${version} is not available from your repository. If it lists the versions it has, set ${setting[1]} to one of them in backend/gradle.properties, then run npm start again.`
+      : `• ${name} ${version} could not be downloaded. Ask your platform team whether your repository carries it.`)
+  }
+  if (/\b40[13]\b|Unauthorized|Forbidden/i.test(out)) hints.push('• The repository answered 401/403: it may need a token or refuse this artifact. See docs/ORG_GRADLE.md.')
+  if (hints.length > 0) hints.push('• Details and examples: docs/ORG_GRADLE.md')
+  return hints
 }
 let shuttingDown = false
 function killTree(p) {
@@ -283,7 +313,7 @@ async function serve() {
       : startService('ui', blue, 'npm', ['run', 'dev', '--', '--port', String(UI_PORT), '--strictPort', '--host', '127.0.0.1'], { cwd: FRONTEND, env: { VITE_BACKEND_URL: `http://127.0.0.1:${API_PORT}` } })
   }
   const apiUp = await waitFor('the backend', `http://127.0.0.1:${API_PORT}/api/health`, Number(process.env.QC_WAIT_SECONDS ?? 420), () => api.exitCode === null)
-  if (!apiUp) { shutdown(1); return fail('The backend did not start', ['Scroll up for the error from the [api] lines. A common cause is a Gradle download blocked by a proxy.']) }
+  if (!apiUp) { const hints = gradleHints(api.captured ?? ''); shutdown(1); return fail('The backend did not start', hints.length ? hints : ['Scroll up for the error from the [api] lines. A common cause is a Gradle download blocked by a proxy or an unavailable version.']) }
   ok(`Backend is up at http://127.0.0.1:${API_PORT}`)
   if (ui) {
     const uiUp = await waitFor('the interface', `http://127.0.0.1:${UI_PORT}/`, 90, () => ui.exitCode === null)
