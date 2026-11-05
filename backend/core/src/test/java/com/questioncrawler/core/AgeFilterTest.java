@@ -2,6 +2,7 @@ package com.questioncrawler.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -220,5 +221,30 @@ class AgeFilterTest {
     @Test
     void invalidCollectionWindowIsRejected() {
         assertThrows(IllegalArgumentException.class, () -> new com.questioncrawler.core.sync.SyncOptions(List.of("orbit"), null, false, SyncMode.FULL, null, 2, 30, "recently"));
+    }
+
+    @Test
+    void wideningTheCollectionWindowBackfillsOlderQuestionsOnTheNextIncrementalSync() {
+        KnowledgeBase kb = new KnowledgeBase(CoreConfig.forStorage(tmp.resolve("widen")), TestSupport.siteV1(), null, Clock.fixed(NOW, ZoneOffset.UTC));
+        var narrow = new com.questioncrawler.core.sync.SyncOptions(List.of("orbit"), null, false, SyncMode.INCREMENTAL, null, 2, 30, "30d");
+        assertEquals(3, kb.sync(narrow).added());
+
+        // Same window again: a normal incremental run (nothing new, nothing backfilled).
+        SyncReport same = kb.sync(narrow);
+        assertEquals(0, same.added());
+        assertTrue(same.warnings().stream().noneMatch(w -> w.contains("widened")));
+
+        // Widen to a year: a plain INCREMENTAL sync must now pick up the older questions too.
+        var wide = new com.questioncrawler.core.sync.SyncOptions(List.of("orbit"), null, false, SyncMode.INCREMENTAL, null, 2, 30, "1y");
+        SyncReport backfill = kb.sync(wide);
+        assertEquals(7, backfill.added(), "the 7 older questions");
+        assertTrue(backfill.warnings().stream().anyMatch(w -> w.contains("widened")), backfill.warnings().toString());
+        assertNull(backfill.since(), "no 'changed since' bound during a backfill");
+        assertEquals(10, kb.store().allThreads().size());
+
+        // Afterwards it is incremental again.
+        SyncReport after = kb.sync(wide);
+        assertEquals(0, after.added());
+        assertTrue(after.since() != null);
     }
 }

@@ -126,6 +126,9 @@ final class TextFormat {
         }
         for (String w : r.warnings()) sb.append("  note: ").append(w).append('\n');
         if (r.abortReason() != null) sb.append("ABORTED: ").append(r.abortReason()).append('\n');
+        for (String l : r.limitations()) {
+            if (l.startsWith("Collection window")) sb.append("NOTE: ").append(l).append(" To collect more, use a larger --max-question-age (for example 1y).\n");
+        }
         sb.append("Completeness: ").append(r.completeness()).append('\n');
         return sb.toString();
     }

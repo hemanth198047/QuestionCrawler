@@ -17,4 +17,5 @@ public record Checkpoint(
         String lastSuccessfulRunAt,
         String lastFullReconcileAt,
         String lastRunId,
-        String lastOutcome) {}
+        String lastOutcome,
+        String coveredFrom) {}

@@ -26,6 +26,21 @@ scripts\qc.ps1 --config config\stackoverflow-test.properties search "overfitting
 Override the window for one run: `sync --max-question-age 7d` (smaller) or `sync --max-question-age 1y` (bigger; use an application key).
 To use the tag as typed: `sync --tag "Artificial Intelligence"`.
 
+## Getting enough data for real search results
+
+A 30-day window of a niche tag can hold only a handful of questions (a first live test collected 4), so most searches find nothing.
+Widen the window, then search for words that actually occur in the posts:
+
+```bash
+scripts/qc.sh --config config/stackoverflow-test.properties sync --full --max-question-age 1y
+scripts/qc.sh --config config/stackoverflow-test.properties status                       # how many threads/answers
+scripts/qc.sh --config config/stackoverflow-test.properties categories                   # what was collected, by category
+scripts/qc.sh --config config/stackoverflow-test.properties search "neural network training"
+```
+Use `--full` the first time you widen a window that was already synced with an older build (it ignores the "changed since" bound);
+with the current build a plain `sync` after widening also backfills automatically. A year of this tag costs roughly 2-3 API requests
+per 100 questions plus the answer batches, well inside the anonymous quota; `doctor --connect` shows what is left.
+
 ## What the adapter does (from the API documentation)
 
 - Lists `GET /questions?site=stackoverflow&tagged=artificial-intelligence&sort=activity&order=asc&filter=withbody&pagesize=100`.

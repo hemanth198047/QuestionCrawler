@@ -149,10 +149,26 @@ public final class SyncService {
             state.mode = options.mode();
             state.startedAt = started.toString();
             if (options.mode() == SyncMode.INCREMENTAL && checkpoint != null && checkpoint.highWaterMark() != null) {
-                state.since = Times.parse(checkpoint.highWaterMark())
-                        .map(hwm -> hwm.minus(options.overlap()).toString()).orElse(null);
+                if (windowWidened(checkpoint)) {
+                    // No "changed since" bound: the newly included older questions must be listed too.
+                    warnings.add("The collection window was widened (now " + (createdAfter == null ? "the whole history"
+                            : "from " + createdAfter) + ", previously from " + checkpoint.coveredFrom()
+                            + "), so this run lists the whole window again to backfill older questions.");
+                } else {
+                    state.since = Times.parse(checkpoint.highWaterMark())
+                            .map(hwm -> hwm.minus(options.overlap()).toString()).orElse(null);
+                }
             }
             return state;
+        }
+
+        /** True when this run's window reaches further back than anything collected before. */
+        private boolean windowWidened(Checkpoint cp) {
+            Instant previous = Times.parse(cp.coveredFrom()).orElse(null);
+            if (previous == null) {
+                return false; // earlier runs already covered the whole history (or predate this field)
+            }
+            return createdAfter == null || createdAfter.isBefore(previous);
         }
 
         // ------------------------------------------------------------ listing
@@ -503,8 +519,17 @@ public final class SyncService {
             String lastSuccess = success ? finished.toString() : previous == null ? null : previous.lastSuccessfulRunAt();
             String lastFull = success && options.mode() == SyncMode.FULL ? finished.toString()
                     : previous == null ? null : previous.lastFullReconcileAt();
+            String covered;
+            if (previous == null) {
+                covered = createdAfter == null ? null : createdAfter.toString();
+            } else if (previous.coveredFrom() == null || createdAfter == null) {
+                covered = null;
+            } else {
+                Instant prev = Times.parse(previous.coveredFrom()).orElse(createdAfter);
+                covered = (createdAfter.isBefore(prev) ? createdAfter : prev).toString();
+            }
             return new Checkpoint(scopeKey, system, options.tags(), options.tagMode().name(), options.partialTags(), hwm,
-                    finished.toString(), lastSuccess, lastFull, state.runId, outcome);
+                    finished.toString(), lastSuccess, lastFull, state.runId, outcome, covered);
         }
     }
 }
