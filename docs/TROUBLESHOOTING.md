@@ -3,7 +3,8 @@
 | Symptom | Cause / fix |
 |---|---|
 | `npm start` says Java/Node not found or too old | Install JDK 21 and Node 20+, open a NEW terminal, run `npm run check`. |
-| `Gradle is needed once` | Install Gradle once (https://gradle.org/install); the launcher then creates the wrapper. |
+| `Gradle was not found` / `Gradle is too old` | No wrapper is needed. Use your organization's Gradle (8.5+): put it on PATH or set `QC_GRADLE`. See [ORG_GRADLE.md](ORG_GRADLE.md). |
+| The backend fails while resolving plugins or libraries | Your network blocks Maven Central / the plugin portal. Use an internal mirror: see [ORG_GRADLE.md](ORG_GRADLE.md). |
 | `Port 8080 / 5173 is already in use` | Another copy is running. Close it, or set `QC_API_PORT` / `QC_UI_PORT`. |
 | The backend does not start (long wait, then error) | Read the `api │` lines. Usually a blocked Gradle/Maven download: set a proxy or an internal mirror. Send me the first error line. |
 | The page says the service is not reachable | The backend is still starting or stopped; watch the `api │` lines in the terminal. |

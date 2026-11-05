@@ -26,7 +26,7 @@ That checks your setup, prepares the backend and the frontend, starts both, wait
 | `npm start -- --no-open` | Start without opening a browser |
 
 The first start downloads and compiles the backend, so it can take a few minutes; later starts take seconds.
-If Gradle is not installed it is needed **once** to create the wrapper (the launcher tells you). Ports 8080 and 5173 are
+It uses whatever Gradle 8.5+ you already have (including your organization's: see [docs/ORG_GRADLE.md](docs/ORG_GRADLE.md)); no wrapper is required. Ports 8080 and 5173 are
 used; change them with `QC_API_PORT` and `QC_UI_PORT`.
 
 ## What you will see
@@ -73,7 +73,7 @@ and press *Check access*.
 - [docs/COPILOT.md](docs/COPILOT.md): using it from GitHub Copilot
 - [docs/SYNC.md](docs/SYNC.md): quick update vs full check, statuses, scheduling
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/SETUP.md](docs/SETUP.md) (manual and CLI setup), [docs/LIVE_INTEGRATION.md](docs/LIVE_INTEGRATION.md) (your internal site)
-- [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md), [docs/CAPABILITIES.md](docs/CAPABILITIES.md) (what is verified and what is not)
+- [docs/ORG_GRADLE.md](docs/ORG_GRADLE.md) (company Gradle and internal repositories), [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md), [docs/CAPABILITIES.md](docs/CAPABILITIES.md) (what is verified and what is not)
 
 ## Honest status
 

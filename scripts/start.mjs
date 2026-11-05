@@ -126,18 +126,44 @@ async function prerequisites() {
 }
 
 // ------------------------------------------------------------------ 2. prepare
-const gradlew = () => (WIN ? path.join(BACKEND, 'gradlew.bat') : path.join(BACKEND, 'gradlew'))
+const wrapperPath = () => (WIN ? path.join(BACKEND, 'gradlew.bat') : path.join(BACKEND, 'gradlew'))
+const extraGradleArgs = () => (process.env.QC_GRADLE_ARGS ?? '').split(/\s+/).filter(Boolean)
+const quote = (p) => (WIN && /\s/.test(p) ? `"${p}"` : p)
+let GRADLE = null // { cmd, source, version }
+
+/** Finds the Gradle to use. The organization's own Gradle is fine: no wrapper and no download is required. */
+function findGradle() {
+  const candidates = []
+  if (process.env.QC_GRADLE) candidates.push({ cmd: process.env.QC_GRADLE, source: 'the QC_GRADLE setting' })
+  if (existsSync(wrapperPath())) candidates.push({ cmd: wrapperPath(), source: 'the Gradle wrapper in backend/' })
+  candidates.push({ cmd: 'gradle', source: 'Gradle on your PATH' })
+  if (process.env.GRADLE_HOME) candidates.push({ cmd: path.join(process.env.GRADLE_HOME, 'bin', WIN ? 'gradle.bat' : 'gradle'), source: 'GRADLE_HOME' })
+  for (const c of candidates) {
+    const r = capture(quote(c.cmd), ['-v'])
+    const m = /Gradle (\d+)\.(\d+)/.exec(r.out)
+    if (r.code === 0 && m) return { ...c, version: `${m[1]}.${m[2]}`, major: Number(m[1]), minor: Number(m[2]) }
+  }
+  return null
+}
 
 async function prepareBackend() {
   step('Preparing the backend')
-  if (!existsSync(gradlew())) {
-    warn('The Gradle wrapper is missing (one-time setup).')
-    const g = capture('gradle', ['-v'])
-    if (g.code !== 0) fail('Gradle is needed once, to create the wrapper', ['Install Gradle: https://gradle.org/install  (Windows: choco install gradle, or scoop install gradle)', 'Then run this command again. After that Gradle is no longer needed.'])
-    const code = await run('gradle', ['wrapper', '--gradle-version', '8.14'], { cwd: BACKEND })
-    if (code !== 0 || !existsSync(gradlew())) fail('Could not create the Gradle wrapper', ['See the message above. On a company network you may need to set a proxy or an internal Maven mirror.'])
-    ok('Gradle wrapper created')
-  } else ok('Gradle wrapper present')
+  GRADLE = findGradle()
+  if (!GRADLE) {
+    fail('Gradle was not found', [
+      'QuestionCrawler builds its backend with Gradle 8.5 or newer. Use the Gradle your organization provides:',
+      '',
+      '  1. If it is installed, put its "bin" folder on your PATH, open a NEW terminal, and check:  gradle -v',
+      '  2. Or tell the launcher where it is (the full path to gradle / gradle.bat):',
+      WIN ? '       $env:QC_GRADLE="C:\\tools\\gradle-8.14\\bin\\gradle.bat"; npm start' : '       QC_GRADLE=/opt/gradle-8.14/bin/gradle npm start',
+      '  3. Or set GRADLE_HOME to the Gradle folder.',
+      '',
+      'No Gradle wrapper is needed. If dependencies cannot be downloaded on your network, see docs/ORG_GRADLE.md.'])
+  }
+  if (GRADLE.major < 8 || (GRADLE.major === 8 && GRADLE.minor < 5)) {
+    fail(`Gradle ${GRADLE.version} is too old`, ['Java 21 needs Gradle 8.5 or newer.', `Found via ${GRADLE.source}. Ask for a newer Gradle, or point QC_GRADLE at one.`])
+  }
+  ok(`Gradle ${GRADLE.version} (${GRADLE.source})`)
 }
 
 /** Names of declared dependencies that are not installed yet (an old node_modules from an earlier version is common). */
@@ -165,7 +191,7 @@ async function prepareFrontend() {
 
 // ------------------------------------------------------------------ 3. modes
 async function testMode() {
-  step('Backend tests'); let code = await run(gradlew(), ['test'], { cwd: BACKEND })
+  step('Backend tests'); let code = await run(quote(GRADLE.cmd), ['test', ...extraGradleArgs()], { cwd: BACKEND })
   if (code !== 0) fail('Backend tests failed', ['Scroll up for the failing test.'])
   ok('Backend tests passed')
   step('Frontend build and checks'); code = await run('npm', ['run', 'build'], { cwd: FRONTEND })
@@ -195,7 +221,7 @@ async function serve() {
   const backendCmd = process.env.QC_BACKEND_CMD
   const api = backendCmd
     ? startService('api', magenta, backendCmd, [], { cwd: ROOT, shell: true, env: { PORT: String(API_PORT) } })
-    : startService('api', magenta, gradlew(), [':app:bootRun', `--args=--server.port=${API_PORT}`, '--console=plain'], { cwd: BACKEND })
+    : startService('api', magenta, quote(GRADLE.cmd), [':app:bootRun', `--args=--server.port=${API_PORT}`, '--console=plain', ...extraGradleArgs()], { cwd: BACKEND })
   let ui = null
   if (!PROD) {
     const uiCmd = process.env.QC_FRONTEND_CMD

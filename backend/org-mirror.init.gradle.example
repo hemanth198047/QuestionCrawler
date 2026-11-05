@@ -1,0 +1,37 @@
+// EXAMPLE Gradle init script for companies that block the public Maven Central / Gradle plugin portal and provide an
+// internal artifact repository (Artifactory, Nexus, ...). Copy it, replace the two URLs, and keep it OUTSIDE the repository.
+//
+//   Windows : copy to  %USERPROFILE%\.gradle\init.d\org-mirror.gradle        (applied automatically to every build)
+//   Mac/Linux: copy to ~/.gradle/init.d/org-mirror.gradle
+//   or use it once:  set QC_GRADLE_ARGS=--init-script C:\path\org-mirror.gradle   then  npm start
+//
+// Put credentials in environment variables (ORG_REPO_USER / ORG_REPO_TOKEN), never in this file.
+// NOTE: this is a common pattern but could not be tested against your repository. Adjust it to your organization's guidance.
+
+def mavenMirror   = 'https://artifactory.example.com/artifactory/maven-central'   // <- your internal mirror of Maven Central
+def pluginsMirror = 'https://artifactory.example.com/artifactory/gradle-plugins'  // <- your internal mirror of plugins.gradle.org
+
+def redirect = { ArtifactRepository repo, String target ->
+    if (repo instanceof MavenArtifactRepository) {
+        def url = repo.url.toString()
+        if (url.contains('repo.maven.apache.org') || url.contains('repo1.maven.org') || url.contains('plugins.gradle.org')) {
+            repo.url = target
+            def user = System.getenv('ORG_REPO_USER')
+            def token = System.getenv('ORG_REPO_TOKEN')
+            if (user && token) {
+                repo.credentials { username = user; password = token }
+            }
+        }
+    }
+}
+
+// Plugins (org.springframework.boot, io.spring.dependency-management)
+settingsEvaluated { settings ->
+    settings.pluginManagement.repositories.all { repo -> redirect(repo, pluginsMirror) }
+}
+
+// Libraries (Spring, Jackson, Lucene, JUnit, ...)
+allprojects {
+    repositories.all { repo -> redirect(repo, mavenMirror) }
+    buildscript.repositories.all { repo -> redirect(repo, pluginsMirror) }
+}
