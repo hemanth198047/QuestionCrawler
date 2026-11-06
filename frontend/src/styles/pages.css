@@ -216,3 +216,10 @@ button.rm-node:hover { background: var(--bg-sunken); }
 .tagrow:hover:not(:disabled) { background: var(--brand-50); } .tagrow.taken { color: var(--ink-3); cursor: default; background: var(--bg-sunken); }
 .tagrow-name { flex: 1; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .tagrow-count { color: var(--ink-3); font-variant-numeric: tabular-nums; min-width: 54px; text-align: right; }
 .tagrow-act { color: var(--brand); font-size: 12.5px; font-weight: 600; min-width: 64px; text-align: right; } .tagrow.taken .tagrow-act { color: var(--ok); }
+
+/* ---------- tag listing progress ---------- */
+.listing-progress { background: var(--brand-50); border-radius: var(--r-md); padding: 14px 18px; display: grid; gap: 8px; }
+.progress-bar { height: 6px; background: var(--brand-100); border-radius: 99px; overflow: hidden; position: relative; }
+.progress-bar i { position: absolute; inset: 0 auto 0 0; width: 35%; background: var(--brand); border-radius: 99px; animation: indeterminate 1.3s ease-in-out infinite; }
+@keyframes indeterminate { 0% { left: -35%; } 100% { left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .progress-bar i { animation: none; width: 100%; opacity: .5; } }

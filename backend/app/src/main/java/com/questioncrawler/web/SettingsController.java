@@ -3,6 +3,7 @@ package com.questioncrawler.web;
 import com.questioncrawler.core.classification.Taxonomy;
 import com.questioncrawler.core.service.ConfigService;
 import com.questioncrawler.core.service.ConnectionReport;
+import com.questioncrawler.core.service.TagListingJob;
 import com.questioncrawler.core.service.Workspace;
 import java.util.List;
 import java.util.Map;
@@ -10,6 +11,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -83,6 +85,23 @@ public class SettingsController {
     @PostMapping("/tags/search")
     public Workspace.TagSearch searchTags(@RequestBody(required = false) TagSearchRequest request) {
         return request == null ? workspace.searchTags(Map.of(), null) : workspace.searchTags(request.values() == null ? Map.of() : request.values(), request.q());
+    }
+
+    /** Starts reading every tag of the site in the background (a site can have 100,000+ tags: it takes a while). */
+    @PostMapping("/tags/listing")
+    public TagListingJob.State startTagListing(@RequestBody(required = false) ValuesRequest request) {
+        return workspace.startTagListing(request == null ? Map.of() : request.safe());
+    }
+
+    /** Progress, and the tags read since position {@code from}. */
+    @GetMapping("/tags/listing")
+    public TagListingJob.Chunk tagListing(@RequestParam(name = "from", defaultValue = "0") int from) {
+        return workspace.tagListing(from);
+    }
+
+    @PostMapping("/tags/listing/cancel")
+    public void cancelTagListing() {
+        workspace.cancelTagListing();
     }
 
     // ---- connection check

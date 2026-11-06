@@ -488,48 +488,114 @@ public final class StackExchangeAdapter implements SourceAdapter {
         return -1;
     }
 
-    /** @param complete false when the site has more tags than were read (a page limit, the time limit, or a failing page) */
+    /** @param complete false when the site has more tags than were read (a limit, a failing page, or the site ignoring the page number) */
     public record TagListing(List<TagHit> tags, boolean complete) {}
 
+    /** Receives each page of tags as it is read; return false to stop (for example when the person pressed Stop). */
+    @FunctionalInterface
+    public interface TagSink {
+        boolean accept(List<TagHit> pageTags, int page);
+    }
+
     /**
-     * EVERY tag the site lists, most used first: all pages are read (not just the first few). Stops early, and says so, if it hits the page limit
-     * or the time budget, or if a later page fails; a failure on the very first page is an error.
+     * @param complete        the end of the site's tag list was reached
+     * @param stopReason      in plain words, why reading ended
+     * @param pagesRead       pages requested
+     * @param pageSize        tags asked for per page
+     * @param hasMoreUnreliable the site said "no more" on a full page but there were more (so its has_more flag cannot be trusted)
      */
-    public TagListing listAllTags(int maxPages, long budgetMillis) throws SourceException {
-        long deadline = System.currentTimeMillis() + budgetMillis;
-        Map<String, TagHit> byName = new java.util.LinkedHashMap<>();
+    public record TagReadResult(boolean complete, String stopReason, int pagesRead, int pageSize, boolean hasMoreUnreliable) {}
+
+    /**
+     * Reads EVERY page of the site's tag list, with no fixed page limit. The end is decided from the pages themselves, not only from the
+     * site's has_more flag: a full page is followed by one more request even if has_more says no; a page without anything new (the site ignoring
+     * the page number) ends the reading with an explanation. Transient failures are retried; later failures keep what was read.
+     *
+     * @param maxPages     a safety limit (use Integer.MAX_VALUE for none)
+     * @param budgetMillis a time limit (use Long.MAX_VALUE for none; a negative value reads nothing)
+     */
+    public TagReadResult readAllTags(TagSink sink, int maxPages, long budgetMillis) throws SourceException {
+        long deadline = budgetMillis >= Long.MAX_VALUE / 2 ? Long.MAX_VALUE : System.currentTimeMillis() + budgetMillis;
+        java.util.Set<String> seen = new java.util.HashSet<>();
         Map<String, String> params = new LinkedHashMap<>();
-        params.put("pagesize", String.valueOf(pageSize()));
-        boolean complete = false;
+        boolean unreliable = false;
+        boolean doubt = false; // a full page said "no more": the next page decides whether the site can be trusted
+        int pages = 0;
+        int asked = pageSize();
         for (int page = 1; page <= maxPages; page++) {
             if (System.currentTimeMillis() > deadline) {
-                break;
+                return new TagReadResult(false, "the time limit was reached", pages, asked, unreliable);
             }
+            asked = pageSize(); // may have been corrected by the site's own page-size rule
             params.put("page", String.valueOf(page));
-            params.put("pagesize", String.valueOf(pageSize())); // may have been corrected by the site's own page-size rule
-            JsonNode root;
-            try {
-                root = call("/tags", params);
-            } catch (SourceException e) {
-                if (page == 1 || e.kind() == SourceException.Kind.AUTH_FAILED || e.kind() == SourceException.Kind.QUOTA_EXHAUSTED) {
-                    throw e;
+            params.put("pagesize", String.valueOf(asked));
+            JsonNode root = null;
+            SourceException failure = null;
+            for (int attempt = 1; attempt <= 3 && root == null; attempt++) { // a slow or busy page is tried again, then reported
+                try {
+                    root = call("/tags", params);
+                } catch (SourceException e) {
+                    failure = e;
+                    boolean again = e.kind() == SourceException.Kind.TRANSIENT || e.kind() == SourceException.Kind.RATE_LIMITED;
+                    if (!again) {
+                        break;
+                    }
+                    try {
+                        Thread.sleep(500L * attempt);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
                 }
-                break; // keep what was read; the listing is marked incomplete
             }
-            for (JsonNode t : root.path("items")) {
+            pages = page;
+            if (root == null) {
+                if (page == 1 || (failure != null && (failure.kind() == SourceException.Kind.AUTH_FAILED))) {
+                    throw failure;
+                }
+                String why = failure != null && failure.kind() == SourceException.Kind.QUOTA_EXHAUSTED ? "the request allowance for today ran out"
+                        : "page " + page + " could not be read (" + (failure == null ? "unknown reason" : failure.getMessage()) + ")";
+                return new TagReadResult(false, why, pages, asked, unreliable);
+            }
+            JsonNode items = root.path("items");
+            List<TagHit> fresh = new ArrayList<>();
+            int onPage = items.isArray() ? items.size() : 0;
+            for (JsonNode t : items) {
                 String name = t.path("name").asText(t.path("tag_name").asText(""));
-                if (!name.isEmpty()) {
-                    byName.putIfAbsent(name, new TagHit(name, countOf(t)));
+                if (!name.isEmpty() && seen.add(name)) {
+                    fresh.add(new TagHit(name, countOf(t)));
                 }
             }
-            if (!root.path("has_more").asBoolean(false) || !root.path("items").isArray() || root.path("items").isEmpty()) {
-                complete = true;
-                break;
+            if (onPage == 0) {
+                return new TagReadResult(true, "the site has no more tags", pages, asked, unreliable);
+            }
+            if (fresh.isEmpty()) {
+                return new TagReadResult(false, "the site sent the same tags again for page " + page + ": it seems to ignore the page number", pages, asked, unreliable);
+            }
+            if (doubt) {
+                unreliable = true; // there WAS more after a "no more": the site's has_more flag cannot be trusted
+                doubt = false;
+            }
+            if (!sink.accept(fresh, page)) {
+                return new TagReadResult(false, "stopped", pages, asked, unreliable);
+            }
+            boolean more = root.path("has_more").asBoolean(false);
+            if (!more) {
+                if (onPage < asked) {
+                    return new TagReadResult(true, "the site has no more tags", pages, asked, unreliable);
+                }
+                doubt = true; // a full page and has_more=false: ask for the next page to be sure
             }
         }
-        List<TagHit> tags = new ArrayList<>(byName.values());
-        tags.sort(java.util.Comparator.comparingLong((TagHit h) -> -h.count()).thenComparing(TagHit::name));
-        return new TagListing(tags, complete);
+        return new TagReadResult(false, "the page limit was reached", pages, asked, unreliable);
+    }
+
+    /** EVERY tag the site lists, most used first (all pages are read). Convenience over {@link #readAllTags}. */
+    public TagListing listAllTags(int maxPages, long budgetMillis) throws SourceException {
+        List<TagHit> all = new ArrayList<>();
+        TagReadResult r = readAllTags((tags, page) -> all.addAll(tags), maxPages, budgetMillis);
+        all.sort(java.util.Comparator.comparingLong((TagHit h) -> -h.count()).thenComparing(TagHit::name));
+        return new TagListing(all, r.complete());
     }
 
     /** Tags on the site whose names contain the text (the site's own spelling), best matches first. */

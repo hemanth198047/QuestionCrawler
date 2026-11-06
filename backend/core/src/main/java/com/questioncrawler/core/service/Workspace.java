@@ -357,6 +357,39 @@ public final class Workspace {
         }
     }
 
+    private final TagListingJob tagListing = new TagListingJob();
+
+    /** The site adapter for what is currently typed on the Connect screen (the saved settings, overridden by the draft). */
+    private com.questioncrawler.core.source.StackExchangeAdapter adapterFromDraft(Map<String, String> draft) {
+        Map<String, String> v = configService.read(configFile);
+        if (draft != null) {
+            v.putAll(draft);
+        }
+        String type = v.getOrDefault("source.type", "fixture");
+        if (!type.equals("live") && !type.equals("stackexchange")) {
+            throw new IllegalStateException("Tags can be looked up on a real site only. Choose a site first.");
+        }
+        var adapter = CoreConfig.load(null, v).createAdapter(env);
+        if (adapter instanceof com.questioncrawler.core.source.StackExchangeAdapter api) {
+            return api;
+        }
+        throw new IllegalStateException("Tags can be looked up on a real site only.");
+    }
+
+    /** Starts reading EVERY tag of the site in the background (no page limit). Poll {@link #tagListing(int)}. */
+    public TagListingJob.State startTagListing(Map<String, String> draft) {
+        Map<String, String> copy = draft == null ? Map.of() : Map.copyOf(draft);
+        return tagListing.start(() -> adapterFromDraft(copy));
+    }
+
+    public TagListingJob.Chunk tagListing(int from) {
+        return tagListing.chunk(from);
+    }
+
+    public void cancelTagListing() {
+        tagListing.cancel();
+    }
+
     public record TagSearch(boolean ok, String problem, List<com.questioncrawler.core.source.StackExchangeAdapter.TagHit> tags, String exact, boolean spellingDiffers,
                             boolean allTags, long siteQuestions, boolean truncated) {
         public TagSearch(boolean ok, String problem, List<com.questioncrawler.core.source.StackExchangeAdapter.TagHit> tags, String exact, boolean spellingDiffers) {
@@ -382,7 +415,7 @@ public final class Workspace {
                 return new TagSearch(false, "Tags can be looked up on a real site only.", List.of(), null, false);
             }
             if (browse) { // every tag of the site, most used first, and how many questions the whole site holds
-                var listing = api.listAllTags(500, 120_000); // every page: up to 500 pages or two minutes
+                var listing = api.listAllTags(Integer.MAX_VALUE, 600_000); // every page (the screen uses the background job with progress instead)
                 var all = listing.tags();
                 long size = -1;
                 try {

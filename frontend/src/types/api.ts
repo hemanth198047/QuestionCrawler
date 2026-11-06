@@ -99,3 +99,5 @@ export interface TopicProposal { topics: DiscoveredTopic[]; documents: number; u
 export interface ApiProbe { reached: boolean; problem: string | null; url: string | null; status: number; contentType: string | null; characters: number; kind: string | null; summary: string | null; preview: string | null; hints: string[]; keySent: boolean; keyPlacement: string | null; authNeeded: string | null; wwwAuthenticate: string | null; tokenSent: boolean; suggestedPath: string | null; redirects: string[]; signInSystem: string | null }
 export interface TagHit { name: string; count: number }
 export interface TagSearch { ok: boolean; problem: string | null; tags: TagHit[]; exact: string | null; spellingDiffers: boolean; allTags: boolean; siteQuestions: number; truncated: boolean }
+export interface TagListingState { id: string | null; running: boolean; finished: boolean; loaded: number; pages: number; pageSize: number; complete: boolean; stopReason: string | null; problem: string | null; hasMoreUnreliable: boolean; siteQuestions: number }
+export interface TagChunk { state: TagListingState; from: number; tags: TagHit[] }

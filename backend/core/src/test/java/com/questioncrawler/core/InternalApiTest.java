@@ -70,6 +70,11 @@ class InternalApiTest {
     volatile boolean tagInfoBroken = false; // /tags/{t}/info answers 404
     volatile boolean tagsBroken = false; // /tags answers 404
     volatile boolean manyTags = false; // the site has 250 tags (6 + 244), served in pages
+    volatile int extraTags = 0; // any number of additional tags (overrides manyTags)
+    volatile boolean tagsLyingHasMore = false; // has_more is always false, even when there are more pages
+    volatile boolean tagsIgnorePaging = false; // the site sends the first page whatever page is asked for
+    volatile int tagDelayMs = 0; // slows every tag page down
+    static final Map<Integer, List<Map.Entry<String, Integer>>> CATALOGUES = new java.util.concurrent.ConcurrentHashMap<>();
     volatile int tagsFailFromPage = 0; // /tags answers 404 from this page on (0 = never)
     static final Map<String, Integer> TAGS = new LinkedHashMap<>(Map.of("ai", 2, "ml", 1, "gpu", 1, "finance", 1, "CASC", 7, "casc-prod", 3));
     volatile boolean redirectRootOnly = false; // only the bare API address redirects (like a website behind SSO whose API is open)
@@ -215,20 +220,26 @@ class InternalApiTest {
                 }
                 String inname = q.getOrDefault("inname", "").toLowerCase();
                 int size = Integer.parseInt(q.getOrDefault("pagesize", "100"));
-                int pageNo = Integer.parseInt(q.getOrDefault("page", "1"));
+                int pageNo = tagsIgnorePaging ? 1 : Integer.parseInt(q.getOrDefault("page", "1"));
+                if (tagDelayMs > 0) {
+                    try { Thread.sleep(tagDelayMs); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+                }
                 if (tagsFailFromPage > 0 && pageNo >= tagsFailFromPage) {
                     sendJson(ex, 404, Map.of("error_id", 404, "error_name", "no_method", "error_message", "no such page"), true);
                     return;
                 }
-                Map<String, Integer> catalogue = new LinkedHashMap<>(TAGS);
-                if (manyTags) {
-                    for (int i = 1; i <= 244; i++) catalogue.put(String.format("tag-%03d", i), (i % 5) + 1);
-                }
+                int extra = extraTags > 0 ? extraTags : manyTags ? 244 : 0;
+                List<Map.Entry<String, Integer>> catalogue = CATALOGUES.computeIfAbsent(extra, n -> {
+                    List<Map.Entry<String, Integer>> all = new ArrayList<>(new LinkedHashMap<>(TAGS).entrySet().stream().map(e -> Map.entry(e.getKey(), e.getValue())).toList());
+                    for (int i = 1; i <= n; i++) all.add(Map.entry(String.format("tag-%06d", i), (i % 5) + 1));
+                    return all;
+                });
+                List<Map.Entry<String, Integer>> matching = inname.isEmpty() ? catalogue : catalogue.stream().filter(e -> e.getKey().toLowerCase().contains(inname)).toList();
+                int from = Math.min(matching.size(), (pageNo - 1) * size);
+                int to = Math.min(matching.size(), from + size);
                 List<Map<String, Object>> tags = new ArrayList<>();
-                catalogue.forEach((name, count) -> { if (name.toLowerCase().contains(inname)) tags.add(Map.of("name", name, "count", count)); });
-                int from = Math.min(tags.size(), (pageNo - 1) * size);
-                int to = Math.min(tags.size(), from + size);
-                sendJson(ex, 200, wrap(tags.subList(from, to), to < tags.size()), true);
+                for (int i = from; i < to; i++) tags.add(Map.of("name", matching.get(i).getKey(), "count", matching.get(i).getValue()));
+                sendJson(ex, 200, wrap(tags, !tagsLyingHasMore && to < matching.size()), true);
             }
             default -> {
                 if (api.startsWith("/tags/") && api.endsWith("/info")) {
@@ -1297,7 +1308,7 @@ class InternalApiTest {
         assertEquals(250, all.tags().size(), "all 250 tags, not 100");
         assertFalse(all.truncated());
         assertEquals("CASC", all.tags().get(0).name(), "most used first");
-        assertTrue(all.tags().stream().anyMatch(t -> t.name().equals("tag-244")), "even the last page");
+        assertTrue(all.tags().stream().anyMatch(t -> t.name().equals("tag-000244")), "even the last page");
         assertEquals(250, all.tags().stream().map(t -> t.name()).distinct().count(), "no tag twice");
         assertEquals(3, tagRequests(), "100 + 100 + 50");
     }
@@ -1336,5 +1347,123 @@ class InternalApiTest {
         tagsBroken = true;
         var broken = workspace("tl4", env()).searchTags(draft(), "");
         assertFalse(broken.ok(), "nothing could be read: a problem, not an empty list");
+    }
+
+    // ------------------------------------------------------------------ no fixed limit, a lying has_more, a site that ignores paging
+    @Test
+    void thereIsNoFixedLimitOnTheNumberOfTagsOrPages() throws Exception {
+        extraTags = 50_700; // 50,706 tags: more than the old limit of 500 pages x 100
+        var all = adapter().readAllTags((page, no) -> true, Integer.MAX_VALUE, Long.MAX_VALUE);
+        assertTrue(all.complete(), all.stopReason());
+        assertEquals("the site has no more tags", all.stopReason());
+        assertEquals(508, all.pagesRead(), "50,706 tags at 100 per page");
+        assertEquals(100, all.pageSize());
+        assertEquals(508, tagRequests());
+        var counted = new java.util.concurrent.atomic.AtomicInteger();
+        adapter().readAllTags((page, no) -> counted.addAndGet(page.size()) >= 0, Integer.MAX_VALUE, Long.MAX_VALUE);
+        assertEquals(50_706, counted.get());
+    }
+
+    @Test
+    void aSiteWhoseHasMoreFlagIsWrongIsStillReadToTheEnd() throws Exception {
+        manyTags = true;
+        tagsLyingHasMore = true;
+        var listing = adapter().listAllTags(Integer.MAX_VALUE, Long.MAX_VALUE);
+        assertEquals(250, listing.tags().size(), "all of them, although has_more said no after the first page");
+        assertTrue(listing.complete());
+        var r = adapter().readAllTags((p, n) -> true, Integer.MAX_VALUE, Long.MAX_VALUE);
+        assertTrue(r.hasMoreUnreliable(), "the screen can mention that the site's has_more cannot be trusted");
+    }
+
+    @Test
+    void aSiteThatIgnoresThePageNumberIsReportedInsteadOfLoopingOrSilentlyStoppingAtOnePage() throws Exception {
+        manyTags = true;
+        tagsIgnorePaging = true;
+        var tags = new ArrayList<String>();
+        var r = adapter().readAllTags((page, no) -> tags.addAll(page.stream().map(t -> t.name()).toList()), Integer.MAX_VALUE, Long.MAX_VALUE);
+        assertFalse(r.complete());
+        assertTrue(r.stopReason().contains("ignore the page number"), r.stopReason());
+        assertEquals(100, tags.size(), "exactly the first page, and the app says why that is all there is");
+        assertEquals(2, r.pagesRead());
+    }
+
+    // ------------------------------------------------------------------ the background listing
+    private static com.questioncrawler.core.service.TagListingJob.Chunk waitUntilFinished(Workspace w) throws Exception {
+        long end = System.currentTimeMillis() + 60_000;
+        com.questioncrawler.core.service.TagListingJob.Chunk c;
+        do {
+            Thread.sleep(25);
+            c = w.tagListing(0);
+        } while (!c.state().finished() && System.currentTimeMillis() < end);
+        return c;
+    }
+
+    @Test
+    void theBackgroundListingReportsProgressAndDeliversEveryTagInChunks() throws Exception {
+        extraTags = 1_200;
+        tagDelayMs = 15;
+        Workspace w = workspace("job1", env());
+        var started = w.startTagListing(draft());
+        assertTrue(started.running() && !started.finished());
+        // read it the way the screen does: chunk by chunk
+        int from = 0;
+        var received = new ArrayList<String>();
+        var progress = new ArrayList<Integer>();
+        long end = System.currentTimeMillis() + 60_000;
+        while (System.currentTimeMillis() < end) {
+            var chunk = w.tagListing(from);
+            chunk.tags().forEach(t -> received.add(t.name()));
+            from += chunk.tags().size();
+            progress.add(chunk.state().loaded());
+            if (chunk.state().finished()) break;
+            Thread.sleep(20);
+        }
+        var done = w.tagListing(0).state();
+        assertTrue(done.finished() && !done.running() && done.complete(), done.toString());
+        assertEquals(1_206, done.loaded());
+        assertEquals(1_206, received.size());
+        assertEquals(1_206, received.stream().distinct().count(), "each tag delivered once");
+        assertEquals(13, done.pages(), "1,206 tags at 100 per page");
+        assertEquals(3, done.siteQuestions());
+        assertEquals("the site has no more tags", done.stopReason());
+        assertTrue(progress.stream().distinct().count() > 2, "progress was visible while it ran: " + progress);
+        assertEquals(1_206, w.tagListing(0).tags().size(), "the whole list is available at the end");
+        assertEquals(6, w.tagListing(1_200).tags().size(), "only what is new since position 1200");
+    }
+
+    @Test
+    void theListingCanBeStoppedAndKeepsWhatWasRead() throws Exception {
+        extraTags = 3_000;
+        allowedSizes = List.of(15); // 15 per page: 200+ pages
+        tagDelayMs = 8;
+        Workspace w = workspace("job2", env());
+        w.startTagListing(draft());
+        long end = System.currentTimeMillis() + 30_000;
+        while (w.tagListing(0).state().loaded() < 100 && System.currentTimeMillis() < end) Thread.sleep(10);
+        w.cancelTagListing();
+        var c = waitUntilFinished(w);
+        assertTrue(c.state().finished() && !c.state().complete(), c.state().toString());
+        assertEquals("stopped", c.state().stopReason());
+        assertTrue(c.state().loaded() >= 100 && c.state().loaded() < 3_006, "stopped part-way: " + c.state().loaded());
+        assertEquals(c.state().loaded(), c.tags().size(), "what was read stays available");
+    }
+
+    @Test
+    void aListingThatCannotStartReportsTheProblem() throws Exception {
+        Workspace w = workspace("job3", env());
+        w.startTagListing(Map.of("source.type", "fixture"));
+        var c = waitUntilFinished(w);
+        assertTrue(c.state().finished() && c.state().problem().contains("real site"), c.state().toString());
+        Workspace blank = workspace("job4", env());
+        assertEquals(null, blank.tagListing(0).state().id(), "nothing started yet");
+    }
+
+    @Test
+    void anExactMultipleOfThePageSizeDoesNotMakeAnHonestSiteLookUnreliable() throws Exception {
+        extraTags = 94; // 6 + 94 = exactly 100: the first page is the last and is full
+        var r = adapter().readAllTags((p, n) -> true, Integer.MAX_VALUE, Long.MAX_VALUE);
+        assertTrue(r.complete(), r.stopReason());
+        assertFalse(r.hasMoreUnreliable(), "has_more=false on the last page was right");
+        assertEquals(2, r.pagesRead(), "one extra request to be sure, which came back empty");
     }
 }
