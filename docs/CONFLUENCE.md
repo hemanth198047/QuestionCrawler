@@ -50,6 +50,17 @@ questioncrawler search "your query"
 
 Collecting `sync.tags=all` without a **space**, **ancestor page**, or **time window** is refused — a whole Cloud tenant can be huge.
 
+## Search (plain English, no LLM)
+
+After sync (or `reindex`), every collected page is in the same Lucene index as other sources. Explore accepts everyday questions such as “how do I configure SSO”:
+
+- Additive English stems so related word forms meet
+- A small curated synonym map (runbook↔playbook, k8s↔kubernetes, …)
+- Page titles boosted; page comments indexed when collected
+- Still local lexical search — not an AI model and not semantic embeddings
+
+If search says the index is an older version, run `questioncrawler reindex` once.
+
 ## UI
 
-Connect and Settings expose a Confluence preset and Confluence-only fields (edition, email, spaces, labels-as-tags). Collect/Explore work once pages are synced.
+Connect and Settings expose a Confluence preset and Confluence-only fields (edition, email, spaces, labels-as-tags). Collect/Explore work once pages are synced; Explore copy treats Confluence hits as pages, not Q&A.

@@ -34,7 +34,8 @@ import org.apache.lucene.store.NIOFSDirectory;
  */
 public final class SearchIndex implements AutoCloseable {
 
-    public static final int INDEX_VERSION = 2;
+    /** Bumped when token expansion changes (plain-English stems) or indexed text shape changes (comments). */
+    public static final int INDEX_VERSION = 3;
 
     static final String F_KEY = "key";
     static final String F_TYPE = "type";
@@ -143,7 +144,7 @@ public final class SearchIndex implements AutoCloseable {
     private static Document document(ThreadRecord thread, Question q, Answer answer, List<String> categoryIds, List<String> categoryNames) {
         Document d = new Document();
         boolean isAnswer = answer != null;
-        String text = isAnswer ? answer.body() : q.body();
+        String text = isAnswer ? answer.body() : questionSearchText(q);
         String meta = String.join(" ", q.tags()) + " " + String.join(" ", categoryIds) + " " + String.join(" ", categoryNames);
 
         d.add(new StringField(F_KEY, thread.key(), Field.Store.NO));
@@ -185,6 +186,21 @@ public final class SearchIndex implements AutoCloseable {
         String author = isAnswer ? answer.author() : q.author();
         d.add(new StoredField(S_AUTHOR, author == null ? "" : author));
         return d;
+    }
+
+    /** Question body plus page/question comments so Confluence discussion is searchable. */
+    private static String questionSearchText(Question q) {
+        if (q.comments() == null || q.comments().isEmpty()) {
+            return q.body() == null ? "" : q.body();
+        }
+        StringBuilder sb = new StringBuilder(q.body() == null ? "" : q.body());
+        for (var c : q.comments()) {
+            if (c == null || c.body() == null || c.body().isBlank()) {
+                continue;
+            }
+            sb.append('\n').append(c.body());
+        }
+        return sb.toString();
     }
 
     public void deleteThread(String key) {

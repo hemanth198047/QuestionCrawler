@@ -55,7 +55,7 @@ Environment used: JDK 21 on Linux, **Lucene 9.10, Jackson 2.14, JUnit 5.10 from 
 
 ## Known limitations
 
-- Search is lexical (no stemming/synonyms): "times out" will not match "timed out" unless one of the other words matches.
+- Search is lexical (no LLM, no vectors). Light English stems and a small curated synonym map are applied so plain wording can still hit related page text (for example configure/configuring, runbook/playbook). Exact error codes and identifiers stay intact.
 - Incremental sync may miss answers added without a question timestamp change; full reconciliation fixes that.
 - Injection detection is a heuristic; the real defence is the skill's rule to treat all retrieved text as data.
 - Scores and "confidence" are heuristics, not probabilities.

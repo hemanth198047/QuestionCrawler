@@ -34,6 +34,9 @@ import com.questioncrawler.core.storage.StoreException;
  * passed to a query parser, so operators and special characters in the input cannot change the query
  * structure. Ranking is BM25 with title and phrase boosts, then a small, documented adjustment for
  * accepted status and votes (signals, not proof of correctness).
+ *
+ * <p>Plain-English feel without an LLM: additive stems ({@link SymbolTokens}/{@link PlainEnglish}),
+ * curated synonym SHOULD clauses, softer coverage for chatty questions, and a title-match bonus.
  */
 public final class SearchService {
 
@@ -42,6 +45,7 @@ public final class SearchService {
     private static final float META_BOOST = 1.5f;
     private static final float TITLE_PHRASE_BOOST = 6f;
     private static final float BODY_PHRASE_BOOST = 4f;
+    private static final float SYNONYM_BOOST = 0.85f;
     static final double MIN_COVERAGE = 0.34;
     /** At most one question passage per thread; every matching answer for that thread may appear (until topK). */
     private static final int MAX_QUESTION_HITS_PER_THREAD = 1;
@@ -65,7 +69,7 @@ public final class SearchService {
             throw new StoreException("Search index not found at " + indexDir + ". Run 'sync' (or 'demo'), or 'reindex' if threads exist.");
         }
         if (SearchIndex.readVersion(indexDir) != SearchIndex.INDEX_VERSION) {
-            throw new StoreException("The search index was built by an older version (age filters need the new format). Run 'reindex'.");
+            throw new StoreException("The search index was built by an older version (plain-English stems need a rebuild). Run 'reindex'.");
         }
         String queryText = request.query() == null ? "" : request.query();
         List<SymbolTokens.Word> words = SymbolTokens.contentWords(queryText);
@@ -87,20 +91,23 @@ public final class SearchService {
                 List<String> docTags = split(doc.get(SearchIndex.S_TAGS));
                 List<String> docCategoryNames = split(doc.get(SearchIndex.S_CATS)).stream().map(taxonomy::displayName).toList();
                 // Tags and category names are searchable metadata, so they count as covered terms too.
-                double coverage = coverage(words, SymbolTokens.expand(title + "\n" + text + "\n" + String.join(" ", docTags)
-                        + "\n" + String.join(" ", docCategoryNames)));
+                List<String> docTokens = SymbolTokens.expand(title + "\n" + text + "\n" + String.join(" ", docTags)
+                        + "\n" + String.join(" ", docCategoryNames));
+                double coverage = coverage(words, docTokens);
+                double titleCoverage = coverage(words, SymbolTokens.expand(title == null ? "" : title));
                 boolean exact = normalizedQuery.length() >= 6
                         && (normalizeForExact(text).contains(normalizedQuery) || normalizeForExact(title).contains(normalizedQuery));
                 if (exact) {
                     coverage = 1.0;
                 }
-                if (coverage < MIN_COVERAGE) {
+                if (coverage < minCoverage(words)) {
                     continue; // a weak lexical overlap is not evidence
                 }
                 boolean accepted = "1".equals(doc.get(SearchIndex.S_ACCEPTED));
                 Integer votes = parseInt(doc.get(SearchIndex.S_VOTES));
                 double adjusted = hit.score
                         * (0.5 + 0.5 * coverage)
+                        * (1.0 + 0.25 * titleCoverage) // wiki page titles are strong relevance signals
                         * (accepted ? 1.15 : 1.0)
                         * (1.0 + 0.01 * Math.min(20, Math.max(0, votes == null ? 0 : votes)));
                 List<String> cats = split(doc.get(SearchIndex.S_CATS));
@@ -132,14 +139,26 @@ public final class SearchService {
             List<String> terms = new ArrayList<>();
             terms.add(w.whole());
             terms.addAll(w.parts());
+            for (String syn : PlainEnglish.synonymsOf(w.whole())) {
+                terms.add(syn);
+                terms.addAll(PlainEnglish.morphology(syn));
+                for (String piece : syn.split("[-_]")) {
+                    if (!piece.isBlank()) {
+                        terms.add(piece);
+                    }
+                }
+            }
             for (String t : terms) {
                 if (SymbolTokens.STOPWORDS.contains(t) || !seen.add(t)) {
                     continue;
                 }
+                boolean synonym = !t.equals(w.whole()) && !w.parts().contains(t);
+                float titleBoost = synonym ? TITLE_BOOST * SYNONYM_BOOST : TITLE_BOOST;
+                float metaBoost = synonym ? META_BOOST * SYNONYM_BOOST : META_BOOST;
                 BooleanQuery.Builder perTerm = new BooleanQuery.Builder();
-                perTerm.add(new BoostQuery(new TermQuery(new Term(SearchIndex.F_TITLE, t)), TITLE_BOOST), BooleanClause.Occur.SHOULD);
-                perTerm.add(new TermQuery(new Term(SearchIndex.F_BODY, t)), BooleanClause.Occur.SHOULD);
-                perTerm.add(new BoostQuery(new TermQuery(new Term(SearchIndex.F_META, t)), META_BOOST), BooleanClause.Occur.SHOULD);
+                perTerm.add(new BoostQuery(new TermQuery(new Term(SearchIndex.F_TITLE, t)), titleBoost), BooleanClause.Occur.SHOULD);
+                perTerm.add(new BoostQuery(new TermQuery(new Term(SearchIndex.F_BODY, t)), synonym ? SYNONYM_BOOST : 1f), BooleanClause.Occur.SHOULD);
+                perTerm.add(new BoostQuery(new TermQuery(new Term(SearchIndex.F_META, t)), metaBoost), BooleanClause.Occur.SHOULD);
                 text.add(perTerm.build(), BooleanClause.Occur.SHOULD);
             }
         }
@@ -214,24 +233,57 @@ public final class SearchService {
     // ------------------------------------------------------------------ scoring helpers
 
     /**
-     * Fraction of query words present in the text. A word found as a whole token counts fully; a word
-     * that is only reconstructable from its parts (camelCase / separators) counts half, because the
-     * parts may be scattered across unrelated places.
+     * Fraction of query words present in the text. A word found as a whole token counts fully; a stem
+     * or synonym hit counts almost fully; camelCase / separator parts alone count half.
+     * Soft chatty words ({@link PlainEnglish#softForCoverage}) are ignored in the denominator.
      */
     static double coverage(List<SymbolTokens.Word> words, List<String> docTokens) {
-        if (words.isEmpty()) {
+        List<SymbolTokens.Word> scored = words.stream().filter(w -> !PlainEnglish.softForCoverage(w.whole())).toList();
+        if (scored.isEmpty()) {
+            scored = words;
+        }
+        if (scored.isEmpty()) {
             return 0;
         }
         Set<String> tokens = new HashSet<>(docTokens);
         double matched = 0;
-        for (SymbolTokens.Word w : words) {
+        for (SymbolTokens.Word w : scored) {
             if (tokens.contains(w.whole())) {
                 matched += 1.0;
-            } else if (!w.parts().isEmpty() && tokens.containsAll(w.parts())) {
-                matched += 0.5;
+                continue;
+            }
+            String stem = PlainEnglish.lightStem(w.whole());
+            if (!stem.equals(w.whole()) && tokens.contains(stem)) {
+                matched += 0.9;
+                continue;
+            }
+            boolean synonymHit = PlainEnglish.synonymsOf(w.whole()).stream().anyMatch(tokens::contains)
+                    || PlainEnglish.synonymsOf(w.whole()).stream()
+                    .flatMap(s -> PlainEnglish.morphology(s).stream())
+                    .anyMatch(tokens::contains);
+            if (synonymHit) {
+                matched += 0.85;
+                continue;
+            }
+            if (!w.parts().isEmpty() && w.parts().stream().anyMatch(tokens::contains)) {
+                // morphology / camel parts live in parts — any hit is useful for wiki English
+                long hits = w.parts().stream().filter(tokens::contains).count();
+                matched += Math.min(0.9, 0.45 + 0.15 * hits);
             }
         }
-        return matched / words.size();
+        return matched / scored.size();
+    }
+
+    /** Long plain-English questions need a slightly softer gate so useful pages are not dropped. */
+    static double minCoverage(List<SymbolTokens.Word> words) {
+        int content = (int) words.stream().filter(w -> !PlainEnglish.softForCoverage(w.whole())).count();
+        if (content >= 8) {
+            return 0.22;
+        }
+        if (content >= 5) {
+            return 0.28;
+        }
+        return MIN_COVERAGE;
     }
 
     private static String normalizeForExact(String text) {

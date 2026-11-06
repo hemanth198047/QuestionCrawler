@@ -12,7 +12,12 @@ import { go, useRemote } from '../lib/useRemote'
 const SUGGESTIONS: Record<string, string[]> = {
   fixture: ['ERR_CONN_TIMEOUT connection timed out', 'configure SSO login', 'helm upgrade deploy', 'ORB-1042 installer'],
   stackexchange: ['overfitting', 'neural network training', 'gradient descent', 'transformer attention'],
-  confluence: ['runbook', 'onboarding', 'architecture', 'incident response'],
+  confluence: [
+    'how do I configure SSO',
+    'where is the onboarding runbook',
+    'incident response playbook',
+    'architecture overview',
+  ],
   jive: ['runbook', 'onboarding', 'howto', 'faq'],
   live: ['error message', 'how to configure', 'deployment failure'],
 }
@@ -66,12 +71,19 @@ export default function ExplorePage({ params }: { params: URLSearchParams }) {
     ...(aAge.value ? [{ k: 'aa', label: `answers ${aAge.mode === 'newer' ? 'from the' : 'older than the'} ${ageLabel(aAge.value).toLowerCase().replace('past ', aAge.mode === 'newer' ? 'past ' : '')}`, clear: () => navigate({ aAge: { mode: 'newer', value: '' } }) }] : []),
   ]
   const hasData = (overview?.totals.questions ?? 0) > 0
+  const isWiki = overview?.sourceType === 'confluence' || overview?.sourceType === 'jive'
   const examples = SUGGESTIONS[overview?.sourceType ?? 'fixture'] ?? SUGGESTIONS.fixture
 
   return (
     <div className="stack" style={{ gap: 26 }}>
-      <PageHeader eyebrow="Explore" title="Ask your knowledge" subtitle="Type a question, an error message or a function name. We’ll show the passages that match, with where they came from and how old they are." />
-      {overview && !hasData && <Banner tone="warn" title="There is nothing to search yet" action={<Button onClick={() => go('/collect')}>Collect questions</Button>}>Collect some questions first, then come back.</Banner>}
+      <PageHeader
+        eyebrow="Explore"
+        title="Ask your knowledge"
+        subtitle={isWiki
+          ? 'Ask in plain English — for example “how do I configure SSO”. We match your words (and close forms like configure/configuring) against every collected Confluence page, with the matching passage and source link. No AI model is used.'
+          : 'Type a question, an error message or a function name. We’ll show the passages that match, with where they came from and how old they are.'}
+      />
+      {overview && !hasData && <Banner tone="warn" title="There is nothing to search yet" action={<Button onClick={() => go('/collect')}>{isWiki ? 'Collect pages' : 'Collect questions'}</Button>}>{isWiki ? 'Sync Confluence pages first, then come back.' : 'Collect some questions first, then come back.'}</Banner>}
 
       <Card className="searchcard">
         <form onSubmit={(e) => { e.preventDefault(); navigate() }}>
@@ -90,15 +102,15 @@ export default function ExplorePage({ params }: { params: URLSearchParams }) {
           {open && (
             <div className="filters rise">
               <div className="grid-2" style={{ gap: 28 }}>
-                <AgeSlider label="How old may the question be?" hint="No limit on the question’s age." state={qDraft} onChange={setQDraft} />
-                <AgeSlider label="How old may the answer be?" hint="No limit on the answer’s age. Questions stay visible even if their answers are filtered out." state={aDraft} onChange={setADraft} />
+                <AgeSlider label={isWiki ? 'How old may the page be?' : 'How old may the question be?'} hint={isWiki ? 'No limit on the page’s age.' : 'No limit on the question’s age.'} state={qDraft} onChange={setQDraft} />
+                {!isWiki && <AgeSlider label="How old may the answer be?" hint="No limit on the answer’s age. Questions stay visible even if their answers are filtered out." state={aDraft} onChange={setADraft} />}
               </div>
               <div className="grid-2" style={{ gap: 28 }}>
                 <div className="field"><div className="field-label">Topic <InfoTip term="category" /></div>
                   <select className="select" value={catDraft} onChange={(e) => setCatDraft(e.target.value)}>
                     <option value="">Any topic</option>{cats.kind === 'ok' && cats.data.filter((c) => c.questionCount > 0).map((c) => <option key={c.id} value={c.id}>{c.name} ({c.questionCount})</option>)}
                   </select></div>
-                <div className="field"><div className="field-label">Only questions tagged <InfoTip term="tag" /></div><TagInput value={tagDraft} onChange={setTagDraft} placeholder="Type a tag, press Enter" /></div>
+                <div className="field"><div className="field-label">{isWiki ? 'Only pages with label' : 'Only questions tagged'} <InfoTip term="tag" /></div><TagInput value={tagDraft} onChange={setTagDraft} placeholder={isWiki ? 'Type a label, press Enter' : 'Type a tag, press Enter'} /></div>
               </div>
               <div className="row"><Button type="submit" variant="primary">Apply filters</Button><Button type="button" variant="ghost" onClick={() => { setQDraft({ mode: 'newer', value: '' }); setADraft({ mode: 'newer', value: '' }); setTagDraft([]); setCatDraft('') }}>Clear all</Button></div>
             </div>
@@ -109,7 +121,9 @@ export default function ExplorePage({ params }: { params: URLSearchParams }) {
       {!q.trim() && (
         <Card className="rise"><div className="row" style={{ marginBottom: 12 }}><Lightbulb size={19} color="var(--warn)" /><h3>Not sure what to ask? Try one of these</h3></div>
           <div className="row">{examples.map((s) => <Chip key={s} onClick={() => { setInput(s); navigate({ q: s }) }}>{s}</Chip>)}</div>
-          <p className="muted small" style={{ marginTop: 14 }}>Tip: paste an error message exactly as you see it. Exact wording is matched first.</p></Card>
+          <p className="muted small" style={{ marginTop: 14 }}>{isWiki
+            ? 'Tip: ask the way you would ask a teammate. Related wording (configure/configuring, runbook/playbook) is matched without an AI model.'
+            : 'Tip: paste an error message exactly as you see it. Exact wording is matched first.'}</p></Card>
       )}
 
       {q.trim() && result.kind === 'loading' && <div className="stack-sm"><Skeleton h={150} r={18} /><Skeleton h={150} r={18} /></div>}
@@ -124,14 +138,16 @@ export default function ExplorePage({ params }: { params: URLSearchParams }) {
           {result.data.resultCount === 0 ? (
             <EmptyState icon={<MessageCircleQuestion size={30} />} title="Nothing matches that" action={<>
               {activeFilters.length > 0 && <Button onClick={() => go(`/explore?q=${encodeURIComponent(q)}`)} icon={<Filter size={16} />}>Remove all filters</Button>}
-              <Button onClick={() => go('/collect')}>Collect more questions</Button></>}>
-              Try different words, an exact error message, or a wider age range. This search matches words, not meaning, so related wording may need a second try.</EmptyState>
+              <Button onClick={() => go('/collect')}>{isWiki ? 'Collect more pages' : 'Collect more questions'}</Button></>}>
+              {isWiki
+                ? 'Try different words, a space label such as space:ENG, or a wider age range. Related forms (configure/configuring, runbook/playbook) are already expanded — still no AI model.'
+                : 'Try different words, an exact error message, or a wider age range. Related wording is expanded lightly; this is still lexical search, not an AI model.'}</EmptyState>
           ) : (
-            <div className="stack-sm">{result.data.evidence.map((e) => <EvidenceCard key={`${e.questionId}-${e.answerId ?? 'q'}`} e={e} onCategory={(id) => navigate({ category: id })} />)}</div>
+            <div className="stack-sm">{result.data.evidence.map((e) => <EvidenceCard key={`${e.questionId}-${e.answerId ?? 'q'}`} e={e} pageMode={isWiki} onCategory={(id) => navigate({ category: id })} />)}</div>
           )}
           {result.data.truncated && <p className="muted small">{result.data.omittedForBudget} lower-ranked passage(s) were left out to keep this readable.</p>}
           <p className="muted small"><InfoTip term="untrusted" /> Everything shown was written by other people and is displayed as reading material only. Check the original source before relying on it.</p>
-          {result.data.resultCount > 0 && <CopilotCard q={q} />}
+          {result.data.resultCount > 0 && <CopilotCard q={q} wiki={isWiki} />}
         </section>
       )}
     </div>
@@ -144,8 +160,8 @@ function Confidence({ level }: { level: string }) {
   return <span className="conf" title="Rough guide to how many of your words the best passage contains"><span className="conf-bars">{[1, 2, 3].map((i) => <i key={i} className={i <= n ? `on l${n}` : ''} />)}</span>{label}<InfoTip term="confidence" /></span>
 }
 
-function CopilotCard({ q }: { q: string }) {
-  const prompt = `Search our internal Q&A for: ${q}`
+function CopilotCard({ q, wiki }: { q: string; wiki?: boolean }) {
+  const prompt = wiki ? `Search our Confluence knowledge for: ${q}` : `Search our internal Q&A for: ${q}`
   return (
     <Card className="copilot">
       <div className="spread"><div className="row"><Copy size={18} color="var(--brand)" /><div><strong>Want Copilot to answer in plain words?</strong><div className="muted small">In VS Code Copilot Chat (Agent mode), paste:</div></div></div><CopyButton text={prompt} label="Copy prompt" /></div>

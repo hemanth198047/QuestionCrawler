@@ -67,6 +67,7 @@ export default function QuestionPage({ id, focusAnswerId }: { id: string; focusA
   if (!q) return <EmptyState icon={<ShieldAlert size={30} />} title="This question was removed">Its content was erased after the retention period because the site deleted or hid it.</EmptyState>
   const href = safeUrl(q.url)
   const answers = [...(q.answers ?? [])].sort((a, b) => Number(b.accepted) - Number(a.accepted) || (b.score ?? 0) - (a.score ?? 0))
+  const isWiki = (v.thread.sourceSystem ?? '').toLowerCase().startsWith('confluence')
   return (
     <div className="stack" style={{ gap: 24 }}>
       <FocusAnswer answerId={focusAnswerId} ready={r.kind === 'ok'} />
@@ -75,25 +76,33 @@ export default function QuestionPage({ id, focusAnswerId }: { id: string; focusA
         <div className="row" style={{ marginBottom: 12 }}>{v.thread.status !== 'ACTIVE' && <Badge tone="warn">{v.thread.status.toLowerCase().replace('_', ' ')}</Badge>}
           {v.categoryNames.map((n) => <Badge key={n} tone="brand">{n}</Badge>)}</div>
         <h1 style={{ fontSize: 30 }}>{q.title}</h1>
-        <p className="muted" style={{ marginTop: 12 }}>Asked {timeAgo(q.createdAt)} ({dateOnly(q.createdAt)}) by {q.author ?? 'unknown'} · {q.score ?? '?'} votes · {answers.length} answer{answers.length === 1 ? '' : 's'}</p>
+        <p className="muted" style={{ marginTop: 12 }}>{isWiki
+          ? <>Created {timeAgo(q.createdAt)} ({dateOnly(q.createdAt)}) by {q.author ?? 'unknown'} · Confluence page</>
+          : <>Asked {timeAgo(q.createdAt)} ({dateOnly(q.createdAt)}) by {q.author ?? 'unknown'} · {q.score ?? '?'} votes · {answers.length} answer{answers.length === 1 ? '' : 's'}</>}</p>
       </header>
       {v.thread.statusReason && <Banner tone="warn" title="Status">{v.thread.statusReason}</Banner>}
       <div className="qlayout">
         <div className="stack">
           <Card className="rise">
-            <div className="ribbon neutral">Question</div>
+            <div className="ribbon neutral">{isWiki ? 'Page' : 'Question'}</div>
             <Markdown text={q.body} />
             <div className="row" style={{ marginTop: 18, gap: 6 }}>{q.tags.map((t) => <Chip key={t} onClick={() => go(`/explore?q=${encodeURIComponent(q.title)}&tag=${encodeURIComponent(t)}`)}>{t}</Chip>)}</div>
           </Card>
-          <h2 id="answers">{answers.length === 0 ? 'No answers yet' : `${answers.length} answer${answers.length === 1 ? '' : 's'}`}</h2>
-          {answers.length === 0 && <Banner tone="info">Nobody had answered this when it was last collected.</Banner>}
-          {answers.map((a, i) => <AnswerCard key={a.id ?? `answer-${i}`} a={a} />)}
+          {!isWiki && <h2 id="answers">{answers.length === 0 ? 'No answers yet' : `${answers.length} answer${answers.length === 1 ? '' : 's'}`}</h2>}
+          {!isWiki && answers.length === 0 && <Banner tone="info">Nobody had answered this when it was last collected.</Banner>}
+          {isWiki && (q.comments?.length ?? 0) > 0 && (
+            <Card className="rise">
+              <h3>Page comments</h3>
+              <div className="comments">{q.comments!.map((c, i) => <p key={i} className="small"><b>{c.author ?? 'unknown'}:</b> {c.body}</p>)}</div>
+            </Card>
+          )}
+          {!isWiki && answers.map((a, i) => <AnswerCard key={a.id ?? `answer-${i}`} a={a} />)}
         </div>
         <aside className="stack-sm qside">
           <Card>
-            <h4>About this question</h4>
+            <h4>{isWiki ? 'About this page' : 'About this question'}</h4>
             <dl className="facts one">
-              <div><dt>Asked</dt><dd>{dateOnly(q.createdAt)}</dd></div>
+              <div><dt>{isWiki ? 'Created' : 'Asked'}</dt><dd>{dateOnly(q.createdAt)}</dd></div>
               <div><dt>Last changed on the site</dt><dd>{dateOnly(q.modifiedAt)} ({timeAgo(q.modifiedAt)})</dd></div>
               <div><dt>Saved on this computer</dt><dd>{timeAgo(v.thread.retrievedAt)}</dd></div>
             </dl>

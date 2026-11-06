@@ -13,6 +13,10 @@ import java.util.regex.Pattern;
  * searchable both as a whole ({@code ora-12154}, {@code getuserbyid}, {@code err_conn_reset}) and by
  * their parts ({@code get user by id}). The same expansion is applied at index time and query time,
  * so phrase queries for exact error messages line up.
+ *
+ * <p>Plain-English morphology is added <em>alongside</em> surface forms (via {@link PlainEnglish}),
+ * never instead of them, so wiki phrasing like "configuring SSO" can still meet "configure SSO"
+ * without breaking code-token search.
  */
 public final class SymbolTokens {
 
@@ -20,9 +24,10 @@ public final class SymbolTokens {
     private static final Pattern CAMEL = Pattern.compile("(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])");
     private static final int MAX_TOKEN = 200;
 
+    /** Structural English glue. Negation ({@code not}/{@code no}/{@code without}) stays searchable. */
     static final Set<String> STOPWORDS = Set.of(
             "a", "an", "and", "are", "as", "at", "be", "but", "by", "can", "could", "do", "does", "for", "from",
-            "how", "i", "if", "in", "into", "is", "it", "me", "my", "no", "not", "of", "on", "or", "our", "should",
+            "how", "i", "if", "in", "into", "is", "it", "me", "my", "of", "on", "or", "our", "should",
             "so", "that", "the", "their", "then", "there", "these", "this", "to", "was", "we", "what", "when",
             "where", "which", "who", "why", "will", "with", "would", "you", "your");
 
@@ -72,6 +77,17 @@ public final class SymbolTokens {
                 String lower = sub.toLowerCase(Locale.ROOT);
                 if (!lower.isEmpty() && !lower.equals(whole)) {
                     parts.add(lower);
+                }
+            }
+        }
+        // Additive English stems so "pages"/"configuring" meet "page"/"configure" after reindex.
+        for (String morph : PlainEnglish.morphology(whole)) {
+            parts.add(morph);
+        }
+        for (String part : List.copyOf(parts)) {
+            for (String morph : PlainEnglish.morphology(part)) {
+                if (!morph.equals(whole)) {
+                    parts.add(morph);
                 }
             }
         }
