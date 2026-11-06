@@ -13,6 +13,7 @@ const SUGGESTIONS: Record<string, string[]> = {
   fixture: ['ERR_CONN_TIMEOUT connection timed out', 'configure SSO login', 'helm upgrade deploy', 'ORB-1042 installer'],
   stackexchange: ['overfitting', 'neural network training', 'gradient descent', 'transformer attention'],
   confluence: ['runbook', 'onboarding', 'architecture', 'incident response'],
+  jive: ['runbook', 'onboarding', 'howto', 'faq'],
   live: ['error message', 'how to configure', 'deployment failure'],
 }
 

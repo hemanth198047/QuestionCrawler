@@ -225,7 +225,7 @@ public final class HttpSourceClient {
             }
             if (user == null || user.isBlank()) {
                 throw new SourceException(SourceException.Kind.AUTH_FAILED,
-                        "Basic auth needs a username/email (set source.confluence.email or source.confluence.emailEnv)");
+                        "Basic auth needs a username/email (set source.confluence.email / source.jive.username or their *Env variants)");
             }
             String basic = java.util.Base64.getEncoder().encodeToString((user + ":" + token).getBytes(StandardCharsets.UTF_8));
             request.header(settings.authHeaderName(), "Basic " + basic);

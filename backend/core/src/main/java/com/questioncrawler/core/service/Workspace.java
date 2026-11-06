@@ -143,13 +143,18 @@ public final class Workspace {
         com.questioncrawler.core.source.ApiOptions apiOptions = apiOptions(v);
         String ca = v.getOrDefault("source.caCertFile", "").strip();
         int timeout = parseInt(v.get("source.timeoutSeconds"), 15);
-        String authMethod = v.getOrDefault("source.auth.method", type.equals("confluence") ? "basic-env" : "none");
+        String authMethod = v.getOrDefault("source.auth.method",
+                (type.equals("confluence") || type.equals("jive")) ? "basic-env" : "none");
+        String authUser = type.equals("jive")
+                ? v.getOrDefault("source.jive.username", "")
+                : v.getOrDefault("source.confluence.email", "");
+        String authUserEnv = type.equals("jive")
+                ? v.getOrDefault("source.jive.usernameEnv", "")
+                : v.getOrDefault("source.confluence.emailEnv", "");
         SiteDiagnostics.Input input = new SiteDiagnostics.Input(type, target, site, tags, authMethod,
                 v.getOrDefault("source.auth.tokenEnv", ""), keyEnv,
                 ca.isEmpty() ? null : Path.of(ca), Boolean.parseBoolean(v.getOrDefault("source.allowInsecureHttp", "false")), Math.min(timeout, 30),
-                proxyOf(v), apiOptions,
-                v.getOrDefault("source.confluence.email", ""),
-                v.getOrDefault("source.confluence.emailEnv", ""));
+                proxyOf(v), apiOptions, authUser, authUserEnv);
         ConnectionReport report = new SiteDiagnostics(env, clock).run(input);
         try {
             knowledgeBase.store().init();
@@ -600,6 +605,7 @@ public final class Workspace {
             case "fixture" -> "Demo data";
             case "stackexchange" -> "Stack Exchange: " + config.source().site();
             case "confluence" -> "Confluence" + (config.source().baseUrl().isBlank() ? "" : ": " + config.source().baseUrl());
+            case "jive" -> "Jive" + (config.source().baseUrl().isBlank() ? "" : ": " + config.source().baseUrl());
             default -> "Internal site";
         };
         int questions = 0;

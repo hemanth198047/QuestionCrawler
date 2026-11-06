@@ -104,6 +104,12 @@ public final class KnowledgeBase {
             throw new IllegalArgumentException("Collecting every Confluence page ('all') without a space, ancestor page, or time window is refused. "
                     + "Set source.confluence.spaces, an ancestor page id, or a collection window on the Collect page.");
         }
+        if (com.questioncrawler.core.source.TagFilter.asksForAll(options.tags()) && config.sourceType().equals("jive")
+                && options.maxQuestionAge() == null
+                && (config.jive() == null || !config.jive().hasBoundedScope())) {
+            throw new IllegalArgumentException("Collecting every Jive item ('all') without a place id or time window is refused. "
+                    + "Set source.jive.places or a collection window on the Collect page.");
+        }
         store.init();
         SourceAdapter adapter = adapterOverride != null ? adapterOverride : config.createAdapter();
         Pipeline pipeline = new Pipeline();

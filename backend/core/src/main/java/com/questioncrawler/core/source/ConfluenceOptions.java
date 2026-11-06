@@ -7,7 +7,7 @@ import java.util.List;
  * Confluence-only connection options. Kept separate from Stack Exchange / live / fixture settings
  * so Cloud wiki keys never mix with Q&amp;A API fields. Secrets stay as environment-variable names.
  *
- * <p>Jive and SharePoint will be separate {@code source.type} values later — not extensions of this record.
+ * <p>Jive and SharePoint are separate {@code source.type} values — not extensions of this record.
  */
 public record ConfluenceOptions(
         String edition,

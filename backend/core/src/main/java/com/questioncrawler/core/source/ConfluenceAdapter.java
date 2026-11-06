@@ -29,7 +29,7 @@ import java.util.function.Function;
  * Auth is {@code basic-env} (Cloud email + API token) or Bearer {@code token} (Server/DC PAT) via
  * {@link HttpSourceClient}. Cookie scraping and HTML UI login are intentionally unsupported.
  *
- * <p>Jive and SharePoint are separate future {@code source.type} values — do not extend this adapter for them.
+ * <p>Jive ({@code source.type=jive}) and SharePoint are separate {@code source.type} values — do not extend this adapter for them.
  */
 public final class ConfluenceAdapter implements SourceAdapter {
 

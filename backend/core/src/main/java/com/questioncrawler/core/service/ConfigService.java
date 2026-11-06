@@ -48,8 +48,10 @@ public final class ConfigService {
     private static final List<String> SE = List.of("stackexchange");
     private static final List<String> LIVE = List.of("live");
     private static final List<String> CONFLUENCE = List.of("confluence");
-    private static final List<String> REMOTE = List.of("stackexchange", "live", "confluence");
-    private static final List<String> AUTH_TOKEN = List.of("live", "confluence");
+    private static final List<String> JIVE = List.of("jive");
+    private static final List<String> REMOTE = List.of("stackexchange", "live", "confluence", "jive");
+    private static final List<String> AUTH_TOKEN = List.of("live", "confluence", "jive");
+    private static final List<String> LIVE_CONFLUENCE_JIVE = List.of("live", "confluence", "jive");
 
     private final Function<String, String> env;
 
@@ -71,11 +73,12 @@ public final class ConfigService {
         return List.of(
                 new Section("source", "Where do the questions come from?",
                         "Pick the site to collect from and tell the app how to reach it. Use the Connect page to test access.", "plug", List.of(
-                        f("source.type", "Source", "Demo data needs no internet. Stack Overflow / Stack Exchange uses the public API. Confluence collects wiki pages via its REST API. Your internal Q&A site needs its own connector. Jive and SharePoint will be separate sources later.",
+                        f("source.type", "Source", "Demo data needs no internet. Stack Overflow / Stack Exchange uses the public API. Confluence collects wiki pages via its REST API. Jive collects community content via Core REST v3. Your internal Q&A site needs its own connector. SharePoint will be a separate source later.",
                                 Type.SELECT, "fixture", null, ALL, false, null,
                                 new Option("fixture", "Demo data", "Offline sample questions, nothing to set up"),
                                 new Option("stackexchange", "Stack Overflow / Stack Exchange", "Public site via its official API"),
                                 new Option("confluence", "Confluence", "Cloud or Server/DC wiki pages via REST (separate from Jive/SharePoint)"),
+                                new Option("jive", "Jive", "Community content via Core REST API v3 (separate from Confluence/SharePoint)"),
                                 new Option("live", "Our internal Q&A site", "Needs API documentation (Stack Exchange–style)")),
                         f("source.siteUrl", "Site address", "The home page of the Stack Exchange site, for example https://stackoverflow.com/.",
                                 Type.URL, "https://stackoverflow.com/", "https://stackoverflow.com/", SE, false, null),
@@ -85,8 +88,8 @@ public final class ConfigService {
                                 Type.URL, "", "https://so.mycompany.com/swagger/index.html", LIVE, false, null),
                         f("api.swaggerFile", "API documentation file (JSON)", "Use this when the documentation page needs a company sign-in (SSO). Open the documentation's JSON address in your browser (where you are signed in), save it as swagger.json, and upload it on the Connect screen: its location is filled in here.",
                                 Type.PATH, "", "C:/data/swagger.json", LIVE, false, null),
-                        f("source.baseUrl", "Site / API address", "For Confluence: the site origin, for example https://acme.atlassian.net or https://wiki.example.com. For an internal Q&A API: the address every call starts with (or leave empty to take it from Swagger).",
-                                Type.URL, "", "https://acme.atlassian.net", List.of("live", "confluence"), false, null),
+                        f("source.baseUrl", "Site / API address", "For Confluence: the site origin (https://acme.atlassian.net). For Jive: the community origin (https://community.example.com). For an internal Q&A API: the address every call starts with (or leave empty to take it from Swagger).",
+                                Type.URL, "", "https://community.example.com", LIVE_CONFLUENCE_JIVE, false, null),
                         f("source.confluence.edition", "Confluence edition", "Cloud uses /wiki/rest/api and email + API token (Basic). Server/Data Center uses /rest/api and a personal access token (Bearer).",
                                 Type.SELECT, "cloud", null, CONFLUENCE, false, null,
                                 new Option("cloud", "Confluence Cloud", "Atlassian Cloud site"),
@@ -113,8 +116,24 @@ public final class ConfigService {
                                 Type.NUMBER, "25", null, CONFLUENCE, true, null),
                         f("source.confluence.includeSpaceTag", "Add space:KEY tags", "Adds a synthetic space:ENG-style tag on each page for filtering and classification.",
                                 Type.SWITCH, "true", null, CONFLUENCE, true, null),
-                        f("source.systemId", "Storage system id", "Folder name under threads/ for this Confluence site. Default confluence.",
-                                Type.TEXT, "confluence", "confluence", CONFLUENCE, true, null),
+                        f("source.systemId", "Storage system id", "Folder name under threads/ for this site. Defaults: confluence or jive depending on the source type.",
+                                Type.TEXT, "", "jive", List.of("confluence", "jive"), true, null),
+                        f("source.jive.username", "Jive username", "Basic auth only. The Jive username (often a non-SSO service account). Not a secret; the password/token stays in an environment variable.",
+                                Type.TEXT, "", "svc-questioncrawler", JIVE, false, null),
+                        f("source.jive.usernameEnv", "Username variable name (optional)", "Optional alternative: NAME of an environment variable that holds the Jive username instead of typing it above.",
+                                Type.ENV_NAME, "", "JIVE_USERNAME", JIVE, true, null),
+                        f("source.jive.places", "Place ids", "Comma-separated Jive place/space ids to include (numeric ids). Strongly recommended so sync stays bounded.",
+                                Type.TAGS, "", "1006", JIVE, false, null),
+                        f("source.jive.contentTypes", "Content types", "Jive object types to collect. Defaults cover documents, discussions, and questions.",
+                                Type.TAGS, "document,discussion,question", "document,discussion,question", JIVE, true, null),
+                        f("source.jive.apiRoot", "REST API root override", "Leave empty for /api/core/v3. Set only if your site uses a custom context path.",
+                                Type.TEXT, "", "/api/core/v3", JIVE, true, null),
+                        f("source.jive.collectComments", "Also collect comments", "Downloads content comments as thread comments. Uses more API requests. Failures are non-fatal.",
+                                Type.SWITCH, "false", null, JIVE, false, null),
+                        f("source.jive.pageSize", "List page size", "How many content items Jive returns per request (1–100).",
+                                Type.NUMBER, "25", null, JIVE, true, null),
+                        f("source.jive.includePlaceTag", "Add place:ID tags", "Adds a synthetic place:1006-style tag on each item for filtering and classification.",
+                                Type.SWITCH, "true", null, JIVE, true, null),
                         f("api.keyEnv", "API access key variable name", "All API requests need an access key. Enter the NAME of the environment variable that holds your key (the key itself is never saved), then set that variable in your terminal.",
                                 Type.ENV_NAME, "INTERNAL_QA_API_KEY", "INTERNAL_QA_API_KEY", LIVE, false, null),
                         f("api.collectComments", "Also collect comments", "Downloads the comments under questions and answers as extra context. Uses more API requests.",
@@ -131,21 +150,21 @@ public final class ConfigService {
                                 Type.TEXT, "", "", LIVE, true, null),
                         f("api.bodyFilter", "Response filter with text", "The filter that makes the API include question and answer text. Leave empty for the standard one; if it does not exist, one is created for you.",
                                 Type.TEXT, "", "withbody", LIVE, true, null),
-                        f("source.auth.method", "How to sign in", "Confluence Cloud: Email + API token (Basic). Confluence Server/DC: Bearer personal access token. Internal Q&A: Bearer only when the API asks for it in addition to a key.",
+                        f("source.auth.method", "How to sign in", "Confluence Cloud: Email + API token (Basic). Confluence Server/DC: Bearer PAT. Jive: username + password (Basic) or OAuth Bearer access token. Internal Q&A: Bearer only when the API asks for it in addition to a key.",
                                 Type.SELECT, "none", null, AUTH_TOKEN, false, null,
                                 new Option("none", "Not needed", "Only for some internal Q&A APIs"),
-                                new Option("basic-env", "Email + API token (Basic)", "Confluence Cloud: email in settings, token in an env var"),
-                                new Option("token", "Bearer token / PAT", "Confluence Server/DC PAT, or internal Bearer token")),
-                        f("source.auth.tokenEnv", "Token / PAT variable name", "The NAME of the environment variable that holds the API token or PAT (never the secret itself). Suggested: CONFLUENCE_API_TOKEN (Cloud) or CONFLUENCE_PAT (Server/DC).",
-                                Type.ENV_NAME, "CONFLUENCE_API_TOKEN", "CONFLUENCE_API_TOKEN", AUTH_TOKEN, false, null),
+                                new Option("basic-env", "Username/email + secret (Basic)", "Confluence Cloud email+token, or Jive username+password from env"),
+                                new Option("token", "Bearer token / PAT / OAuth", "Confluence Server/DC PAT, Jive OAuth access token, or internal Bearer")),
+                        f("source.auth.tokenEnv", "Token / password variable name", "The NAME of the environment variable that holds the secret (never the secret itself). Suggested: CONFLUENCE_API_TOKEN / CONFLUENCE_PAT, JIVE_PASSWORD / JIVE_ACCESS_TOKEN.",
+                                Type.ENV_NAME, "JIVE_PASSWORD", "JIVE_PASSWORD", AUTH_TOKEN, false, null),
                         f("source.auth.headerName", "Auth header name", "The HTTP header that carries the credential. Almost always Authorization.",
                                 Type.TEXT, "Authorization", "Authorization", AUTH_TOKEN, true, null),
                         f("source.auth.scheme", "Bearer prefix", "For Bearer/PAT auth only. Ignored for Basic (email + API token).",
                                 Type.TEXT, "Bearer", "Bearer", AUTH_TOKEN, true, null),
                         f("source.allowedHosts", "Allowed hosts", "The app only ever talks to these hosts. Filled in automatically from the address above.",
-                                Type.TAGS, "", "acme.atlassian.net", List.of("live", "confluence"), true, null),
-                        f("source.allowedPathPrefixes", "Allowed paths", "The app only requests addresses that start with one of these paths. Confluence Cloud default is /wiki/rest/api/.",
-                                Type.TAGS, "/", "/wiki/rest/api/", List.of("live", "confluence"), true, null),
+                                Type.TAGS, "", "community.example.com", LIVE_CONFLUENCE_JIVE, true, null),
+                        f("source.allowedPathPrefixes", "Allowed paths", "The app only requests addresses that start with one of these paths. Confluence Cloud default is /wiki/rest/api/; Jive default is /api/core/v3/.",
+                                Type.TAGS, "/", "/api/core/v3/", LIVE_CONFLUENCE_JIVE, true, null),
                         f("source.caCertFile", "Company certificate file", "Only needed if your company uses its own security certificate authority. Path to a .pem/.crt file.",
                                 Type.PATH, "", "C:\\certs\\company-ca.pem", REMOTE, true, null),
                         f("network.proxyHost", "Web proxy address", "Only if your company reaches the internet through a web proxy. Enter the host name, for example webproxy.mycompany.com (leave empty if there is none). If the HTTPS_PROXY environment variable is already set, you can leave this empty.",
@@ -169,7 +188,7 @@ public final class ConfigService {
                                 Type.SWITCH, "false", null, REMOTE, true, null))),
                 new Section("topic", "What should we collect?",
                         "Tags are the labels people put on questions. We collect every question that has your tags.", "tags", List.of(
-                        f("sync.tags", "Tags", "Press Enter after each tag. For Stack Exchange these are question tags; for Confluence they are page labels (case-insensitive). 'Artificial Intelligence' and 'artificial-intelligence' mean the same. Type all (or *) only with a Confluence space/ancestor or a time window — unbounded whole-site sync is refused.",
+                        f("sync.tags", "Tags", "Press Enter after each tag. For Stack Exchange these are question tags; for Confluence they are page labels; for Jive they are content tags (case-insensitive). Type all (or *) only with a Confluence space/ancestor, a Jive place, or a time window — unbounded whole-site sync is refused.",
                                 Type.TAGS, "", "artificial-intelligence", ALL, false, null),
                         f("sync.tagMode", "A question must have", "With several tags: any of them, or all of them.", Type.SELECT, "ANY", null, ALL, false, null,
                                 new Option("ANY", "Any of the tags", "Wider: questions matching at least one tag"),
@@ -296,8 +315,8 @@ public final class ConfigService {
         v.putAll(submitted);
         List<Issue> issues = new ArrayList<>();
         String type = v.getOrDefault("source.type", "fixture");
-        if (!List.of("fixture", "stackexchange", "live", "confluence").contains(type)) {
-            issues.add(new Issue("source.type", "error", "Choose one of the listed sources.", "Pick Demo data, Stack Overflow / Stack Exchange, Confluence, or Our internal Q&A site."));
+        if (!List.of("fixture", "stackexchange", "live", "confluence", "jive").contains(type)) {
+            issues.add(new Issue("source.type", "error", "Choose one of the listed sources.", "Pick Demo data, Stack Overflow / Stack Exchange, Confluence, Jive, or Our internal Q&A site."));
         }
         if (type.equals("stackexchange")) {
             String url = v.getOrDefault("source.siteUrl", "");
@@ -307,7 +326,7 @@ public final class ConfigService {
             }
             checkEnvName(issues, "source.stackexchange.keyEnv", v.get("source.stackexchange.keyEnv"), false);
         }
-        if (type.equals("live") || type.equals("confluence")) {
+        if (type.equals("live") || type.equals("confluence") || type.equals("jive")) {
             String url = v.getOrDefault("source.baseUrl", "");
             String swagger = v.getOrDefault("api.swaggerUrl", "");
             URI uri = parseUri(url);
@@ -321,8 +340,10 @@ public final class ConfigService {
                 if (url.isBlank() && swagger.isBlank() && docsFile.isEmpty()) {
                     issues.add(new Issue("api.swaggerUrl", "error", "Enter the API documentation (Swagger) address, or the API address.", "Ask the site owners for the link to their Swagger page; it usually ends in /swagger/index.html."));
                 }
-            } else if (url.isBlank()) {
+            } else if (type.equals("confluence") && url.isBlank()) {
                 issues.add(new Issue("source.baseUrl", "error", "Enter the Confluence site address.", "For Cloud use https://your-site.atlassian.net — not a page URL inside the wiki."));
+            } else if (type.equals("jive") && url.isBlank()) {
+                issues.add(new Issue("source.baseUrl", "error", "Enter the Jive community address.", "Use the site origin, for example https://community.example.com — not a single content URL."));
             }
             if (!url.isBlank() && (uri == null || uri.getHost() == null)) {
                 issues.add(new Issue("source.baseUrl", "error", "That does not look like a web address.", "Start with https:// and include the full host name."));
@@ -374,6 +395,31 @@ public final class ConfigService {
                             "Add at least one space key or label (tags)."));
                 }
             }
+            if (type.equals("jive")) {
+                String authMethodJ = v.getOrDefault("source.auth.method", "none");
+                if ("basic-env".equals(authMethodJ)) {
+                    String user = v.getOrDefault("source.jive.username", "").strip();
+                    String userEnv = v.getOrDefault("source.jive.usernameEnv", "").strip();
+                    if (user.isEmpty() && userEnv.isEmpty()) {
+                        issues.add(new Issue("source.jive.username", "error", "Jive Basic auth needs a username.",
+                                "Enter the username, or set source.jive.usernameEnv to an environment variable name."));
+                    }
+                    checkEnvName(issues, "source.jive.usernameEnv", userEnv, false);
+                }
+                String places = v.getOrDefault("source.jive.places", "").strip();
+                String tagsJ = v.getOrDefault("sync.tags", "").strip();
+                String ageJ = v.getOrDefault("sync.maxQuestionAge", "").strip();
+                if (com.questioncrawler.core.source.TagFilter.asksForAll(java.util.Arrays.asList(tagsJ.split(",")))
+                        && places.isEmpty() && ageJ.isEmpty()) {
+                    issues.add(new Issue("source.jive.places", "error",
+                            "Collecting every Jive item without a place or time window is refused.",
+                            "Add place ids, specific tags instead of 'all', or a max age window."));
+                } else if (places.isEmpty() && tagsJ.isEmpty()) {
+                    issues.add(new Issue("source.jive.places", "warning",
+                            "No places or tags yet — collection will have nothing useful to target.",
+                            "Add at least one place id or tag."));
+                }
+            }
         }
         if (!type.equals("fixture")) {
             String ca = v.getOrDefault("source.caCertFile", "").strip();
@@ -410,6 +456,15 @@ public final class ConfigService {
                     issues.add(new Issue("sync.maxQuestionAge", "error",
                             "Label 'all' on Confluence needs a space, ancestor page, or time window.",
                             "Set space keys or pick a collection window on the Collect page."));
+                }
+            }
+            if (type.equals("jive")) {
+                String places = v.getOrDefault("source.jive.places", "").strip();
+                String age = v.getOrDefault("sync.maxQuestionAge", "").strip();
+                if (places.isEmpty() && age.isEmpty()) {
+                    issues.add(new Issue("sync.maxQuestionAge", "error",
+                            "Tag 'all' on Jive needs a place id or time window.",
+                            "Set place ids or pick a collection window on the Collect page."));
                 }
             }
         } else if ("ALL".equals(v.get("sync.tagMode")) && type.equals("stackexchange") && tags.split(",").length > 5) {
@@ -494,7 +549,7 @@ public final class ConfigService {
         submitted.forEach((k, val) -> merged.put(k, val == null ? "" : val.strip()));
         // Friendliness: the host allow-list follows the address the user typed.
         String type = merged.getOrDefault("source.type", "fixture");
-        if ((type.equals("live") || type.equals("confluence")) && merged.getOrDefault("source.allowedHosts", "").isBlank()) {
+        if ((type.equals("live") || type.equals("confluence") || type.equals("jive")) && merged.getOrDefault("source.allowedHosts", "").isBlank()) {
             java.util.LinkedHashSet<String> hosts = new java.util.LinkedHashSet<>();
             for (String key : new String[] {"source.baseUrl", "api.swaggerUrl"}) {
                 URI uri = parseUri(merged.get(key));
@@ -523,6 +578,26 @@ public final class ConfigService {
             }
             if (merged.getOrDefault("source.systemId", "").isBlank()) {
                 merged.put("source.systemId", "confluence");
+            }
+            if (merged.getOrDefault("source.followRedirects", "").isBlank()) {
+                merged.put("source.followRedirects", "same-host");
+            }
+        }
+        if (type.equals("jive")) {
+            String prefixes = merged.getOrDefault("source.allowedPathPrefixes", "").strip();
+            if (prefixes.isEmpty() || prefixes.equals("/")) {
+                merged.put("source.allowedPathPrefixes", "/api/core/v3/");
+            }
+            String auth = merged.getOrDefault("source.auth.method", "").strip();
+            if (auth.isEmpty() || "none".equals(auth)) {
+                merged.put("source.auth.method", "basic-env");
+            }
+            if (merged.getOrDefault("source.auth.tokenEnv", "").isBlank()) {
+                String method = merged.getOrDefault("source.auth.method", "basic-env");
+                merged.put("source.auth.tokenEnv", "token".equals(method) ? "JIVE_ACCESS_TOKEN" : "JIVE_PASSWORD");
+            }
+            if (merged.getOrDefault("source.systemId", "").isBlank()) {
+                merged.put("source.systemId", "jive");
             }
             if (merged.getOrDefault("source.followRedirects", "").isBlank()) {
                 merged.put("source.followRedirects", "same-host");

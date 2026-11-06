@@ -2,7 +2,7 @@
 
 QuestionCrawler can collect **Confluence pages** into the same local knowledge store used for Stack Exchange and demo data.
 
-`source.type=confluence` is a **first-class, separate** source. It does **not** share settings with Stack Exchange, the internal live Q&A adapter, or future **Jive** / **SharePoint** connectors.
+`source.type=confluence` is a **first-class, separate** source. It does **not** share settings with Stack Exchange, the internal live Q&A adapter, **Jive**, or future **SharePoint** connectors.
 
 ## What you get
 

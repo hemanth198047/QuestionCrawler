@@ -1,4 +1,4 @@
-import { BookOpen, Building2, Globe, Layers, Play, Save, ShieldCheck, Sparkles } from 'lucide-react'
+import { BookOpen, Building2, Globe, Layers, MessagesSquare, Play, Save, ShieldCheck, Sparkles } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { checkConnection, getConfig, getLastConnection, getPresets, saveConfig, validateConfig } from '../api'
 import { ApiDocsPanel } from '../components/ApiDocsPanel'
@@ -13,7 +13,7 @@ import { Banner, Button, Card, Skeleton, useToast } from '../components/ui'
 import { go, useRemote } from '../lib/useRemote'
 import type { ConfigField, ConnectionReport, Issue, Preset } from '../types/api'
 
-const ICONS: Record<string, React.ReactNode> = { sparkles: <Sparkles size={20} />, globe: <Globe size={20} />, layers: <Layers size={20} />, building: <Building2 size={20} />, book: <BookOpen size={20} /> }
+const ICONS: Record<string, React.ReactNode> = { sparkles: <Sparkles size={20} />, globe: <Globe size={20} />, layers: <Layers size={20} />, building: <Building2 size={20} />, book: <BookOpen size={20} />, messages: <MessagesSquare size={20} /> }
 
 export default function ConnectPage() {
   const toast = useToast()
@@ -98,7 +98,8 @@ export default function ConnectPage() {
         {(source === 'live' || source === 'stackexchange') && <CollectTestPanel values={draft} />}
         {source === 'live' && <RawAnswerPanel values={draft} onUse={(patch) => setDraft({ ...draft, ...patch })} />}
         {source === 'fixture' && <Banner tone="info" title="Demo data needs nothing else">Sample questions are built into the app. Choose a real site above whenever you’re ready.</Banner>}
-        {source === 'confluence' && <Banner tone="info" title="Confluence pages become local threads">Tags mean Confluence labels. Set space keys and an API token env var (Cloud: email + CONFLUENCE_API_TOKEN; Server/DC: CONFLUENCE_PAT). Jive and SharePoint are separate sources later.</Banner>}
+        {source === 'confluence' && <Banner tone="info" title="Confluence pages become local threads">Tags mean Confluence labels. Set space keys and an API token env var (Cloud: email + CONFLUENCE_API_TOKEN; Server/DC: CONFLUENCE_PAT). Jive and SharePoint are separate sources.</Banner>}
+        {source === 'jive' && <Banner tone="info" title="Jive content becomes local threads">Tags mean Jive content tags. Set place ids and credentials via env vars (Basic: username + JIVE_PASSWORD; OAuth: JIVE_ACCESS_TOKEN). Confluence and SharePoint are separate sources.</Banner>}
       </Section>
 
       <Section num={3} title="Can we reach it?" hint="We test the whole path and explain each step in plain language. Nothing is changed or downloaded.">
