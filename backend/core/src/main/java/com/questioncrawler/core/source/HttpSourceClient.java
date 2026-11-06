@@ -38,7 +38,11 @@ public final class HttpSourceClient {
     private static final int MAX_BODY_BYTES = 10 * 1024 * 1024;
 
     /** Raw result of one exchange; {@code retryAfter} is the unparsed Retry-After header or null. */
-    public record Response(int status, String body, String retryAfter) {}
+    public record Response(int status, String body, String retryAfter, String contentType, String location) {
+        public Response(int status, String body, String retryAfter) {
+            this(status, body, retryAfter, null, null);
+        }
+    }
 
     private final SourceSettings settings;
     private final HttpClient http;
@@ -115,7 +119,8 @@ public final class HttpSourceClient {
             peek.unread(sig);
             boolean gzipSignature = sig.length == 2 && (sig[0] & 0xff) == 0x1f && (sig[1] & 0xff) == 0x8b;
             InputStream in = gzipHeader || gzipSignature ? new java.util.zip.GZIPInputStream(peek) : peek;
-            return new Response(response.statusCode(), readBounded(in), response.headers().firstValue("Retry-After").orElse(null));
+            return new Response(response.statusCode(), readBounded(in), response.headers().firstValue("Retry-After").orElse(null),
+                    response.headers().firstValue("Content-Type").orElse(null), response.headers().firstValue("Location").orElse(null));
         } catch (IOException e) {
             throw new SourceException(SourceException.Kind.TRANSIENT, "Error reading response from " + describe(uri), null, e);
         }

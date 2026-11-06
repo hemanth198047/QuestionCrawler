@@ -2,6 +2,7 @@ import { Building2, Globe, Layers, Play, Save, ShieldCheck, Sparkles } from 'luc
 import { useEffect, useMemo, useState } from 'react'
 import { checkConnection, getConfig, getLastConnection, getPresets, saveConfig, validateConfig } from '../api'
 import { ApiDocsPanel } from '../components/ApiDocsPanel'
+import { RawAnswerPanel } from '../components/RawAnswerPanel'
 import { IssueList, Section, SettingField } from '../components/Fields'
 import { PageHeader } from '../components/PageHeader'
 import { useOverview } from '../components/OverviewContext'
@@ -89,6 +90,7 @@ export default function ConnectPage() {
           <SettingField key={f.key} field={f} value={draft[f.key] ?? ''} onChange={(v) => set(f.key, v)} issues={issuesFor(f.key)} />
         ))}
         {source === 'live' && <ApiDocsPanel values={draft} onUse={(patch) => { setDraft({ ...draft, ...patch }); toast('ok', 'Settings filled in from the documentation') }} />}
+        {source === 'live' && <RawAnswerPanel values={draft} />}
         {source === 'fixture' && <Banner tone="info" title="Demo data needs nothing else">Sample questions are built into the app. Choose a real site above whenever you’re ready.</Banner>}
       </Section>
 

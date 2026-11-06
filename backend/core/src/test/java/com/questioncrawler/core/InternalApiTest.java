@@ -61,6 +61,7 @@ class InternalApiTest {
     final List<String> requests = Collections.synchronizedList(new ArrayList<>());
     volatile boolean specHasTagged = true;
     volatile String swaggerIndex = "html-direct";
+    volatile String infoMode = "json"; // json | html-login | redirect | docs-page | blocked | bom | empty | text
     volatile String docsAuth = "none"; // none | bearer | key: what the documentation itself demands
 
     // ------------------------------------------------------------------ the fake internal site
@@ -124,7 +125,7 @@ class InternalApiTest {
         boolean withBody = filter.equals("!custom");
         switch (api) {
             case "/filters/create" -> sendJson(ex, 200, Map.of("items", List.of(Map.of("filter", "!custom", "filter_type", "safe")), "has_more", false), true);
-            case "/info" -> sendJson(ex, 200, wrap(List.of(Map.of("total_questions", 3)), false), true);
+            case "/info" -> sendInfo(ex);
             case "/questions" -> sendJson(ex, 200, wrap(questions(q, withBody), false), true);
             case "/questions/101;102;103/answers", "/questions/101;102/answers", "/questions/101/answers", "/questions/102/answers" ->
                     sendJson(ex, 200, wrap(answers(withBody), false), false); // compressed WITHOUT the Content-Encoding header
@@ -139,6 +140,23 @@ class InternalApiTest {
                     sendJson(ex, 404, Map.of("error_id", 404, "error_name", "no_method", "error_message", "no such method"), true);
                 }
             }
+        }
+    }
+
+    private void sendInfo(HttpExchange ex) throws java.io.IOException {
+        switch (infoMode) {
+            case "html-login" -> send(ex, 200, "text/html; charset=utf-8", "<html><head><title>Sign in to Acme</title></head><body><form>Please sign in with single sign-on</form></body></html>".getBytes(StandardCharsets.UTF_8), false, true);
+            case "redirect" -> {
+                ex.getResponseHeaders().add("Location", "https://sso.example.com/login?returnUrl=%2Fapi%2F2.3%2Finfo&key=" + KEY);
+                ex.sendResponseHeaders(302, -1);
+                ex.close();
+            }
+            case "docs-page" -> send(ex, 200, "text/html", "<html><head><title>Swagger UI</title></head><body><div id=\"swagger-ui\"></div></body></html>".getBytes(StandardCharsets.UTF_8), false, true);
+            case "blocked" -> send(ex, 403, "text/html", "<html><head><title>Access Denied</title></head><body>Your request was blocked by the web filter policy (category: uncategorized).</body></html>".getBytes(StandardCharsets.UTF_8), false, true);
+            case "bom" -> send(ex, 200, "application/json", ("\uFEFF)]}',\n" + Json.write(wrap(List.of(Map.of("total_questions", 3)), false))).getBytes(StandardCharsets.UTF_8), false, true);
+            case "empty" -> send(ex, 200, "application/json", new byte[0], false, true);
+            case "text" -> send(ex, 200, "text/plain", "OK".getBytes(StandardCharsets.UTF_8), false, true);
+            default -> sendJson(ex, 200, wrap(List.of(Map.of("total_questions", 3)), false), true);
         }
     }
 
@@ -558,5 +576,112 @@ class InternalApiTest {
         assertTrue(html.problem().contains("not a Swagger/OpenAPI JSON document"), html.problem());
         assertTrue(w.saveApiDocs("openapi: 3.0.0\ninfo: {}").problem().contains("YAML"));
         assertFalse(Files.exists(w.apiDocsFile()), "nothing is kept when the file is not documentation");
+    }
+
+    // ------------------------------------------------------------------ "the answer is not JSON": say what it is
+    private SourceException pingFailure(String mode) throws Exception {
+        infoMode = mode;
+        CoreConfig c = config("");
+        return assertThrows(SourceException.class, () -> c.createAdapter(env()).ping());
+    }
+
+    @Test
+    void aSignInPageIsRecognisedAndExplained() throws Exception {
+        SourceException e = pingFailure("html-login");
+        assertEquals(SourceException.Kind.AUTH_FAILED, e.kind());
+        assertTrue(e.getMessage().contains("sign-in page") && e.getMessage().contains("Sign in to Acme"), e.getMessage());
+        assertTrue(e.getMessage().contains("See what the API really answers"), e.getMessage());
+        assertFalse(e.getMessage().contains("not valid JSON"));
+    }
+
+    @Test
+    void aRedirectToSingleSignOnShowsWhereItGoesWithoutLeakingTheKey() throws Exception {
+        SourceException e = pingFailure("redirect");
+        assertEquals(SourceException.Kind.AUTH_FAILED, e.kind());
+        assertTrue(e.getMessage().contains("redirected") && e.getMessage().contains("https://sso.example.com/login"), e.getMessage());
+        assertFalse(e.getMessage().contains(KEY) || e.getMessage().contains("returnUrl"), "the query string is not shown: " + e.getMessage());
+    }
+
+    @Test
+    void theDocumentationPageAsApiAddressIsRecognised() throws Exception {
+        SourceException e = pingFailure("docs-page");
+        assertTrue(e.getMessage().contains("documentation page, not the API") || e.getMessage().contains("looks like the API documentation"), e.getMessage());
+    }
+
+    @Test
+    void aProxyBlockPageIsRecognised() throws Exception {
+        SourceException e = pingFailure("blocked");
+        assertTrue(e.getMessage().contains("proxy or firewall"), e.getMessage());
+    }
+
+    @Test
+    void emptyAndPlainTextAnswersAreNamedForWhatTheyAre() throws Exception {
+        assertTrue(pingFailure("empty").getMessage().contains("answer was empty"));
+        assertTrue(pingFailure("text").getMessage().contains("plain text"));
+    }
+
+    @Test
+    void aByteOrderMarkAndASecurityPrefixDoNotBreakJson() throws Exception {
+        infoMode = "bom";
+        CoreConfig c = config("");
+        assertTrue(c.createAdapter(env()).ping().contains("has 3 questions"));
+    }
+
+    // ------------------------------------------------------------------ see the raw answer
+    private Workspace workspace(String name, Function<String, String> environment) {
+        return new Workspace(tmp.resolve(name + "/config.properties"), Map.of("storage.root", tmp.resolve(name + "d").toString()), environment, Clock.systemUTC());
+    }
+
+    private Map<String, String> draft() {
+        return Map.of("source.type", "live", "source.baseUrl", origin + "/api/2.3", "api.keyEnv", "INTERNAL_KEY", "source.allowInsecureHttp", "true", "source.timeoutSeconds", "5");
+    }
+
+    @Test
+    void theRawAnswerShowsStatusTypeAndBodyButNeverTheKey() throws Exception {
+        var ok = workspace("p1", env()).probeApi(draft(), "/info");
+        assertTrue(ok.reached());
+        assertEquals(200, ok.status());
+        assertEquals("JSON", ok.kind());
+        assertTrue(ok.preview().contains("total_questions"));
+        assertTrue(ok.keySent());
+        assertEquals("in the address as 'key'", ok.keyPlacement());
+        assertFalse(ok.url().contains(KEY) || Json.write(ok).contains(KEY), "the key is hidden: " + ok.url());
+        assertTrue(ok.url().contains("key=%E2%80%A2%E2%80%A2%E2%80%A2") || ok.url().contains("key=•••"), ok.url());
+    }
+
+    @Test
+    void theRawAnswerExplainsEachKindOfWrongAnswer() throws Exception {
+        for (var e : Map.of("html-login", "HTML_LOGIN", "redirect", "REDIRECT", "docs-page", "HTML_DOCS", "blocked", "HTML_BLOCKED", "empty", "EMPTY", "text", "TEXT").entrySet()) {
+            infoMode = e.getKey();
+            var r = workspace("p2" + e.getKey(), env()).probeApi(draft(), "/info");
+            assertEquals(e.getValue(), r.kind(), e.getKey() + " -> " + r.summary());
+            assertFalse(r.hints().isEmpty(), e.getKey());
+            assertFalse(Json.write(r).contains(KEY), e.getKey() + ": no key in the report");
+        }
+        infoMode = "redirect";
+        var redirect = workspace("p3", env()).probeApi(draft(), "/info");
+        assertEquals(302, redirect.status());
+        assertTrue(redirect.summary().contains("https://sso.example.com/login") && !redirect.summary().contains("returnUrl"));
+    }
+
+    @Test
+    void aMissingKeyIsPointedOutInTheRawAnswer() throws Exception {
+        var r = workspace("p4", k -> null).probeApi(draft(), "/questions?pagesize=1");
+        assertEquals("JSON", r.kind());
+        assertEquals(400, r.status());
+        assertFalse(r.keySent());
+        assertTrue(r.hints().get(0).contains("No API access key was sent"), r.hints().toString());
+        assertTrue(r.preview().contains("key_required"), "the site's own error message is shown: " + r.preview());
+    }
+
+    @Test
+    void theRawAnswerChecksWhatYouTypeAndTakesTheAddressFromTheDocumentation() throws Exception {
+        assertFalse(workspace("p5", env()).probeApi(draft(), "info").reached());
+        assertFalse(workspace("p6", env()).probeApi(draft(), "http://evil.example/").reached());
+        assertFalse(workspace("p7", env()).probeApi(Map.of("source.type", "live"), "/info").reached());
+        var viaDocs = workspace("p8", env()).probeApi(Map.of("source.type", "live", "api.swaggerUrl", origin + "/swagger/index.html", "api.keyEnv", "INTERNAL_KEY",
+                "source.allowInsecureHttp", "true"), "/info");
+        assertTrue(viaDocs.reached(), viaDocs.problem());
+        assertEquals("JSON", viaDocs.kind());
     }
 }

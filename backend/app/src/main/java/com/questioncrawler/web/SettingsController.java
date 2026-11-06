@@ -28,6 +28,8 @@ public class SettingsController {
 
     public record ContentRequest(String content) {}
 
+    public record ProbeRequest(Map<String, String> values, String path) {}
+
     public record TryRequest(Taxonomy taxonomy, String title, String body, List<String> tags) {}
 
     private final Workspace workspace;
@@ -67,6 +69,12 @@ public class SettingsController {
     @PostMapping("/api-docs/file")
     public Workspace.SavedDocs saveApiDocs(@RequestBody ContentRequest request) {
         return workspace.saveApiDocs(request == null || request.content() == null ? "" : request.content());
+    }
+
+    /** One real API call, shown raw (key hidden): finds out what the site really answers. */
+    @PostMapping("/api-docs/probe")
+    public Workspace.ApiProbe probeApi(@RequestBody(required = false) ProbeRequest request) {
+        return request == null ? workspace.probeApi(Map.of(), null) : workspace.probeApi(request.values() == null ? Map.of() : request.values(), request.path());
     }
 
     // ---- connection check

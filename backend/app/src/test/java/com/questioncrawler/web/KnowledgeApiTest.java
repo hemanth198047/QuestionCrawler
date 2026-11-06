@@ -223,4 +223,16 @@ class KnowledgeApiTest {
                 .andExpect(jsonPath("$.ok").value(false))
                 .andExpect(jsonPath("$.problem").value(org.hamcrest.Matchers.containsString("Swagger/OpenAPI")));
     }
+
+    @Test
+    @Order(15)
+    void theRawApiAnswerNeedsAnAddressAndNeverFailsHard() throws Exception {
+        mvc.perform(post("/api/api-docs/probe").contentType(JSON).content("{\"values\":{},\"path\":\"/info\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.reached").value(false))
+                .andExpect(jsonPath("$.problem").value(org.hamcrest.Matchers.containsString("API address")));
+        mvc.perform(post("/api/api-docs/probe").contentType(JSON).content("{\"values\":{\"source.baseUrl\":\"https://x.example.com/api\"},\"path\":\"http://evil/\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.reached").value(false));
+    }
 }

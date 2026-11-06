@@ -481,7 +481,7 @@ public final class StackExchangeAdapter implements SourceAdapter {
             url.append(sep).append("access_token=").append(enc(token));
         }
         HttpSourceClient.Response response = client.exchange(url.toString(), headers);
-        JsonNode root = parse(response.body());
+        JsonNode root = parseBody(response, url.toString());
         if (response.status() < 200 || response.status() >= 300) {
             throw mapError(response, root, url.toString());
         }
@@ -536,15 +536,35 @@ public final class StackExchangeAdapter implements SourceAdapter {
             return new SourceException(SourceException.Kind.FATAL, "Stack Exchange API error " + errorId + ": " + message);
         }
         // No JSON error body: fall back to generic HTTP status mapping (never includes the query string).
-        return client.mapStatus(response.status(), response.retryAfter(), java.net.URI.create(url.substring(0, url.indexOf('?'))));
+        return client.mapStatus(response.status(), response.retryAfter(), java.net.URI.create(ResponseInspector.withoutQuery(url)));
     }
 
-    private static JsonNode parse(String body) throws SourceException {
+    /** The answer as JSON. If it is not JSON, the error says what it is (a sign-in page, a redirect, ...) and what to check. */
+    private JsonNode parseBody(HttpSourceClient.Response response, String url) throws SourceException {
+        JsonNode node = null;
         try {
-            return Json.MAPPER.readTree(body);
+            node = Json.MAPPER.readTree(ResponseInspector.stripNoise(response.body()));
         } catch (java.io.IOException e) {
-            throw new SourceException(SourceException.Kind.FATAL, "Response is not valid JSON");
+            // explained below
         }
+        if (node != null && node.isObject()) {
+            return node;
+        }
+        List<String> secrets = new ArrayList<>();
+        for (String name : new String[] {settings.apiKeyEnv(), api.accessTokenEnv(), settings.tokenEnv()}) {
+            if (name != null && !name.isBlank() && env.apply(name) != null) {
+                secrets.add(env.apply(name));
+            }
+        }
+        var inspection = ResponseInspector.inspect(response.status(), response.contentType(), response.location(), response.body(), secrets);
+        boolean ok = response.status() >= 200 && response.status() < 300;
+        SourceException.Kind kind = ok ? (inspection.kind().equals("HTML_LOGIN") ? SourceException.Kind.AUTH_FAILED : SourceException.Kind.FATAL)
+                : inspection.kind().equals("REDIRECT") && inspection.hints().get(0).contains("sign-in")
+                        ? SourceException.Kind.AUTH_FAILED
+                        : client.mapStatus(response.status(), response.retryAfter(), java.net.URI.create(ResponseInspector.withoutQuery(url))).kind();
+        String hint = inspection.hints().isEmpty() ? "" : " " + inspection.hints().get(0);
+        throw new SourceException(kind, "The API did not answer with JSON. " + inspection.summary() + hint
+                + " (On the Connect screen, 'See what the API really answers' shows the full answer.)");
     }
 
     // ================================================================== mapping

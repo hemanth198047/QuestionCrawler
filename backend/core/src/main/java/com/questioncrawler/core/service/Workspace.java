@@ -209,6 +209,114 @@ public final class Workspace {
         }
     }
 
+    /** The raw answer of one API call: what the site really sends back. The key and tokens are never included. */
+    public record ApiProbe(boolean reached, String problem, String url, int status, String contentType, int characters, String kind,
+                           String summary, String preview, List<String> hints, boolean keySent, String keyPlacement) {}
+
+    /**
+     * Makes one GET request to the API (default /info) exactly as a collection would, and shows the answer. Used to find out why
+     * a call fails: a sign-in page, a redirect, the wrong address, a proxy block page, and so on. Nothing is saved.
+     */
+    public ApiProbe probeApi(Map<String, String> draft, String requestedPath) {
+        Map<String, String> v = configService.read(configFile);
+        if (draft != null) {
+            v.putAll(draft);
+        }
+        String path = requestedPath == null || requestedPath.isBlank() ? "/info" : requestedPath.strip();
+        if (!path.startsWith("/") || path.contains("://") || path.contains("..") || path.contains(" ")) {
+            return new ApiProbe(false, "Enter a path that starts with / (for example /info or /questions?pagesize=1).", null, 0, null, 0, null, null, null, List.of(), false, null);
+        }
+        var api = apiOptions(v);
+        String base = v.getOrDefault("source.baseUrl", "").strip();
+        List<String> notes = new ArrayList<>();
+        String keyName = api.keyName();
+        String keyIn = api.keyIn();
+        if (base.isEmpty() && (api.hasDocs())) { // take the address (and key placement) from the documentation
+            var docs = discoverApi(v);
+            if (docs.ok()) {
+                base = docs.suggestedBaseUrl() == null ? "" : docs.suggestedBaseUrl();
+                if (v.getOrDefault("api.keyName", "").isBlank() && docs.suggestedKeyName() != null) {
+                    keyName = docs.suggestedKeyName();
+                    keyIn = docs.suggestedKeyIn() == null ? "query" : docs.suggestedKeyIn();
+                }
+            }
+        }
+        if (base.isEmpty()) {
+            return new ApiProbe(false, "The API address is not known yet. Enter it above, or read the documentation first.", null, 0, null, 0, null, null, null, List.of(), false, null);
+        }
+        java.net.URI baseUri;
+        try {
+            baseUri = java.net.URI.create(base);
+            if (baseUri.getHost() == null) {
+                throw new IllegalArgumentException("no host");
+            }
+        } catch (IllegalArgumentException e) {
+            return new ApiProbe(false, "The API address is not a valid web address.", null, 0, null, 0, null, null, null, List.of(), false, null);
+        }
+        String keyValue = env.apply(v.getOrDefault("api.keyEnv", ""));
+        String tokenValue = api.accessTokenEnv() == null ? null : env.apply(api.accessTokenEnv());
+        String bearer = "token".equals(v.get("source.auth.method")) ? env.apply(v.getOrDefault("source.auth.tokenEnv", "")) : null;
+        List<String> secrets = new ArrayList<>();
+        for (String x : new String[] {keyValue, tokenValue, bearer}) {
+            if (x != null && !x.isBlank()) {
+                secrets.add(x);
+            }
+        }
+        StringBuilder url = new StringBuilder(base.replaceAll("/+$", "")).append(path);
+        char sep = path.contains("?") ? '&' : '?';
+        String site = v.getOrDefault("api.site", "").strip();
+        if (!site.isEmpty()) {
+            url.append(sep).append("site=").append(java.net.URLEncoder.encode(site, java.nio.charset.StandardCharsets.UTF_8));
+            sep = '&';
+        }
+        Map<String, String> headers = new LinkedHashMap<>();
+        boolean keySent = keyValue != null && !keyValue.isBlank();
+        if (keySent) {
+            if ("header".equals(keyIn)) {
+                headers.put(keyName, keyValue);
+            } else {
+                url.append(sep).append(java.net.URLEncoder.encode(keyName, java.nio.charset.StandardCharsets.UTF_8)).append('=')
+                        .append(java.net.URLEncoder.encode(keyValue, java.nio.charset.StandardCharsets.UTF_8));
+                sep = '&';
+            }
+        }
+        if (tokenValue != null && !tokenValue.isBlank()) {
+            url.append(sep).append("access_token=").append(java.net.URLEncoder.encode(tokenValue, java.nio.charset.StandardCharsets.UTF_8));
+        }
+        String ca = v.getOrDefault("source.caCertFile", "").strip();
+        var settings = new com.questioncrawler.core.source.SourceSettings("probe", base, List.of(baseUri.getHost()), List.of("/"),
+                v.getOrDefault("source.auth.method", "none"), v.getOrDefault("source.auth.tokenEnv", ""), v.getOrDefault("source.auth.headerName", "Authorization"),
+                v.getOrDefault("source.auth.scheme", "Bearer"), ca.isEmpty() ? null : Path.of(ca),
+                java.time.Duration.ofSeconds(Math.min(parseInt(v.get("source.timeoutSeconds"), 30), 60)),
+                Boolean.parseBoolean(v.getOrDefault("source.allowInsecureHttp", "false")), null, null, proxyOf(v), api);
+        String shownUrl = com.questioncrawler.core.source.ResponseInspector.redact(url.toString(), secrets);
+        String placement = keySent ? ("header".equals(keyIn) ? "in the request header '" + keyName + "'" : "in the address as '" + keyName + "'") : null;
+        try {
+            var response = new com.questioncrawler.core.source.HttpSourceClient(settings, env).exchange(url.toString(), headers);
+            String stripped = com.questioncrawler.core.source.ResponseInspector.stripNoise(response.body());
+            boolean json = false;
+            try {
+                json = com.questioncrawler.core.util.Json.MAPPER.readTree(stripped).isObject();
+            } catch (java.io.IOException ignored) {
+                // not JSON: inspected below
+            }
+            var inspection = json ? new com.questioncrawler.core.source.ResponseInspector.Inspection("JSON",
+                    "The site answered with JSON (HTTP " + response.status() + ")" + (response.status() >= 400 ? ", but it is an error." : "."),
+                    com.questioncrawler.core.source.ResponseInspector.redact(stripped.length() > 700 ? stripped.substring(0, 700) + " …" : stripped, secrets),
+                    response.status() >= 400 ? List.of("Read the error message in the answer above: it usually names the problem (key, parameter, permission).") : List.of())
+                    : com.questioncrawler.core.source.ResponseInspector.inspect(response.status(), response.contentType(), response.location(), response.body(), secrets);
+            List<String> hints = new ArrayList<>(inspection.hints());
+            if (!keySent) {
+                hints.add(0, "No API access key was sent: the variable '" + v.getOrDefault("api.keyEnv", "") + "' is not set in the terminal that started the app.");
+            }
+            return new ApiProbe(true, null, shownUrl, response.status(), response.contentType(), response.body() == null ? 0 : response.body().length(),
+                    inspection.kind(), inspection.summary(), inspection.preview(), hints, keySent, placement);
+        } catch (com.questioncrawler.core.source.SourceException e) {
+            return new ApiProbe(false, com.questioncrawler.core.source.ResponseInspector.redact(e.getMessage(), secrets), shownUrl, 0, null, 0, null, null, null,
+                    List.of("The request did not get an answer at all: see the Check access result for the network steps (proxy, certificate)."), keySent, placement);
+        }
+    }
+
     /** Where an uploaded copy of the documentation is kept: next to the settings file. */
     public Path apiDocsFile() {
         Path dir = configFile.toAbsolutePath().getParent();

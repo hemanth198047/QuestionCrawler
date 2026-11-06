@@ -33,6 +33,23 @@ Many companies put the Swagger page behind single sign-on, while the API itself 
 
 The API key is also tried automatically on the documentation when it is refused. The collection itself needs only the API key, not the documentation: once the saved copy exists, no documentation requests are made.
 
+## When the test call fails: "The API did not answer with JSON"
+The API must answer with JSON. When it answers with something else, the error now says **what** it is, and the Connect screen has a card,
+**See what the API really answers**, that makes one real call (default `/info`) and shows the raw answer: HTTP status, content type, the start of the body,
+and what to check. Your key is never shown (it appears as `•••`). **Copy this report** gives you something safe to send to the site owners or to me.
+
+| What came back | What it usually means | What to do |
+|---|---|---|
+| A **sign-in page** (title such as "Sign in") | The key was not sent or not accepted, or the address points at the website instead of the API, or the whole site is behind SSO | Check the key variable is set in the terminal that started the app; check the key parameter name and where it is sent; check the API address ends with the API path (for example `/api/2.3`); if SSO protects the API too, ask for a token or an API gateway address |
+| A **redirect** (HTTP 301/302 to another address) | Often a redirect to a sign-in address, or http instead of https | Same as above; the address it redirects to is shown (without secrets) |
+| The **documentation page** (Swagger UI) | The API address is the documentation address | Use the `servers` address from the Swagger document, for example `https://your-site/api/2.3` |
+| A **proxy or firewall block page** | Your proxy blocked the request | Check proxy settings, or ask IT to allow the address |
+| A **not found** page | Wrong path in front of `/questions` | Compare with the `servers` entry of the documentation |
+| **Empty** | A wrong address or a gateway that swallows the request | Check the address and proxy |
+| JSON with an **error message** (HTTP 400/401/403) | The API itself refused: the message names the problem (for example `key_required`) | Fix what the message says |
+
+Responses with a byte-order mark or a security prefix such as `)]}',` are cleaned automatically and are not an error.
+
 ## Which endpoints are used for what
 
 | Purpose | Endpoint (matched by its documented path) | Needed |
