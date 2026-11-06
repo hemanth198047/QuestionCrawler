@@ -11,6 +11,8 @@ import com.questioncrawler.core.api.ApiCatalog;
 import com.questioncrawler.core.api.ApiDocsLoader;
 import com.questioncrawler.core.api.SwaggerDiscovery;
 import com.questioncrawler.core.source.ApiOptions;
+import com.questioncrawler.core.source.ConfluenceAdapter;
+import com.questioncrawler.core.source.ConfluenceOptions;
 import com.questioncrawler.core.source.HttpSourceClient;
 import com.questioncrawler.core.source.ProxyConfig;
 import com.questioncrawler.core.source.Redirects;
@@ -66,20 +68,31 @@ public final class SiteDiagnostics {
     /** What to check. {@code target} is the API/base address to probe (for Stack Exchange: the API base). */
     public record Input(String sourceType, String target, String site, List<String> tags, String authMethod,
                         String tokenEnv, String keyEnv, Path caCertFile, boolean allowInsecureHttp, int timeoutSeconds,
-                        ProxyConfig proxy, ApiOptions api) {
+                        ProxyConfig proxy, ApiOptions api, String authUser, String authUserEnv) {
+        public Input(String sourceType, String target, String site, List<String> tags, String authMethod,
+                     String tokenEnv, String keyEnv, Path caCertFile, boolean allowInsecureHttp, int timeoutSeconds,
+                     ProxyConfig proxy, ApiOptions api) {
+            this(sourceType, target, site, tags, authMethod, tokenEnv, keyEnv, caCertFile, allowInsecureHttp, timeoutSeconds,
+                    proxy, api, null, null);
+        }
+
         public Input(String sourceType, String target, String site, List<String> tags, String authMethod,
                      String tokenEnv, String keyEnv, Path caCertFile, boolean allowInsecureHttp, int timeoutSeconds, ProxyConfig proxy) {
-            this(sourceType, target, site, tags, authMethod, tokenEnv, keyEnv, caCertFile, allowInsecureHttp, timeoutSeconds, proxy, ApiOptions.DEFAULT);
+            this(sourceType, target, site, tags, authMethod, tokenEnv, keyEnv, caCertFile, allowInsecureHttp, timeoutSeconds, proxy, ApiOptions.DEFAULT, null, null);
         }
 
         public Input(String sourceType, String target, String site, List<String> tags, String authMethod,
                      String tokenEnv, String keyEnv, Path caCertFile, boolean allowInsecureHttp, int timeoutSeconds) {
-            this(sourceType, target, site, tags, authMethod, tokenEnv, keyEnv, caCertFile, allowInsecureHttp, timeoutSeconds, ProxyConfig.NONE, ApiOptions.DEFAULT);
+            this(sourceType, target, site, tags, authMethod, tokenEnv, keyEnv, caCertFile, allowInsecureHttp, timeoutSeconds, ProxyConfig.NONE, ApiOptions.DEFAULT, null, null);
         }
 
         /** The internal site's REST API: Swagger documentation (an address or a saved file) is configured. (Without it, the generic site probes run.) */
         public boolean liveApi() {
             return sourceType.equals("live") && api != null && api.hasDocs();
+        }
+
+        public boolean confluence() {
+            return "confluence".equals(sourceType);
         }
     }
 
@@ -140,7 +153,10 @@ public final class SiteDiagnostics {
 
         Probe home = null;
         if (secureOk) {
-            home = get(in, in.sourceType().equals("stackexchange") ? infoUrl(in) : probeUrl(in), in.tokenEnv() != null && in.authMethod().equals("token"));
+            boolean withAuth = in.tokenEnv() != null && (in.authMethod().equals("token")
+                    || in.authMethod().equals("basic-env") || in.authMethod().equals("confluence-api-token"));
+            home = get(in, in.sourceType().equals("stackexchange") ? infoUrl(in)
+                    : in.confluence() ? confluenceProbeUrl(in) : probeUrl(in), withAuth);
         }
         Stage access = secureOk ? accessStage(in, home) : skipped("access", "Sign-in", "Do we need to sign in?", "Skipped until the site can be reached over a trusted connection.");
         stages.add(access);
@@ -589,6 +605,25 @@ public final class SiteDiagnostics {
             }
         }
 
+        if (in.confluence()) {
+            try {
+                ConfluenceAdapter adapter = confluenceAdapter(in);
+                String ping = adapter.ping();
+                d.officialApi = true;
+                facts.add(new Fact("Official API", "Confluence Content REST API + CQL"));
+                facts.add(new Fact("Reachability", ping));
+                facts.add(new Fact("Note", "Tags mean Confluence labels; pages are stored as threads with empty answers."));
+                return stage("data", title, q, "PASS",
+                        "Yes: Confluence exposes a documented REST API that this app supports (separate from Jive/SharePoint).",
+                        facts, List.of(), t0);
+            } catch (SourceException e) {
+                return stage("data", title, q, "FAIL", friendly(e), facts,
+                        List.of(new Need("Working Confluence credentials",
+                                "Set the token/PAT environment variable and (for Cloud) your Atlassian email. Cookie/SSO scraping is not supported.",
+                                "You")), t0);
+            }
+        }
+
         if (in.liveApi()) {
             return liveApiStage(in, d, t0);
         }
@@ -883,11 +918,18 @@ public final class SiteDiagnostics {
         if (TagFilter.asksForAll(in.tags()) && reachable) {
             boolean publicSite = in.sourceType().equals("stackexchange");
             List<Fact> all = new ArrayList<>();
-            all.add(new Fact("Tags", "all (every question, whatever its tags)"));
+            all.add(new Fact("Tags", in.confluence()
+                    ? "all (every matching page label / unrestricted labels)"
+                    : "all (every question, whatever its tags)"));
             all.add(new Fact("Questions on the site", d.siteQuestions >= 0 ? String.format("%,d", d.siteQuestions) : "the site does not say"));
             if (publicSite) {
                 return stage("scope", title, q, "WARN", "'all' on a public Stack Exchange site means millions of questions. Choose a time window (for example 7 days) on the Collect page, or name the tags you want.", all,
                         List.of(new Need("A short time window, or specific tags", "Collecting every tag of a public site is refused without a time window: it would use up the request allowance.", "You")), t0);
+            }
+            if (in.confluence()) {
+                return stage("scope", title, q, "WARN",
+                        "Label 'all' on Confluence needs a space key, ancestor page, or time window. Unbounded whole-site sync is refused at collect time.",
+                        all, List.of(new Need("A space, ancestor, or time window", "Set source.confluence.spaces or a Collect window.", "You")), t0);
             }
             boolean large = d.siteQuestions > 20_000;
             return stage("scope", title, q, "PASS", "Every question on the site will be collected (all tags)" + (d.siteQuestions >= 0 ? ": about " + String.format("%,d", d.siteQuestions) + " question(s)." : ".")
@@ -895,6 +937,11 @@ public final class SiteDiagnostics {
         }
         if (!reachable) {
             return skipped("scope", title, q, "Will be checked once the site can be reached.");
+        }
+        if (in.confluence() && d.officialApi) {
+            return stage("scope", title, q, "PASS",
+                    "Confluence labels (tags) are applied as CQL filters when collecting. Exact label existence is verified during sync.",
+                    facts, List.of(), t0);
         }
         if (!in.sourceType().equals("stackexchange") && !d.restApi) {
             return stage("scope", title, q, "SKIPPED", "Checking that a tag exists needs the site's API, which is not connected yet.", facts, List.of(), t0);
@@ -937,9 +984,15 @@ public final class SiteDiagnostics {
             return new Route("NONE", "No route yet: the site cannot be reached safely", "Before anything else, the connection itself has to work.", false,
                     List.of("Open the red step in the map and follow what is needed.", "Run the check again afterwards."));
         }
-        if (in.sourceType().equals("stackexchange") && d.officialApi) {
-            return new Route("OFFICIAL_API", "Official API (recommended)", "This site publishes a documented API. It is the proper, stable, permitted way to collect questions and answers.", true,
-                    List.of("Save these settings.", "Open Collect and start with a small time window.", "Keep the source links: the content is licensed CC BY-SA and requires attribution."));
+        if ((in.sourceType().equals("stackexchange") || in.confluence()) && d.officialApi) {
+            return new Route("OFFICIAL_API", "Official API (recommended)",
+                    in.confluence()
+                            ? "Confluence exposes a documented REST API. Pages are collected as local threads (labels become tags). This is separate from Jive or SharePoint."
+                            : "This site publishes a documented API. It is the proper, stable, permitted way to collect questions and answers.",
+                    true,
+                    in.confluence()
+                            ? List.of("Save these settings.", "Restrict by space keys and/or labels.", "Open Collect and start with a modest time window.")
+                            : List.of("Save these settings.", "Open Collect and start with a small time window.", "Keep the source links: the content is licensed CC BY-SA and requires attribution."));
         }
         if (d.restApiReady) {
             return new Route("REST_API", "Your site's REST API (recommended)", "The site documents its REST API with Swagger. Every endpoint this app needs is available, so questions and answers can be collected the proper, permitted way.", true,
@@ -1078,7 +1131,19 @@ public final class SiteDiagnostics {
                 HttpRequest.Builder req = HttpRequest.newBuilder(current).timeout(Duration.ofSeconds(Math.max(1, in.timeoutSeconds())))
                         .header("User-Agent", "QuestionCrawler-diagnostics/0.1").header("Accept", "application/json, text/html;q=0.8, */*;q=0.5").header("Accept-Encoding", "gzip").GET();
                 if (withToken && in.tokenEnv() != null && env.apply(in.tokenEnv()) != null && !env.apply(in.tokenEnv()).isBlank()) {
-                    req.header("Authorization", "Bearer " + env.apply(in.tokenEnv()));
+                    String secret = env.apply(in.tokenEnv());
+                    if ("basic-env".equals(in.authMethod()) || "confluence-api-token".equals(in.authMethod())) {
+                        String user = in.authUser();
+                        if ((user == null || user.isBlank()) && in.authUserEnv() != null) {
+                            user = env.apply(in.authUserEnv());
+                        }
+                        if (user != null && !user.isBlank()) {
+                            String basic = java.util.Base64.getEncoder().encodeToString((user + ":" + secret).getBytes(StandardCharsets.UTF_8));
+                            req.header("Authorization", "Basic " + basic);
+                        }
+                    } else {
+                        req.header("Authorization", "Bearer " + secret);
+                    }
                 }
                 HttpResponse<java.io.InputStream> r;
                 try {
@@ -1127,6 +1192,28 @@ public final class SiteDiagnostics {
                 "none", null, null, null, in.caCertFile(), Duration.ofSeconds(Math.max(1, in.timeoutSeconds())), in.allowInsecureHttp(), in.site(), in.keyEnv(),
                 in.proxy());
         return new StackExchangeAdapter(s, new HttpSourceClient(s, env), env, d -> { });
+    }
+
+    private ConfluenceAdapter confluenceAdapter(Input in) {
+        URI base = URI.create(in.target());
+        String host = base.getHost();
+        ConfluenceOptions options = ConfluenceOptions.DEFAULT;
+        String apiPath = options.defaultApiRootPath() + "/";
+        String auth = in.authMethod() == null || in.authMethod().isBlank() ? "basic-env" : in.authMethod();
+        SourceSettings s = new SourceSettings("confluence", in.target(),
+                host == null ? List.of() : List.of(host),
+                List.of(apiPath, "/wiki/rest/api/", "/rest/api/"),
+                auth, in.tokenEnv(), "Authorization", "Bearer", in.caCertFile(),
+                Duration.ofSeconds(Math.max(1, in.timeoutSeconds())), in.allowInsecureHttp(), null, null,
+                in.proxy(),
+                in.api() == null ? ApiOptions.DEFAULT : in.api(),
+                in.authUser(), in.authUserEnv());
+        return new ConfluenceAdapter(s, options, new HttpSourceClient(s, env), env);
+    }
+
+    private static String confluenceProbeUrl(Input in) {
+        String root = ConfluenceAdapter.resolveApiRoot(in.target(), ConfluenceOptions.DEFAULT);
+        return root + "/space?limit=1";
     }
 
     private static String probeUrl(Input in) {

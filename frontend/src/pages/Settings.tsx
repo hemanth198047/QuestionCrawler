@@ -91,7 +91,8 @@ export default function SettingsPage({ section }: { section: string | null }) {
               <div className="stack" style={{ gap: 30 }}>
                 {visible.map((f) => <SettingField key={f.key} field={f} value={draft[f.key] ?? ''} onChange={(v) => setDraft({ ...draft, [f.key]: v })} issues={issues.filter((i) => i.key === f.key)} />)}
                 {visible.length === 0 && <p className="muted">Nothing to set here for the chosen source.</p>}
-                {current === 'source' && source === 'fixture' && <Banner tone="info" title="Demo data needs nothing else">Choose “Stack Overflow / Stack Exchange” or “Our internal site” above to see the options for reaching a real site.</Banner>}
+                {current === 'source' && source === 'fixture' && <Banner tone="info" title="Demo data needs nothing else">Choose Stack Overflow / Stack Exchange, Confluence, or Our internal Q&A site above to see the options for reaching a real site.</Banner>}
+                {current === 'source' && source === 'confluence' && <Banner tone="info" title="Confluence-only settings">These fields are separate from Stack Exchange and from future Jive/SharePoint sources. Put only the token environment variable name here — never the secret.</Banner>}
               </div>
               {current === 'source' && source !== 'fixture' && <div style={{ marginTop: 26 }}><Banner tone="info" title="Not sure it will work?" action={<Button onClick={() => go('/connect')}>Check access</Button>}>The Connect page tests the whole path to the site and says what is missing.</Banner></div>}
             </Card>

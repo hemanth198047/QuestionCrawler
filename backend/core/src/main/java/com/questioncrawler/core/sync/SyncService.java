@@ -76,7 +76,9 @@ public final class SyncService {
 
     public static String scopeKey(String systemId, SyncOptions o) {
         List<String> sorted = o.tags().stream().map(String::toLowerCase).sorted().toList();
-        return "s" + Hashes.sha256(systemId + "|" + String.join(",", sorted) + "|" + o.tagMode() + "|" + o.partialTags()).substring(0, 10);
+        String extra = o.scopeExtra() == null ? "" : o.scopeExtra();
+        return "s" + Hashes.sha256(systemId + "|" + String.join(",", sorted) + "|" + o.tagMode() + "|" + o.partialTags()
+                + "|" + extra).substring(0, 10);
     }
 
     @SuppressWarnings("try")

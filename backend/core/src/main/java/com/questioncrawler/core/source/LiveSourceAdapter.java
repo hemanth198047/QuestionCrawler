@@ -11,6 +11,9 @@ import com.questioncrawler.core.model.Question;
  *
  * <p>To finish the integration, see docs/LIVE_INTEGRATION.md: implement listQuestions, fetchQuestion
  * and listAnswers here using verified documentation or sanitized sample responses.
+ *
+ * <p>Note: Confluence is {@code source.type=confluence} ({@link ConfluenceAdapter}). Future Jive and
+ * SharePoint connectors will be separate source types as well — do not overload this stub for them.
  */
 public final class LiveSourceAdapter implements SourceAdapter {
 

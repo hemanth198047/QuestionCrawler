@@ -98,6 +98,12 @@ public final class KnowledgeBase {
             throw new IllegalArgumentException("Collecting every tag ('all') from a public Stack Exchange site means millions of questions and would use up the "
                     + "request allowance. Choose a time window (for example 7 days) on the Collect page, or name the tags you want.");
         }
+        if (com.questioncrawler.core.source.TagFilter.asksForAll(options.tags()) && config.sourceType().equals("confluence")
+                && options.maxQuestionAge() == null
+                && (config.confluence() == null || !config.confluence().hasBoundedScope())) {
+            throw new IllegalArgumentException("Collecting every Confluence page ('all') without a space, ancestor page, or time window is refused. "
+                    + "Set source.confluence.spaces, an ancestor page id, or a collection window on the Collect page.");
+        }
         store.init();
         SourceAdapter adapter = adapterOverride != null ? adapterOverride : config.createAdapter();
         Pipeline pipeline = new Pipeline();

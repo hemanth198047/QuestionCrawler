@@ -209,13 +209,31 @@ public final class HttpSourceClient {
     }
 
     private void applyAuth(HttpRequest.Builder request) throws SourceException {
-        if (!settings.authMethod().equalsIgnoreCase("token")) {
+        String method = settings.authMethod();
+        if (method.equalsIgnoreCase("none") || method.isBlank()) {
             return;
         }
         String token = settings.tokenEnv() == null ? null : env.apply(settings.tokenEnv());
         if (token == null || token.isBlank()) {
             throw new SourceException(SourceException.Kind.AUTH_FAILED,
                     "Environment variable '" + settings.tokenEnv() + "' is not set; cannot authenticate");
+        }
+        if (method.equalsIgnoreCase("basic-env") || method.equalsIgnoreCase("confluence-api-token")) {
+            String user = settings.authUser();
+            if ((user == null || user.isBlank()) && settings.authUserEnv() != null) {
+                user = env.apply(settings.authUserEnv());
+            }
+            if (user == null || user.isBlank()) {
+                throw new SourceException(SourceException.Kind.AUTH_FAILED,
+                        "Basic auth needs a username/email (set source.confluence.email or source.confluence.emailEnv)");
+            }
+            String basic = java.util.Base64.getEncoder().encodeToString((user + ":" + token).getBytes(StandardCharsets.UTF_8));
+            request.header(settings.authHeaderName(), "Basic " + basic);
+            return;
+        }
+        if (!method.equalsIgnoreCase("token")) {
+            throw new SourceException(SourceException.Kind.FATAL,
+                    "Unknown source.auth.method '" + method + "' (use none, token, or basic-env)");
         }
         String scheme = settings.authScheme();
         request.header(settings.authHeaderName(), scheme == null || scheme.isBlank() ? token : scheme + " " + token);

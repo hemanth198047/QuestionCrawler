@@ -138,6 +138,7 @@ export default function CollectPage() {
   const noTags = o.tags.length === 0
   const allTags = o.tags.some((t) => ['all', '*'].includes(t.toLowerCase()))
   const isSE = o.sourceType === 'stackexchange'
+  const isConfluence = o.sourceType === 'confluence'
   const start = async () => {
     setStarting(true); setStartError(null)
     try {
@@ -153,8 +154,8 @@ export default function CollectPage() {
 
   return (
     <div className="stack" style={{ gap: 28 }}>
-      <PageHeader eyebrow="Collect" title="Download questions & answers" subtitle="Pick how far back to look and how thorough to be. You can watch it happen, and leave this page: it keeps running." />
-      {noTags && <Banner tone="warn" title="No tags chosen yet" action={<Button onClick={() => go('/connect')}>Choose tags</Button>}>We need at least one tag to know which questions to collect.</Banner>}
+      <PageHeader eyebrow="Collect" title={isConfluence ? 'Download Confluence pages' : 'Download questions & answers'} subtitle={isConfluence ? 'Tags mean Confluence labels. Pick how far back to look; pages are stored as local threads (answers stay empty).' : 'Pick how far back to look and how thorough to be. You can watch it happen, and leave this page: it keeps running.'} />
+      {noTags && <Banner tone="warn" title="No tags chosen yet" action={<Button onClick={() => go('/connect')}>Choose tags</Button>}>{isConfluence ? 'We need at least one label (or space keys on Connect) to know which pages to collect.' : 'We need at least one tag to know which questions to collect.'}</Banner>}
 
       <Card>
         <div className="row" style={{ marginBottom: 18 }}><FolderSync size={20} color="var(--brand)" /><h3>What will be collected</h3></div>
@@ -164,7 +165,8 @@ export default function CollectPage() {
           <div><span className="muted small">Questions from <InfoTip term="window" /></span>
             <Segmented label="Time window" value={WINDOWS.some((w) => w.value === (win ?? '')) ? (win ?? '') : '__custom'} onChange={(v) => setWin(v)} options={WINDOWS} /></div>
         </div>
-        {allTags && (win ?? '') === '' && !isSE && <div style={{ marginTop: 14 }}><Banner tone="info" title="Every question, from all time">That can be a lot. To try it out first, choose a shorter time window (for example 1 year); you can widen it later.</Banner></div>}
+        {allTags && (win ?? '') === '' && !isSE && !isConfluence && <div style={{ marginTop: 14 }}><Banner tone="info" title="Every question, from all time">That can be a lot. To try it out first, choose a shorter time window (for example 1 year); you can widen it later.</Banner></div>}
+        {isConfluence && allTags && (win ?? '') === '' && <div style={{ marginTop: 14 }}><Banner tone="warn" title="Whole-site Confluence sync needs bounds">Use space keys on Connect, or pick a time window here. Unbounded “all” without a space/ancestor/window is refused.</Banner></div>}
         {isSE && (win ?? '') === '' && <div style={{ marginTop: 14 }}><Banner tone="warn" title="Everything could be a lot">Popular tags can hold many thousands of questions, and anonymous use is limited to about 300 requests a day. A shorter window is a good first step.</Banner></div>}
 
         <hr className="divider" />

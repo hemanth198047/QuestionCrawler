@@ -1,11 +1,13 @@
 package com.questioncrawler.core.service;
 
 import com.questioncrawler.core.classification.Taxonomy;
+import com.questioncrawler.core.source.ConfluenceAdapter;
+import com.questioncrawler.core.source.ConfluenceOptions;
 import com.questioncrawler.core.source.FixtureSourceAdapter;
 import com.questioncrawler.core.source.HttpSourceClient;
-import com.questioncrawler.core.source.LiveSourceAdapter;
 import com.questioncrawler.core.source.SourceAdapter;
 import com.questioncrawler.core.source.SourceSettings;
+import com.questioncrawler.core.source.TagFilter;
 import com.questioncrawler.core.source.TagMode;
 import com.questioncrawler.core.sync.SyncMode;
 import com.questioncrawler.core.sync.SyncOptions;
@@ -43,7 +45,8 @@ public record CoreConfig(
         Duration schedulerInterval,
         int staleAfterHours,
         String maxQuestionAge,
-        boolean explicitKeyName) {
+        boolean explicitKeyName,
+        ConfluenceOptions confluence) {
 
     public static Path defaultStorageRoot() {
         return Path.of(System.getProperty("user.home"), ".questioncrawler", "data");
@@ -97,6 +100,7 @@ public record CoreConfig(
             site = siteFromUrl(p.getProperty("source.siteUrl", "https://stackoverflow.com/").strip());
         }
         boolean stackExchange = type.equals("stackexchange");
+        boolean confluenceSource = type.equals("confluence");
         String apiBase = p.getProperty("source.stackexchange.apiBaseUrl", "https://api.stackexchange.com/2.3").strip();
         String hosts = p.getProperty("source.allowedHosts", "");
         String prefixes = p.getProperty("source.allowedPathPrefixes", "/");
@@ -104,10 +108,22 @@ public record CoreConfig(
         String baseUrl = p.getProperty("source.baseUrl", "").strip();
         boolean liveApi = type.equals("live");
         String swagger = p.getProperty("api.swaggerUrl", "").strip();
-        if (liveApi) {
-            // The API address and the documentation address may be on different hosts: allow both, nothing else.
+        ConfluenceOptions confluence = new ConfluenceOptions(
+                p.getProperty("source.confluence.edition", "cloud"),
+                p.getProperty("source.confluence.apiRoot", ""),
+                ConfluenceOptions.csv(p.getProperty("source.confluence.spaces", "")),
+                p.getProperty("source.confluence.ancestorPageId", ""),
+                ConfluenceOptions.csv(p.getProperty("source.confluence.contentTypes", "page")),
+                p.getProperty("source.confluence.bodyExpand", "body.storage"),
+                Boolean.parseBoolean(p.getProperty("source.confluence.collectComments", "false").strip()),
+                intValue(p, "source.confluence.pageSize", 25),
+                Boolean.parseBoolean(p.getProperty("source.confluence.includeSpaceTag", "true").strip()),
+                p.getProperty("source.confluence.email", ""),
+                p.getProperty("source.confluence.emailEnv", ""));
+        if (liveApi || confluenceSource) {
+            // The API address (and Swagger, for live) may be on different hosts: allow those, nothing else.
             java.util.LinkedHashSet<String> allowed = new java.util.LinkedHashSet<>(csv(hosts));
-            for (String url : new String[] {baseUrl, swagger}) {
+            for (String url : new String[] {baseUrl, liveApi ? swagger : ""}) {
                 try {
                     String h = url.isBlank() ? null : java.net.URI.create(url).getHost();
                     if (h != null) {
@@ -130,18 +146,31 @@ public record CoreConfig(
             if (systemId.isEmpty()) {
                 systemId = site;
             }
+        } else if (confluenceSource) {
+            if (systemId.isEmpty()) {
+                systemId = "confluence";
+            }
+            if ((prefixes.isBlank() || prefixes.strip().equals("/")) && !baseUrl.isBlank()) {
+                prefixes = confluence.defaultApiRootPath() + "/";
+            }
         } else if (systemId.isEmpty()) {
             systemId = "internal-qa";
         }
 
+        String authMethod = p.getProperty("source.auth.method", confluenceSource
+                ? (confluence.cloud() ? "basic-env" : "token") : "none").strip();
+        String tokenEnvDefault = confluenceSource
+                ? (confluence.cloud() ? "CONFLUENCE_API_TOKEN" : "CONFLUENCE_PAT")
+                : "INTERNAL_QA_TOKEN";
+        String followRedirects = p.getProperty("source.followRedirects", confluenceSource ? "same-host" : "all");
         String ca = p.getProperty("source.caCertFile", "").strip();
         SourceSettings settings = new SourceSettings(
                 systemId,
                 baseUrl,
                 csv(hosts),
                 csv(prefixes),
-                p.getProperty("source.auth.method", "none").strip(),
-                p.getProperty("source.auth.tokenEnv", "").strip(),
+                authMethod,
+                p.getProperty("source.auth.tokenEnv", tokenEnvDefault).strip(),
                 p.getProperty("source.auth.headerName", "Authorization").strip(),
                 p.getProperty("source.auth.scheme", "Bearer").strip(),
                 ca.isEmpty() ? null : resolve(base, ca),
@@ -154,7 +183,9 @@ public record CoreConfig(
                 new com.questioncrawler.core.source.ApiOptions(p.getProperty("api.keyName", ""), p.getProperty("api.keyIn", "query"),
                         p.getProperty("api.accessTokenEnv", ""), p.getProperty("api.bodyFilter", ""),
                         Boolean.parseBoolean(p.getProperty("api.collectComments", "false").strip()), swagger, p.getProperty("api.swaggerFile", ""),
-                        p.getProperty("source.followRedirects", "all")));
+                        followRedirects),
+                confluence.email(),
+                confluence.emailEnv().isBlank() ? null : confluence.emailEnv());
 
         List<Path> fixtureDirs = csv(p.getProperty("source.fixture.dirs", "")).stream().map(s -> resolve(base, s)).toList();
         return new CoreConfig(file, storage, taxonomyFile, type, settings, fixtureDirs,
@@ -163,14 +194,15 @@ public record CoreConfig(
                 TagMode.valueOf(p.getProperty("sync.tagMode", "ANY").strip().toUpperCase()),
                 Boolean.parseBoolean(p.getProperty("sync.partialTags", "false").strip()),
                 Duration.ofMinutes(intValue(p, "sync.overlapMinutes", 60)),
-                intValue(p, "sync.concurrency", 4),
+                intValue(p, "sync.concurrency", confluenceSource ? 2 : 4),
                 intValue(p, "sync.maxAttempts", 5),
                 intValue(p, "sync.retentionDays", 30),
                 Boolean.parseBoolean(p.getProperty("sync.scheduler.enabled", "false").strip()),
                 Duration.ofMinutes(intValue(p, "sync.scheduler.intervalMinutes", 360)),
                 intValue(p, "status.staleAfterHours", 168),
                 p.getProperty("sync.maxQuestionAge", "").strip().isEmpty() ? null : p.getProperty("sync.maxQuestionAge").strip(),
-                !p.getProperty("api.keyName", "").isBlank());
+                !p.getProperty("api.keyName", "").isBlank(),
+                confluence);
     }
 
     public static CoreConfig forStorage(Path storageRoot) {
@@ -181,8 +213,8 @@ public record CoreConfig(
 
     public List<String> validate() {
         List<String> problems = new ArrayList<>();
-        if (!List.of("fixture", "live", "stackexchange").contains(sourceType)) {
-            problems.add("source.type must be 'fixture', 'live' or 'stackexchange' (was '" + sourceType + "')");
+        if (!List.of("fixture", "live", "stackexchange", "confluence").contains(sourceType)) {
+            problems.add("source.type must be 'fixture', 'live', 'stackexchange' or 'confluence' (was '" + sourceType + "')");
         }
         if (maxQuestionAge != null && !com.questioncrawler.core.util.AgeSpec.isValid(maxQuestionAge)) {
             problems.add("sync.maxQuestionAge must look like 30d, 12h, 2w, 6m or 1y (was '" + maxQuestionAge + "')");
@@ -206,9 +238,11 @@ public record CoreConfig(
         if (tags.isEmpty()) {
             problems.add("sync.tags is empty: at least one target tag is required to run 'sync'");
         }
-        if (sourceType.equals("live")) {
-            if (source.baseUrl().isBlank() && !source.api().hasDocs()) {
+        if (sourceType.equals("live") || sourceType.equals("confluence")) {
+            if (sourceType.equals("live") && source.baseUrl().isBlank() && !source.api().hasDocs()) {
                 problems.add("Give the API address (source.baseUrl) or the API documentation address (api.swaggerUrl) for source.type=live");
+            } else if (sourceType.equals("confluence") && source.baseUrl().isBlank()) {
+                problems.add("source.baseUrl is required for Confluence (for example https://acme.atlassian.net)");
             } else if (!source.baseUrl().isBlank()) {
                 try {
                     java.net.URI uri = java.net.URI.create(source.baseUrl());
@@ -224,8 +258,26 @@ public record CoreConfig(
                     problems.add("source.baseUrl is not a valid URL");
                 }
             }
-            if (source.authMethod().equalsIgnoreCase("token") && source.tokenEnv().isBlank()) {
+            if ((source.authMethod().equalsIgnoreCase("token")
+                    || source.authMethod().equalsIgnoreCase("basic-env")
+                    || source.authMethod().equalsIgnoreCase("confluence-api-token"))
+                    && source.tokenEnv().isBlank()) {
                 problems.add("source.auth.tokenEnv must name the environment variable that holds the token");
+            }
+            if (sourceType.equals("confluence")) {
+                if (!List.of("cloud", "server").contains(confluence.edition())) {
+                    problems.add("source.confluence.edition must be 'cloud' or 'server'");
+                }
+                if (source.authMethod().equalsIgnoreCase("basic-env")
+                        || source.authMethod().equalsIgnoreCase("confluence-api-token")) {
+                    if ((source.authUser() == null || source.authUser().isBlank())
+                            && (source.authUserEnv() == null || source.authUserEnv().isBlank())) {
+                        problems.add("Confluence Cloud Basic auth needs source.confluence.email or source.confluence.emailEnv");
+                    }
+                }
+                if (TagFilter.asksForAll(tags) && !confluence.hasBoundedScope() && maxQuestionAge == null) {
+                    problems.add("Confluence tag 'all' needs a space, ancestor page, or sync.maxQuestionAge window (refusing unbounded site sync)");
+                }
             }
             if (source.caCertFile() != null && !Files.isReadable(source.caCertFile())) {
                 problems.add("source.caCertFile is not readable: " + source.caCertFile());
@@ -254,6 +306,11 @@ public record CoreConfig(
         }
         if (sourceType.equals("stackexchange")) {
             return new com.questioncrawler.core.source.StackExchangeAdapter(source, new HttpSourceClient(source));
+        }
+        if (sourceType.equals("confluence")) {
+            // Dedicated adapter — do not route through StackExchangeAdapter or LiveSourceAdapter.
+            // Jive / SharePoint will be separate source types later.
+            return new ConfluenceAdapter(source, confluence, new HttpSourceClient(source, env), env);
         }
         if (fixtureDirs.isEmpty()) {
             return FixtureSourceAdapter.fromClasspath(fixturePageSize, fixturePageSize, "fixtures/demo-site");
@@ -318,11 +375,13 @@ public record CoreConfig(
      */
     public SyncOptions syncOptions(List<String> tagOverride, TagMode modeOverride, Boolean partialOverride, SyncMode mode,
                                    String maxQuestionAgeOverride) {
+        String age = maxQuestionAgeOverride == null ? maxQuestionAge
+                : com.questioncrawler.core.util.AgeSpec.isEverything(maxQuestionAgeOverride) ? null : maxQuestionAgeOverride;
+        String scopeExtra = sourceType.equals("confluence") && confluence != null ? confluence.scopeFragment() : null;
         return new SyncOptions(tagOverride == null || tagOverride.isEmpty() ? tags : tagOverride,
                 modeOverride == null ? tagMode : modeOverride,
                 partialOverride == null ? partialTags : partialOverride,
-                mode, overlap, concurrency, retentionDays,
-                maxQuestionAgeOverride == null ? maxQuestionAge : com.questioncrawler.core.util.AgeSpec.isEverything(maxQuestionAgeOverride) ? null : maxQuestionAgeOverride);
+                mode, overlap, concurrency, retentionDays, age, scopeExtra);
     }
 
     /** Writes the commented configuration template with the given storage root. */

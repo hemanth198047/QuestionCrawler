@@ -143,10 +143,13 @@ public final class Workspace {
         com.questioncrawler.core.source.ApiOptions apiOptions = apiOptions(v);
         String ca = v.getOrDefault("source.caCertFile", "").strip();
         int timeout = parseInt(v.get("source.timeoutSeconds"), 15);
-        SiteDiagnostics.Input input = new SiteDiagnostics.Input(type, target, site, tags, v.getOrDefault("source.auth.method", "none"),
+        String authMethod = v.getOrDefault("source.auth.method", type.equals("confluence") ? "basic-env" : "none");
+        SiteDiagnostics.Input input = new SiteDiagnostics.Input(type, target, site, tags, authMethod,
                 v.getOrDefault("source.auth.tokenEnv", ""), keyEnv,
                 ca.isEmpty() ? null : Path.of(ca), Boolean.parseBoolean(v.getOrDefault("source.allowInsecureHttp", "false")), Math.min(timeout, 30),
-                proxyOf(v), apiOptions);
+                proxyOf(v), apiOptions,
+                v.getOrDefault("source.confluence.email", ""),
+                v.getOrDefault("source.confluence.emailEnv", ""));
         ConnectionReport report = new SiteDiagnostics(env, clock).run(input);
         try {
             knowledgeBase.store().init();
@@ -596,6 +599,7 @@ public final class Workspace {
         String label = switch (type) {
             case "fixture" -> "Demo data";
             case "stackexchange" -> "Stack Exchange: " + config.source().site();
+            case "confluence" -> "Confluence" + (config.source().baseUrl().isBlank() ? "" : ": " + config.source().baseUrl());
             default -> "Internal site";
         };
         int questions = 0;

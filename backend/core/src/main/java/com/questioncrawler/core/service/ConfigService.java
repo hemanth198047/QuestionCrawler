@@ -47,7 +47,9 @@ public final class ConfigService {
     private static final List<String> ALL = List.of();
     private static final List<String> SE = List.of("stackexchange");
     private static final List<String> LIVE = List.of("live");
-    private static final List<String> REMOTE = List.of("stackexchange", "live");
+    private static final List<String> CONFLUENCE = List.of("confluence");
+    private static final List<String> REMOTE = List.of("stackexchange", "live", "confluence");
+    private static final List<String> AUTH_TOKEN = List.of("live", "confluence");
 
     private final Function<String, String> env;
 
@@ -69,11 +71,12 @@ public final class ConfigService {
         return List.of(
                 new Section("source", "Where do the questions come from?",
                         "Pick the site to collect from and tell the app how to reach it. Use the Connect page to test access.", "plug", List.of(
-                        f("source.type", "Source", "Demo data needs no internet. Stack Overflow / Stack Exchange uses the public, documented API. Your internal site needs its own connector.",
+                        f("source.type", "Source", "Demo data needs no internet. Stack Overflow / Stack Exchange uses the public API. Confluence collects wiki pages via its REST API. Your internal Q&A site needs its own connector. Jive and SharePoint will be separate sources later.",
                                 Type.SELECT, "fixture", null, ALL, false, null,
                                 new Option("fixture", "Demo data", "Offline sample questions, nothing to set up"),
                                 new Option("stackexchange", "Stack Overflow / Stack Exchange", "Public site via its official API"),
-                                new Option("live", "Our internal site", "Needs API documentation (not built yet)")),
+                                new Option("confluence", "Confluence", "Cloud or Server/DC wiki pages via REST (separate from Jive/SharePoint)"),
+                                new Option("live", "Our internal Q&A site", "Needs API documentation (Stack Exchange–style)")),
                         f("source.siteUrl", "Site address", "The home page of the Stack Exchange site, for example https://stackoverflow.com/.",
                                 Type.URL, "https://stackoverflow.com/", "https://stackoverflow.com/", SE, false, null),
                         f("source.stackexchange.keyEnv", "API key variable name", "Optional. Name of the environment variable that holds a free Stack Exchange application key. A key raises the daily request limit from about 300 to 10,000. The key itself is never stored here.",
@@ -82,8 +85,36 @@ public final class ConfigService {
                                 Type.URL, "", "https://so.mycompany.com/swagger/index.html", LIVE, false, null),
                         f("api.swaggerFile", "API documentation file (JSON)", "Use this when the documentation page needs a company sign-in (SSO). Open the documentation's JSON address in your browser (where you are signed in), save it as swagger.json, and upload it on the Connect screen: its location is filled in here.",
                                 Type.PATH, "", "C:/data/swagger.json", LIVE, false, null),
-                        f("source.baseUrl", "API address", "The address every API call starts with, for example https://so.mycompany.com/api/2.3. Leave it empty to take it from the Swagger documentation.",
-                                Type.URL, "", "https://so.mycompany.com/api/2.3", LIVE, false, null),
+                        f("source.baseUrl", "Site / API address", "For Confluence: the site origin, for example https://acme.atlassian.net or https://wiki.example.com. For an internal Q&A API: the address every call starts with (or leave empty to take it from Swagger).",
+                                Type.URL, "", "https://acme.atlassian.net", List.of("live", "confluence"), false, null),
+                        f("source.confluence.edition", "Confluence edition", "Cloud uses /wiki/rest/api and email + API token (Basic). Server/Data Center uses /rest/api and a personal access token (Bearer).",
+                                Type.SELECT, "cloud", null, CONFLUENCE, false, null,
+                                new Option("cloud", "Confluence Cloud", "Atlassian Cloud site"),
+                                new Option("server", "Server / Data Center", "Self-hosted Confluence")),
+                        f("source.confluence.email", "Atlassian account email", "Cloud only. The email for Basic auth with your API token. Not a secret; the token stays in an environment variable.",
+                                Type.TEXT, "", "you@example.com", CONFLUENCE, false, null),
+                        f("source.confluence.emailEnv", "Email variable name (optional)", "Optional alternative: NAME of an environment variable that holds the Atlassian email instead of typing it above.",
+                                Type.ENV_NAME, "", "CONFLUENCE_EMAIL", CONFLUENCE, true, null),
+                        f("source.confluence.spaces", "Space keys", "Comma-separated Confluence space keys to include (for example ENG,HR). Strongly recommended so sync stays bounded.",
+                                Type.TAGS, "", "ENG", CONFLUENCE, false, null),
+                        f("source.confluence.ancestorPageId", "Ancestor page id", "Optional. Only collect pages under this page id (a subtree).",
+                                Type.TEXT, "", "123456", CONFLUENCE, true, null),
+                        f("source.confluence.contentTypes", "Content types", "Usually just page. Add blogpost only if you want blog posts too.",
+                                Type.TAGS, "page", "page", CONFLUENCE, true, null),
+                        f("source.confluence.apiRoot", "REST API root override", "Leave empty for the edition default (/wiki/rest/api on Cloud, /rest/api on Server/DC). Set only if your site uses a custom context path.",
+                                Type.TEXT, "", "/wiki/rest/api", CONFLUENCE, true, null),
+                        f("source.confluence.bodyExpand", "Page body format", "Prefer storage XHTML (converted to Markdown). Fall back to view HTML if needed.",
+                                Type.SELECT, "body.storage", null, CONFLUENCE, true, null,
+                                new Option("body.storage", "Storage (XHTML)", "Recommended"),
+                                new Option("body.view", "View (rendered HTML)", "Fallback")),
+                        f("source.confluence.collectComments", "Also collect page comments", "Downloads footer/inline page comments as thread comments. Uses more API requests. Failures are non-fatal.",
+                                Type.SWITCH, "false", null, CONFLUENCE, false, null),
+                        f("source.confluence.pageSize", "Search page size", "How many pages Confluence returns per search request (1–50).",
+                                Type.NUMBER, "25", null, CONFLUENCE, true, null),
+                        f("source.confluence.includeSpaceTag", "Add space:KEY tags", "Adds a synthetic space:ENG-style tag on each page for filtering and classification.",
+                                Type.SWITCH, "true", null, CONFLUENCE, true, null),
+                        f("source.systemId", "Storage system id", "Folder name under threads/ for this Confluence site. Default confluence.",
+                                Type.TEXT, "confluence", "confluence", CONFLUENCE, true, null),
                         f("api.keyEnv", "API access key variable name", "All API requests need an access key. Enter the NAME of the environment variable that holds your key (the key itself is never saved), then set that variable in your terminal.",
                                 Type.ENV_NAME, "INTERNAL_QA_API_KEY", "INTERNAL_QA_API_KEY", LIVE, false, null),
                         f("api.collectComments", "Also collect comments", "Downloads the comments under questions and answers as extra context. Uses more API requests.",
@@ -100,20 +131,21 @@ public final class ConfigService {
                                 Type.TEXT, "", "", LIVE, true, null),
                         f("api.bodyFilter", "Response filter with text", "The filter that makes the API include question and answer text. Leave empty for the standard one; if it does not exist, one is created for you.",
                                 Type.TEXT, "", "withbody", LIVE, true, null),
-                        f("source.auth.method", "Bearer token sign-in", "Choose 'Bearer token' if the API answers 'Missing bearer token' (HTTP 401): it then also wants a token in an 'Authorization: Bearer' header, in addition to the API key.",
-                                Type.SELECT, "none", null, LIVE, false, null,
-                                new Option("none", "Not needed", "The API key is enough"),
-                                new Option("token", "Bearer token", "A token from your profile or the site's owners")),
-                        f("source.auth.tokenEnv", "Bearer token variable name", "The NAME of the environment variable that holds the token (the token itself is never saved). Set that variable in the terminal that starts the app.",
-                                Type.ENV_NAME, "INTERNAL_QA_TOKEN", "INTERNAL_QA_TOKEN", LIVE, false, null),
-                        f("source.auth.headerName", "Bearer header name", "The HTTP header the site expects the Bearer token in.",
-                                Type.TEXT, "Authorization", "Authorization", LIVE, true, null),
-                        f("source.auth.scheme", "Bearer prefix", "Text placed before the token, for example Bearer. Leave empty for none.",
-                                Type.TEXT, "Bearer", "Bearer", LIVE, true, null),
+                        f("source.auth.method", "How to sign in", "Confluence Cloud: Email + API token (Basic). Confluence Server/DC: Bearer personal access token. Internal Q&A: Bearer only when the API asks for it in addition to a key.",
+                                Type.SELECT, "none", null, AUTH_TOKEN, false, null,
+                                new Option("none", "Not needed", "Only for some internal Q&A APIs"),
+                                new Option("basic-env", "Email + API token (Basic)", "Confluence Cloud: email in settings, token in an env var"),
+                                new Option("token", "Bearer token / PAT", "Confluence Server/DC PAT, or internal Bearer token")),
+                        f("source.auth.tokenEnv", "Token / PAT variable name", "The NAME of the environment variable that holds the API token or PAT (never the secret itself). Suggested: CONFLUENCE_API_TOKEN (Cloud) or CONFLUENCE_PAT (Server/DC).",
+                                Type.ENV_NAME, "CONFLUENCE_API_TOKEN", "CONFLUENCE_API_TOKEN", AUTH_TOKEN, false, null),
+                        f("source.auth.headerName", "Auth header name", "The HTTP header that carries the credential. Almost always Authorization.",
+                                Type.TEXT, "Authorization", "Authorization", AUTH_TOKEN, true, null),
+                        f("source.auth.scheme", "Bearer prefix", "For Bearer/PAT auth only. Ignored for Basic (email + API token).",
+                                Type.TEXT, "Bearer", "Bearer", AUTH_TOKEN, true, null),
                         f("source.allowedHosts", "Allowed hosts", "The app only ever talks to these hosts. Filled in automatically from the address above.",
-                                Type.TAGS, "", "qa.mycompany.com", LIVE, true, null),
-                        f("source.allowedPathPrefixes", "Allowed paths", "The app only requests addresses that start with one of these paths.",
-                                Type.TAGS, "/", "/api/", LIVE, true, null),
+                                Type.TAGS, "", "acme.atlassian.net", List.of("live", "confluence"), true, null),
+                        f("source.allowedPathPrefixes", "Allowed paths", "The app only requests addresses that start with one of these paths. Confluence Cloud default is /wiki/rest/api/.",
+                                Type.TAGS, "/", "/wiki/rest/api/", List.of("live", "confluence"), true, null),
                         f("source.caCertFile", "Company certificate file", "Only needed if your company uses its own security certificate authority. Path to a .pem/.crt file.",
                                 Type.PATH, "", "C:\\certs\\company-ca.pem", REMOTE, true, null),
                         f("network.proxyHost", "Web proxy address", "Only if your company reaches the internet through a web proxy. Enter the host name, for example webproxy.mycompany.com (leave empty if there is none). If the HTTPS_PROXY environment variable is already set, you can leave this empty.",
@@ -137,7 +169,7 @@ public final class ConfigService {
                                 Type.SWITCH, "false", null, REMOTE, true, null))),
                 new Section("topic", "What should we collect?",
                         "Tags are the labels people put on questions. We collect every question that has your tags.", "tags", List.of(
-                        f("sync.tags", "Tags", "Press Enter after each tag. 'Artificial Intelligence' and 'artificial-intelligence' mean the same tag. Type all (or *) to collect every question on the site, whatever its tags.",
+                        f("sync.tags", "Tags", "Press Enter after each tag. For Stack Exchange these are question tags; for Confluence they are page labels (case-insensitive). 'Artificial Intelligence' and 'artificial-intelligence' mean the same. Type all (or *) only with a Confluence space/ancestor or a time window — unbounded whole-site sync is refused.",
                                 Type.TAGS, "", "artificial-intelligence", ALL, false, null),
                         f("sync.tagMode", "A question must have", "With several tags: any of them, or all of them.", Type.SELECT, "ANY", null, ALL, false, null,
                                 new Option("ANY", "Any of the tags", "Wider: questions matching at least one tag"),
@@ -186,6 +218,20 @@ public final class ConfigService {
                         Map.of("source.type", "stackexchange", "source.siteUrl", "https://stackoverflow.com/", "sync.tags", "artificial-intelligence", "sync.tagMode", "ANY", "sync.maxQuestionAge", "1y")),
                 new Preset("stackexchange", "Another Stack Exchange site", "Server Fault, Super User, Ask Ubuntu or any public Stack Exchange community.", "layers",
                         Map.of("source.type", "stackexchange", "source.siteUrl", "https://serverfault.com/", "sync.tags", "", "sync.maxQuestionAge", "1y")),
+                new Preset("confluence", "Confluence wiki", "Collect Confluence Cloud or Server/DC pages via the REST API. Set the site address, email + token env (Cloud) or PAT (Server), and space keys or labels. Separate from Jive/SharePoint.", "book",
+                        Map.ofEntries(
+                                Map.entry("source.type", "confluence"),
+                                Map.entry("source.baseUrl", ""),
+                                Map.entry("source.confluence.edition", "cloud"),
+                                Map.entry("source.confluence.email", "you@example.com"),
+                                Map.entry("source.confluence.spaces", "ENG"),
+                                Map.entry("source.auth.method", "basic-env"),
+                                Map.entry("source.auth.tokenEnv", "CONFLUENCE_API_TOKEN"),
+                                Map.entry("sync.tags", "runbook"),
+                                Map.entry("sync.maxQuestionAge", "1y"),
+                                Map.entry("sync.concurrency", "2"),
+                                Map.entry("source.followRedirects", "same-host"),
+                                Map.entry("source.allowedPathPrefixes", "/wiki/rest/api/"))),
                 new Preset("internal", "Our internal Q&A site", "Your company's Stack Overflow-style site, through its REST API. Paste the link to its Swagger page and we read every endpoint for you.", "building",
                         Map.of("source.type", "live", "source.baseUrl", "", "api.swaggerUrl", "", "sync.tags", "")));
     }
@@ -250,8 +296,8 @@ public final class ConfigService {
         v.putAll(submitted);
         List<Issue> issues = new ArrayList<>();
         String type = v.getOrDefault("source.type", "fixture");
-        if (!List.of("fixture", "stackexchange", "live").contains(type)) {
-            issues.add(new Issue("source.type", "error", "Choose one of the listed sources.", "Pick Demo data, Stack Overflow / Stack Exchange, or Our internal site."));
+        if (!List.of("fixture", "stackexchange", "live", "confluence").contains(type)) {
+            issues.add(new Issue("source.type", "error", "Choose one of the listed sources.", "Pick Demo data, Stack Overflow / Stack Exchange, Confluence, or Our internal Q&A site."));
         }
         if (type.equals("stackexchange")) {
             String url = v.getOrDefault("source.siteUrl", "");
@@ -261,33 +307,72 @@ public final class ConfigService {
             }
             checkEnvName(issues, "source.stackexchange.keyEnv", v.get("source.stackexchange.keyEnv"), false);
         }
-        if (type.equals("live")) {
+        if (type.equals("live") || type.equals("confluence")) {
             String url = v.getOrDefault("source.baseUrl", "");
             String swagger = v.getOrDefault("api.swaggerUrl", "");
             URI uri = parseUri(url);
             URI docs = parseUri(swagger);
             boolean insecure = Boolean.parseBoolean(v.getOrDefault("source.allowInsecureHttp", "false"));
             String docsFile = v.getOrDefault("api.swaggerFile", "").strip();
-            if (!docsFile.isEmpty() && !java.nio.file.Files.isReadable(Path.of(docsFile))) {
-                issues.add(new Issue("api.swaggerFile", "error", "That documentation file cannot be read.", "Check the path, or upload the file again on the Connect screen."));
-            }
-            if (url.isBlank() && swagger.isBlank() && docsFile.isEmpty()) {
-                issues.add(new Issue("api.swaggerUrl", "error", "Enter the API documentation (Swagger) address, or the API address.", "Ask the site owners for the link to their Swagger page; it usually ends in /swagger/index.html."));
+            if (type.equals("live")) {
+                if (!docsFile.isEmpty() && !java.nio.file.Files.isReadable(Path.of(docsFile))) {
+                    issues.add(new Issue("api.swaggerFile", "error", "That documentation file cannot be read.", "Check the path, or upload the file again on the Connect screen."));
+                }
+                if (url.isBlank() && swagger.isBlank() && docsFile.isEmpty()) {
+                    issues.add(new Issue("api.swaggerUrl", "error", "Enter the API documentation (Swagger) address, or the API address.", "Ask the site owners for the link to their Swagger page; it usually ends in /swagger/index.html."));
+                }
+            } else if (url.isBlank()) {
+                issues.add(new Issue("source.baseUrl", "error", "Enter the Confluence site address.", "For Cloud use https://your-site.atlassian.net — not a page URL inside the wiki."));
             }
             if (!url.isBlank() && (uri == null || uri.getHost() == null)) {
                 issues.add(new Issue("source.baseUrl", "error", "That does not look like a web address.", "Start with https:// and include the full host name."));
             } else if (!url.isBlank() && !"https".equalsIgnoreCase(uri.getScheme()) && !insecure) {
                 issues.add(new Issue("source.baseUrl", "error", "Unencrypted http is not allowed for a real site.", "Use an https:// address."));
             }
-            if (!swagger.isBlank() && (docs == null || docs.getHost() == null)) {
-                issues.add(new Issue("api.swaggerUrl", "error", "That does not look like a web address.", "Start with https:// and include the full host name."));
-            } else if (!swagger.isBlank() && !"https".equalsIgnoreCase(docs.getScheme()) && !insecure) {
-                issues.add(new Issue("api.swaggerUrl", "error", "Unencrypted http is not allowed for a real site.", "Use an https:// address."));
+            if (type.equals("live")) {
+                if (!swagger.isBlank() && (docs == null || docs.getHost() == null)) {
+                    issues.add(new Issue("api.swaggerUrl", "error", "That does not look like a web address.", "Start with https:// and include the full host name."));
+                } else if (!swagger.isBlank() && !"https".equalsIgnoreCase(docs.getScheme()) && !insecure) {
+                    issues.add(new Issue("api.swaggerUrl", "error", "Unencrypted http is not allowed for a real site.", "Use an https:// address."));
+                }
+                checkEnvName(issues, "api.keyEnv", v.get("api.keyEnv"), true);
+                checkEnvName(issues, "api.accessTokenEnv", v.get("api.accessTokenEnv"), false);
             }
-            checkEnvName(issues, "api.keyEnv", v.get("api.keyEnv"), true);
-            checkEnvName(issues, "api.accessTokenEnv", v.get("api.accessTokenEnv"), false);
-            if ("token".equals(v.get("source.auth.method"))) {
+            String authMethod = v.getOrDefault("source.auth.method", "none");
+            if ("token".equals(authMethod) || "basic-env".equals(authMethod) || "confluence-api-token".equals(authMethod)) {
                 checkEnvName(issues, "source.auth.tokenEnv", v.get("source.auth.tokenEnv"), true);
+            }
+            if (type.equals("confluence")) {
+                String edition = v.getOrDefault("source.confluence.edition", "cloud").strip().toLowerCase();
+                if (!List.of("cloud", "server").contains(edition)) {
+                    issues.add(new Issue("source.confluence.edition", "error", "Choose Cloud or Server / Data Center.", null));
+                }
+                if ("basic-env".equals(authMethod) || "confluence-api-token".equals(authMethod)
+                        || ("cloud".equals(edition) && !"token".equals(authMethod) && !"none".equals(authMethod))) {
+                    String email = v.getOrDefault("source.confluence.email", "").strip();
+                    String emailEnv = v.getOrDefault("source.confluence.emailEnv", "").strip();
+                    if (email.isEmpty() && emailEnv.isEmpty() && ("basic-env".equals(authMethod) || "confluence-api-token".equals(authMethod)
+                            || "cloud".equals(edition))) {
+                        if ("basic-env".equals(authMethod) || "confluence-api-token".equals(authMethod) || "cloud".equals(edition)) {
+                            issues.add(new Issue("source.confluence.email", "error", "Confluence Cloud Basic auth needs your Atlassian email.", "Enter the email, or set source.confluence.emailEnv to an environment variable name."));
+                        }
+                    }
+                    checkEnvName(issues, "source.confluence.emailEnv", emailEnv, false);
+                }
+                String spaces = v.getOrDefault("source.confluence.spaces", "").strip();
+                String ancestor = v.getOrDefault("source.confluence.ancestorPageId", "").strip();
+                String tags = v.getOrDefault("sync.tags", "").strip();
+                String age = v.getOrDefault("sync.maxQuestionAge", "").strip();
+                if (com.questioncrawler.core.source.TagFilter.asksForAll(java.util.Arrays.asList(tags.split(",")))
+                        && spaces.isEmpty() && ancestor.isEmpty() && age.isEmpty()) {
+                    issues.add(new Issue("source.confluence.spaces", "error",
+                            "Collecting every Confluence page without a space, ancestor, or time window is refused.",
+                            "Add space keys, an ancestor page id, specific labels instead of 'all', or a max age window."));
+                } else if (spaces.isEmpty() && ancestor.isEmpty() && tags.isEmpty()) {
+                    issues.add(new Issue("source.confluence.spaces", "warning",
+                            "No spaces or labels yet — collection will have nothing useful to target.",
+                            "Add at least one space key or label (tags)."));
+                }
             }
         }
         if (!type.equals("fixture")) {
@@ -316,6 +401,16 @@ public final class ConfigService {
             }
             if (type.equals("stackexchange")) {
                 issues.add(new Issue("sync.maxQuestionAge", "warning", "Every tag on a public Stack Exchange site is millions of questions.", "Choose a short time window on the Collect page (for example 7 days); collecting is refused without one."));
+            }
+            if (type.equals("confluence")) {
+                String spaces = v.getOrDefault("source.confluence.spaces", "").strip();
+                String ancestor = v.getOrDefault("source.confluence.ancestorPageId", "").strip();
+                String age = v.getOrDefault("sync.maxQuestionAge", "").strip();
+                if (spaces.isEmpty() && ancestor.isEmpty() && age.isEmpty()) {
+                    issues.add(new Issue("sync.maxQuestionAge", "error",
+                            "Label 'all' on Confluence needs a space, ancestor page, or time window.",
+                            "Set space keys or pick a collection window on the Collect page."));
+                }
             }
         } else if ("ALL".equals(v.get("sync.tagMode")) && type.equals("stackexchange") && tags.split(",").length > 5) {
             issues.add(new Issue("sync.tagMode", "error", "Stack Exchange accepts at most 5 tags when all must match.", "Remove some tags or choose 'Any of the tags'."));
@@ -399,7 +494,7 @@ public final class ConfigService {
         submitted.forEach((k, val) -> merged.put(k, val == null ? "" : val.strip()));
         // Friendliness: the host allow-list follows the address the user typed.
         String type = merged.getOrDefault("source.type", "fixture");
-        if (type.equals("live") && merged.getOrDefault("source.allowedHosts", "").isBlank()) {
+        if ((type.equals("live") || type.equals("confluence")) && merged.getOrDefault("source.allowedHosts", "").isBlank()) {
             java.util.LinkedHashSet<String> hosts = new java.util.LinkedHashSet<>();
             for (String key : new String[] {"source.baseUrl", "api.swaggerUrl"}) {
                 URI uri = parseUri(merged.get(key));
@@ -409,6 +504,28 @@ public final class ConfigService {
             }
             if (!hosts.isEmpty()) {
                 merged.put("source.allowedHosts", String.join(",", hosts));
+            }
+        }
+        if (type.equals("confluence")) {
+            String prefixes = merged.getOrDefault("source.allowedPathPrefixes", "").strip();
+            if (prefixes.isEmpty() || prefixes.equals("/")) {
+                String edition = merged.getOrDefault("source.confluence.edition", "cloud").strip().toLowerCase();
+                merged.put("source.allowedPathPrefixes", "server".equals(edition) ? "/rest/api/" : "/wiki/rest/api/");
+            }
+            String auth = merged.getOrDefault("source.auth.method", "").strip();
+            if (auth.isEmpty() || "none".equals(auth)) {
+                String edition = merged.getOrDefault("source.confluence.edition", "cloud").strip().toLowerCase();
+                merged.put("source.auth.method", "server".equals(edition) ? "token" : "basic-env");
+            }
+            if (merged.getOrDefault("source.auth.tokenEnv", "").isBlank()) {
+                String edition = merged.getOrDefault("source.confluence.edition", "cloud").strip().toLowerCase();
+                merged.put("source.auth.tokenEnv", "server".equals(edition) ? "CONFLUENCE_PAT" : "CONFLUENCE_API_TOKEN");
+            }
+            if (merged.getOrDefault("source.systemId", "").isBlank()) {
+                merged.put("source.systemId", "confluence");
+            }
+            if (merged.getOrDefault("source.followRedirects", "").isBlank()) {
+                merged.put("source.followRedirects", "same-host");
             }
         }
         List<Issue> issues = validate(merged);

@@ -88,6 +88,19 @@ class HttpSourceClientTest {
     }
 
     @Test
+    void basicEnvSendsBase64EmailAndTokenWithoutLoggingSecrets() throws Exception {
+        var settings = new SourceSettings("confluence", base, List.of("127.0.0.1"), List.of("/"), "basic-env", "TEST_TOKEN",
+                "Authorization", "Bearer", null, Duration.ofSeconds(5), true, null, null,
+                com.questioncrawler.core.source.ProxyConfig.NONE, com.questioncrawler.core.source.ApiOptions.DEFAULT,
+                "user@example.com", null);
+        var c = new HttpSourceClient(settings, Map.of("TEST_TOKEN", SECRET)::get);
+        assertEquals(200, c.get(base + "/ok").status());
+        String expected = "Basic " + java.util.Base64.getEncoder()
+                .encodeToString(("user@example.com:" + SECRET).getBytes(StandardCharsets.UTF_8));
+        assertEquals(expected, lastAuthHeader.get());
+    }
+
+    @Test
     void noAuthHeaderIsSentWhenAuthenticationIsDisabled() throws Exception {
         client("none", true, List.of("/"), Map.of("TEST_TOKEN", SECRET)).get(base + "/ok");
         assertNull(lastAuthHeader.get());

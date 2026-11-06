@@ -166,7 +166,7 @@ class KnowledgeApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.saved").value(true))
                 .andExpect(jsonPath("$.view.values['sync.maxQuestionAge']").value("1y"));
-        mvc.perform(get("/api/config/presets")).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(4));
+        mvc.perform(get("/api/config/presets")).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(5));
     }
 
     @Test
