@@ -75,6 +75,7 @@ export interface ThreadView {
 export interface CategorySummary { id: string; name: string; description: string; questionCount: number }
 export interface QuestionRef { source: string; id: string; title: string; url: string | null; createdAt: string | null; status: string; answerCount: number; hasAcceptedAnswer: boolean; tags: string[] }
 export interface CategoryListing { category: CategorySummary; questions: QuestionRef[] }
+export interface DeleteByTagResult { tag: string; deletedThreads: number; deletedAnswers: number; deletedQuestionIds: string[] }
 
 // ---- categories (taxonomy)
 export interface Rule { type: 'keyword' | 'regex' | 'tag'; field: 'title' | 'body' | 'answers' | 'tags' | 'any'; pattern: string; weight: number }

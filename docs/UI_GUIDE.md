@@ -40,6 +40,7 @@ All under `/api`. The Spring controllers and the test-scope dev server (`DevApiS
 | `GET /search`, `GET /questions/{id}`, `PUT/DELETE /questions/{id}/categories` | Explore, Question |
 | `GET /categories`, `GET /categories/{id}` | Organize, Explore |
 | `GET/PUT /taxonomy`, `POST /taxonomy/try`, `POST /taxonomy/reset`, `POST /reindex` | Organize |
+| `POST /store/delete-by-tag` (`{ "tag", "confirm": true }`) | Settings → Where is everything saved? |
 
 ## Developing the UI without the backend
 

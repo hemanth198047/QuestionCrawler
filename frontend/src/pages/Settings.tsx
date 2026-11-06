@@ -1,6 +1,6 @@
-import { FileText, FolderOpen, Plug, RefreshCw, RotateCcw, Save, Tags } from 'lucide-react'
+import { FileText, FolderOpen, Plug, RefreshCw, RotateCcw, Save, Tags, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { getConfig, saveConfig, validateConfig } from '../api'
+import { deleteByTag, getConfig, saveConfig, validateConfig } from '../api'
 import { IssueList, SettingField } from '../components/Fields'
 import { PageHeader } from '../components/PageHeader'
 import { useOverview } from '../components/OverviewContext'
@@ -20,6 +20,9 @@ export default function SettingsPage({ section }: { section: string | null }) {
   const [preview, setPreview] = useState('')
   const [advanced, setAdvanced] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [deleteTag, setDeleteTag] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => { if (cfg.kind === 'ok' && !draft) { setDraft(cfg.data.values); setSaved(cfg.data.values); setIssues(cfg.data.issues); setPreview(cfg.data.preview) } }, [cfg, draft])
   const dirty = useMemo(() => !!draft && !!saved && JSON.stringify(draft) !== JSON.stringify(saved), [draft, saved])
@@ -47,6 +50,20 @@ export default function SettingsPage({ section }: { section: string | null }) {
       setIssues(r.issues)
       if (r.saved) { setDraft(r.view.values); setSaved(r.view.values); setPreview(r.view.preview); toast('ok', 'Settings saved'); reload() } else toast('bad', 'Some settings need fixing first')
     } catch (e) { toast('bad', e instanceof Error ? e.message : 'Could not save') } finally { setSaving(false) }
+  }
+  const runDeleteByTag = async () => {
+    const tag = deleteTag.trim()
+    if (!tag) { toast('bad', 'Type a tag to delete'); return }
+    setDeleting(true)
+    try {
+      const r = await deleteByTag(tag)
+      setConfirmDelete(false)
+      setDeleteTag('')
+      toast('ok', r.deletedThreads === 0
+        ? `No stored questions carried the tag “${r.tag}”`
+        : `Removed ${r.deletedThreads} question${r.deletedThreads === 1 ? '' : 's'} (and ${r.deletedAnswers} answer${r.deletedAnswers === 1 ? '' : 's'}) for “${r.tag}”`)
+      reload()
+    } catch (e) { toast('bad', e instanceof Error ? e.message : 'Could not delete') } finally { setDeleting(false) }
   }
 
   return (
@@ -77,6 +94,32 @@ export default function SettingsPage({ section }: { section: string | null }) {
                 {current === 'source' && source === 'fixture' && <Banner tone="info" title="Demo data needs nothing else">Choose “Stack Overflow / Stack Exchange” or “Our internal site” above to see the options for reaching a real site.</Banner>}
               </div>
               {current === 'source' && source !== 'fixture' && <div style={{ marginTop: 26 }}><Banner tone="info" title="Not sure it will work?" action={<Button onClick={() => go('/connect')}>Check access</Button>}>The Connect page tests the whole path to the site and says what is missing.</Banner></div>}
+            </Card>
+          )}
+          {current === 'storage' && (
+            <Card>
+              <div className="spread" style={{ marginBottom: 6 }}>
+                <div>
+                  <h3>Remove questions by tag</h3>
+                  <p className="card-sub">Permanently deletes matching questions and answers from this computer’s knowledge folder (JSON files and the search index). The remote site is not contacted. The special tag “all” is refused.</p>
+                </div>
+              </div>
+              <hr className="divider" />
+              <div className="field">
+                <div className="field-label">Tag to remove</div>
+                <input className="input" value={deleteTag} onChange={(e) => { setDeleteTag(e.target.value); setConfirmDelete(false) }} placeholder="for example timeout" aria-label="Tag to delete from the local store" />
+              </div>
+              <div className="row" style={{ marginTop: 16, gap: 10 }}>
+                {confirmDelete ? (
+                  <>
+                    <span className="small muted">Delete every locally stored question tagged “{deleteTag.trim()}”?</span>
+                    <Button size="sm" variant="danger" icon={<Trash2 size={14} />} busy={deleting} onClick={runDeleteByTag}>Yes, delete</Button>
+                    <Button size="sm" variant="ghost" disabled={deleting} onClick={() => setConfirmDelete(false)}>Cancel</Button>
+                  </>
+                ) : (
+                  <Button size="sm" variant="danger" icon={<Trash2 size={14} />} disabled={!deleteTag.trim()} onClick={() => setConfirmDelete(true)}>Delete by tag…</Button>
+                )}
+              </div>
             </Card>
           )}
           {issues.some((i) => !sections.flatMap((s) => s.fields).some((f) => f.key === i.key)) && <IssueList issues={issues.filter((i) => !sections.flatMap((s) => s.fields).some((f) => f.key === i.key))} />}

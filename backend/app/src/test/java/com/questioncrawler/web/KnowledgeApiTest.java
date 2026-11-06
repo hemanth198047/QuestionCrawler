@@ -235,4 +235,21 @@ class KnowledgeApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.reached").value(false));
     }
+
+    @Test
+    @Order(16)
+    void deleteByTagRequiresConfirmAndRemovesOnlyMatchingQuestions() throws Exception {
+        mvc.perform(post("/api/store/delete-by-tag").contentType(JSON).content("{\"tag\":\"timeout\"}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/store/delete-by-tag").contentType(JSON).content("{\"tag\":\"all\",\"confirm\":true}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/store/delete-by-tag").contentType(JSON).content("{\"tag\":\"timeout\",\"confirm\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tag").value("timeout"))
+                .andExpect(jsonPath("$.deletedThreads").value(1))
+                .andExpect(jsonPath("$.deletedQuestionIds[0]").value("1001"));
+        mvc.perform(get("/api/questions/1001")).andExpect(status().isNotFound());
+        mvc.perform(get("/api/questions/1002")).andExpect(status().isOk());
+        mvc.perform(get("/api/status")).andExpect(status().isOk()).andExpect(jsonPath("$.threadCount").value(9));
+    }
 }

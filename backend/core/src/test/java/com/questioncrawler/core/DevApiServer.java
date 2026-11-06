@@ -119,6 +119,14 @@ public final class DevApiServer {
                 return workspace.tryClassify(draft, body.path("title").asText(""), body.path("body").asText(""), tags);
             }
             case "POST /api/reindex": return kb.reindex();
+            case "POST /api/store/delete-by-tag": {
+                if (!body.path("confirm").asBoolean(false)) {
+                    throw new IllegalArgumentException("Deletion removes stored questions permanently. Re-send with confirm=true to proceed.");
+                }
+                String tag = body.path("tag").asText(null);
+                if (tag == null || tag.isBlank()) throw new IllegalArgumentException("A tag is required.");
+                return kb.deleteByTag(tag);
+            }
             case "GET /api/status": return kb.status();
             case "GET /api/categories": return kb.categories();
             case "GET /api/search": {

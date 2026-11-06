@@ -44,6 +44,7 @@ public final class Cli {
               categories [<category-id>]   List categories, or the questions of one category
               status                       Store size, synchronization state and freshness
               reindex                      Rebuild classification, markdown exports and the search index
+              delete-tag --tag <t> --yes   Permanently delete locally stored questions with that tag
               override set <id> <cat...>   Manually set categories (survives synchronization)
               override clear <id>          Remove a manual override
               backup [--out <file>]        Back up the durable data to a zip file
@@ -100,6 +101,7 @@ public final class Cli {
                 case "categories" -> categories(a);
                 case "status" -> status(a);
                 case "reindex" -> reindex(a);
+                case "delete-tag" -> deleteTag(a);
                 case "override" -> override(a);
                 case "backup" -> backup(a);
                 case "restore" -> restore(a);
@@ -253,6 +255,26 @@ public final class Cli {
         var r = open(a).reindex();
         if (a.json()) json(r);
         else out.println("Reindexed " + r.threads() + " thread(s) into " + r.indexedDocuments() + " search document(s); skipped " + r.skippedNonRetrievable() + " non-retrievable.");
+        return 0;
+    }
+
+    private int deleteTag(Args a) {
+        List<String> tags = a.all("--tag");
+        if (tags.size() != 1) {
+            throw new UsageException("usage: delete-tag --tag <name> --yes");
+        }
+        if (!a.flag("--yes")) {
+            err.println("Delete-tag permanently removes locally stored questions (and answers) that carry tag '"
+                    + tags.get(0) + "'. Re-run with --yes to confirm.");
+            return 3;
+        }
+        Views.DeleteByTagResult r = open(a).deleteByTag(tags.get(0));
+        if (a.json()) json(r);
+        else {
+            out.println("Deleted " + r.deletedThreads() + " question(s) and " + r.deletedAnswers()
+                    + " answer(s) for tag '" + r.tag() + "'."
+                    + (r.deletedQuestionIds().isEmpty() ? "" : " Ids: " + String.join(", ", r.deletedQuestionIds()) + "."));
+        }
         return 0;
     }
 

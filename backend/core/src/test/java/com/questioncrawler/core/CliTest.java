@@ -120,6 +120,20 @@ class CliTest {
     }
 
     @Test
+    void deleteTagRequiresConfirmationAndRemovesMatchingQuestions() throws Exception {
+        assertEquals(0, cli(withStorage("sync", "--tag", "orbit")).code());
+        assertEquals(3, cli(withStorage("delete-tag", "--tag", "timeout")).code(), "delete-tag requires --yes");
+        Result deleted = cli(withStorage("delete-tag", "--tag", "timeout", "--yes", "--format", "json"));
+        assertEquals(0, deleted.code(), deleted.err());
+        JsonNode json = Json.MAPPER.readTree(deleted.out());
+        assertEquals(1, json.get("deletedThreads").asInt());
+        assertEquals("1001", json.at("/deletedQuestionIds/0").asText());
+        assertEquals(1, cli(withStorage("show", "1001")).code());
+        Result status = cli(withStorage("status", "--format", "json"));
+        assertEquals(9, Json.MAPPER.readTree(status.out()).get("threadCount").asInt());
+    }
+
+    @Test
     void ageFlagsFilterSearchAndBrowsingAndRejectBadValues() throws Exception {
         assertEquals(0, cli(withStorage("sync", "--tag", "orbit")).code());
         // The synthetic questions were created in 2025: "within 30 days" matches nothing, "older than 30 days" matches everything.

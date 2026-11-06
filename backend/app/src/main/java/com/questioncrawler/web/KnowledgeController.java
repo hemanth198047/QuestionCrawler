@@ -27,6 +27,9 @@ public class KnowledgeController {
 
     public record OverrideRequest(List<String> categories, String note) {}
 
+    /** confirm must be true; the reserved tag "all" is refused by the core. */
+    public record DeleteByTagRequest(String tag, boolean confirm) {}
+
     private final Workspace workspace;
 
     public KnowledgeController(Workspace workspace) {
@@ -89,5 +92,21 @@ public class KnowledgeController {
     @PostMapping("/reindex")
     public Views.ReindexResult reindex() {
         return workspace.kb().reindex();
+    }
+
+    /**
+     * Permanently deletes locally stored questions (and answers) that carry the given tag.
+     * Requires {@code confirm: true}. Does not contact the remote site.
+     */
+    @PostMapping("/store/delete-by-tag")
+    public Views.DeleteByTagResult deleteByTag(@RequestBody DeleteByTagRequest request) {
+        if (request == null || !request.confirm()) {
+            throw new IllegalArgumentException(
+                    "Deletion removes stored questions permanently. Re-send with confirm=true to proceed.");
+        }
+        if (request.tag() == null || request.tag().isBlank()) {
+            throw new IllegalArgumentException("A tag is required.");
+        }
+        return workspace.kb().deleteByTag(request.tag());
     }
 }

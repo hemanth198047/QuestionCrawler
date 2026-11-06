@@ -58,4 +58,7 @@ public final class Views {
     }
 
     public record ReindexResult(int threads, int indexedDocuments, int skippedNonRetrievable) {}
+
+    /** Outcome of permanently removing locally stored threads that carry a given tag. */
+    public record DeleteByTagResult(String tag, int deletedThreads, int deletedAnswers, List<String> deletedQuestionIds) {}
 }

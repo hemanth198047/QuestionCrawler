@@ -69,6 +69,7 @@ scripts/qc.sh categories
 scripts/qc.sh categories data-ingestion
 scripts/qc.sh status
 scripts/qc.sh reindex                    # rebuild classification, markdown and index (after editing the taxonomy)
+scripts/qc.sh delete-tag --tag timeout --yes   # permanently remove locally stored questions with that tag
 scripts/qc.sh override set 1001 performance --note "tuning question"
 ```
 ```powershell

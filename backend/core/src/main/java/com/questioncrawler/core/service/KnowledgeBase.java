@@ -14,6 +14,8 @@ import com.questioncrawler.core.service.Views.*;
 import com.questioncrawler.core.source.Retrier;
 import com.questioncrawler.core.source.SourceAdapter;
 import com.questioncrawler.core.source.SourceException;
+import com.questioncrawler.core.source.TagFilter;
+import com.questioncrawler.core.source.TagMode;
 import com.questioncrawler.core.storage.KnowledgeStore;
 import com.questioncrawler.core.storage.StoreException;
 import com.questioncrawler.core.sync.Checkpoint;
@@ -207,6 +209,60 @@ public final class KnowledgeBase {
             p.finish();
         } finally {
             p.close();
+        }
+    }
+
+    // ================================================================== delete by tag
+
+    /**
+     * Permanently removes locally stored questions (and their answers) that carry the given tag.
+     * Deletes the thread JSON, classification, markdown export and Lucene documents, and scrubs
+     * any manual category override for those threads. Unrelated tags are left untouched.
+     * The reserved tag {@code all} is refused — name a specific tag.
+     */
+    public DeleteByTagResult deleteByTag(String tag) {
+        store.ensureReady();
+        String normalized = TagFilter.normalize(tag);
+        if (normalized.isEmpty()) {
+            throw new IllegalArgumentException("A tag is required.");
+        }
+        if (TagFilter.ALL.equals(normalized)) {
+            throw new IllegalArgumentException(
+                    "Refusing to delete every question (tag 'all' / '*'). Name a specific tag to remove.");
+        }
+        TagFilter filter = new TagFilter(List.of(normalized), TagMode.ANY, false);
+        try (var lock = store.acquireSyncLock()) {
+            Pipeline pipeline = new Pipeline();
+            List<String> deletedIds = new ArrayList<>();
+            int deletedAnswers = 0;
+            try {
+                Map<String, CategoryOverride> overrides = new TreeMap<>(store.loadOverrides());
+                boolean overridesChanged = false;
+                for (ThreadRecord t : store.allThreads()) {
+                    if (t.isPurged() || t.question() == null) {
+                        continue;
+                    }
+                    if (!filter.matches(t.question().tags())) {
+                        continue;
+                    }
+                    deletedAnswers += t.question().answers().size();
+                    pipeline.removed(t);
+                    store.deleteClassification(t.sourceSystem(), t.questionId());
+                    store.deleteThreadFile(t.sourceSystem(), t.questionId());
+                    if (overrides.remove(t.key()) != null) {
+                        overridesChanged = true;
+                    }
+                    deletedIds.add(t.questionId());
+                }
+                if (overridesChanged) {
+                    store.saveOverrides(overrides);
+                }
+                pipeline.finish();
+            } finally {
+                pipeline.close();
+            }
+            deletedIds.sort(Comparator.naturalOrder());
+            return new DeleteByTagResult(normalized, deletedIds.size(), deletedAnswers, deletedIds);
         }
     }
 
