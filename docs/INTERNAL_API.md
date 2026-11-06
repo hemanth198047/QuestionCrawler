@@ -51,6 +51,17 @@ and what to check. Your key is never shown (it appears as `•••`). **Copy t
 
 Responses with a byte-order mark or a security prefix such as `)]}',` are cleaned automatically and are not an error.
 
+## "The API answers, but collecting finds nothing"
+Stack Overflow APIs come in different shapes. The Stack Exchange 2.3 style uses `question_id`, epoch dates, tags as plain strings, `has_more`, and parameters `pagesize` / `tagged`; other APIs use `id`, ISO dates, tags as objects, `page` / `totalPages`, and parameters such as `pageSize` / `tags`. A collector that expects one shape used to **drop every item it could not read**, so the raw answer looked fine while the collection found nothing. Now:
+
+- **Field names are read tolerantly**: question and answer ids (`question_id` / `id` / `questionId`), tags (strings or objects with `name`), dates (epoch seconds, epoch milliseconds or ISO-8601), scores, authors, accepted flags, comments, the list inside the wrapper (`items`, `data`, `results`, ...) and "is there more" (`has_more`, `totalPages`, `totalCount`, or a full page).
+- **Request parameter names come from the Swagger document** (page, page size, tag, sort and order values, a "created after" date as text or epoch): `pageSize` is sent when that is what the API documents, `tags` instead of `tagged`, an allowed `sort` value, and so on. Parameters the API does not document are not sent. **Read the documentation on the Connect screen** (or upload the saved copy) so this applies.
+- **Answers**: if the API only returns answers for one question at a time (`/questions/{id}/answers`), that is detected from the documentation or learned from the API's refusal of a list of ids; answers are fetched one question at a time. Answers that do not repeat the question id are still attached to the right question. If the list leaves out each question's text, it is fetched from the single-question endpoint.
+- **Without documentation** the Stack Exchange names are assumed. If the site then ignores the tag parameter (most questions returned lack the requested tag), this is noticed, said so, and tags are matched here.
+- **Nothing is dropped silently any more.** Whenever the API returns items that cannot be read (no id found) or an answer without a list of questions, the collection report and the test below say so and list the field names that were received.
+
+**Connect screen → Test the collection** asks for the first page of questions exactly as a collection will (with your tags), and shows the request that was made (parameter names and values, never the key), how many questions came back, and for the first three: title, tags, date, number of answers and how much text. Use it when *See what the API really answers* looks fine but collecting finds nothing; **Copy this report** gives you something to send (it contains no secrets).
+
 ## Collecting every tag ("all")
 Type the tag **`all`** (or `*`) to collect **every question on the site, whatever its tags**. It works in the settings, on the Connect screen (**Collect every tag**) and on the command line (`--tag all`).
 

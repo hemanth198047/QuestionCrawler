@@ -145,6 +145,34 @@ public final class StackExchangeAdapter implements SourceAdapter {
         return pageSize;
     }
 
+    /** The names this API uses for paging, tags, sort and dates: from its documentation, else the Stack Exchange defaults. */
+    private com.questioncrawler.core.api.ParamMap pm() {
+        ApiCapabilities c = capabilities();
+        return c == null ? com.questioncrawler.core.api.ParamMap.defaults() : c.params();
+    }
+
+    private void putFilter(Map<String, String> params) {
+        com.questioncrawler.core.api.ParamMap p = pm();
+        if (p.filter() != null || !p.documented()) {
+            params.put(p.filter() == null ? "filter" : p.filter(), bodyFilter);
+        }
+    }
+
+    /** Sort and order, in the words the API documents (omitted when it has no such parameters). */
+    private void putOrder(Map<String, String> params, String preferred) {
+        com.questioncrawler.core.api.ParamMap p = pm();
+        if (p.sort() != null) {
+            params.put(p.sort(), p.sortFor(preferred));
+        }
+        if (p.order() != null) {
+            params.put(p.order(), p.ascending());
+        }
+    }
+
+    private static String dateValue(java.time.Instant when, boolean text) {
+        return text ? when.toString() : String.valueOf(when.getEpochSecond());
+    }
+
     private boolean taggedSupported() { ApiCapabilities c = capabilities(); return c == null || c.taggedFilter(); }
 
     private boolean fromDateSupported() { ApiCapabilities c = capabilities(); return c == null || c.fromDate(); }
@@ -182,28 +210,28 @@ public final class StackExchangeAdapter implements SourceAdapter {
             return new Page<>(List.of(), null);
         }
         String tagged = (all ? String.join(";", tags) : tags.get(pass));
-        tagged = java.util.Arrays.stream(tagged.split(";")).map(t -> exactTags.getOrDefault(t, t)).collect(java.util.stream.Collectors.joining(";"));
+        tagged = java.util.Arrays.stream(tagged.split(";")).map(t -> exactTags.getOrDefault(t, t)).collect(java.util.stream.Collectors.joining(pm().tagSeparator()));
 
         Map<String, String> params = new LinkedHashMap<>();
         if (serverTagFilter && !wildcard) {
-            params.put("tagged", tagged);
+            params.put(pm().tag() == null ? "tagged" : pm().tag(), tagged);
         }
-        params.put("sort", "activity");
-        params.put("order", "asc");
-        params.put("filter", bodyFilter);
-        params.put("pagesize", String.valueOf(pageSize()));
-        params.put("page", String.valueOf(page));
+        putOrder(params, "activity");
+        putFilter(params);
+        params.put(pm().size(), String.valueOf(pageSize()));
+        params.put(pm().page(), String.valueOf(page));
         if (minSupported()) {
-            Times.parse(modifiedSince).ifPresent(i -> params.put("min", String.valueOf(i.getEpochSecond())));
+            Times.parse(modifiedSince).ifPresent(i -> params.put(pm().min(), dateValue(i, pm().minIsText())));
         }
         if (fromDateSupported()) {
-            Times.parse(filter.createdAfter()).ifPresent(i -> params.put("fromdate", String.valueOf(i.getEpochSecond())));
+            Times.parse(filter.createdAfter()).ifPresent(i -> params.put(pm().from(), dateValue(i, pm().fromIsText())));
         }
         java.time.Instant createdAfter = Times.parse(filter.createdAfter()).orElse(null);
         java.time.Instant since = Times.parse(modifiedSince).orElse(null);
 
         JsonNode root = listWithBodyFilter("/questions", params);
-        if (serverTagFilter && !wildcard && (site == null || site.isBlank()) && page == 1 && root.path("items").isArray() && root.path("items").isEmpty() && tagResolutionTried.add(tagged)) {
+        lastListing = "GET /questions with " + params.entrySet().stream().map(e -> e.getKey() + "=" + e.getValue()).collect(java.util.stream.Collectors.joining(", "));
+        if (serverTagFilter && !wildcard && (site == null || site.isBlank()) && page == 1 && ApiJson.items(root).isArray() && ApiJson.items(root).isEmpty() && tagResolutionTried.add(tagged)) {
             // Nothing found: an internal site may spell the tag differently (for example in capitals). Find its own spelling and ask again.
             // The lookup is a convenience: if it fails for any reason the collection simply goes on with the empty answer.
             try {
@@ -218,7 +246,7 @@ public final class StackExchangeAdapter implements SourceAdapter {
                     }
                 }
                 if (changed) {
-                    params.put("tagged", String.join(";", resolved));
+                    params.put(pm().tag() == null ? "tagged" : pm().tag(), String.join(pm().tagSeparator(), resolved));
                     root = listWithBodyFilter("/questions", params);
                 }
             } catch (SourceException ignored) {
@@ -228,14 +256,32 @@ public final class StackExchangeAdapter implements SourceAdapter {
         List<QuestionSummary> items = new ArrayList<>();
         List<String> ids = new ArrayList<>();
         List<String> commentedQuestions = new ArrayList<>();
-        for (JsonNode item : root.path("items")) {
+        JsonNode listed = ApiJson.items(root);
+        if (!listed.isArray() && root.isObject()) {
+            notes.add("The API's answer has no list of questions. Fields in the answer: " + fieldsOf(root) + ".");
+        }
+        int unreadable = 0;
+        int withTags = 0;
+        int mismatched = 0;
+        JsonNode firstUnreadable = null;
+        for (JsonNode item : listed) {
             Question q = toQuestion(item);
             if (q.id() == null) {
+                unreadable++;
+                if (firstUnreadable == null) {
+                    firstUnreadable = item;
+                }
                 continue;
             }
-            // Features the API's documentation does not offer are applied here instead.
-            if (!serverTagFilter && !filter.matches(q.tags())) {
+            // Features the API's documentation does not offer (or that it ignores) are applied here instead.
+            if ((!serverTagFilter || tagFilterIgnored) && !wildcard && !filter.matches(q.tags())) {
                 continue;
+            }
+            if (!q.tags().isEmpty()) {
+                withTags++;
+                if (!wildcard && !filter.matches(q.tags())) {
+                    mismatched++;
+                }
             }
             if (!fromDateSupported() && createdAfter != null && Times.parse(q.createdAt()).map(c -> c.isBefore(createdAfter)).orElse(false)) {
                 continue;
@@ -243,7 +289,8 @@ public final class StackExchangeAdapter implements SourceAdapter {
             if (!minSupported() && since != null && Times.parse(q.modifiedAt()).map(m -> m.isBefore(since)).orElse(false)) {
                 continue;
             }
-            if (item.path("comment_count").asInt(0) > 0) {
+            Integer commentCount = ApiJson.integer(item, "comment_count", "commentCount", "commentsCount");
+            if (commentCount != null && commentCount > 0) {
                 commentedQuestions.add(q.id());
             }
             if (questionCache.size() > CACHE_LIMIT) {
@@ -253,15 +300,35 @@ public final class StackExchangeAdapter implements SourceAdapter {
             }
             questionCache.put(q.id(), q);
             items.add(new QuestionSummary(q.id(), q.modifiedAt(), q.url()));
-            if (item.path("answer_count").asInt(0) > 0) {
+            Integer answerCount = ApiJson.integer(item, "answer_count", "answerCount", "answersCount", "numberOfAnswers");
+            if (answerCount == null || answerCount > 0) { // a list that does not say how many answers there are: look
                 ids.add(q.id());
             }
             answersPrefetched.remove(q.id());
         }
+        if (serverTagFilter && !wildcard && !tagFilterIgnored && capabilities() == null && withTags >= 3 && mismatched * 4 >= withTags * 3) {
+            // Without documentation the tag parameter's name is a guess. Most questions returned lack the tag: the site ignored the parameter.
+            tagFilterIgnored = true;
+            notes.add("The site ignored the tag parameter '" + params.keySet().stream().filter(k -> k.toLowerCase().contains("tag")).findFirst().orElse("tagged")
+                    + "' (most questions it returned do not carry the requested tag), so tags are matched here instead, which downloads more. "
+                    + "Add the API documentation on the Connect screen so the right parameter name is used.");
+            items.removeIf(i -> {
+                Question c = questionCache.get(i.id());
+                return c != null && !filter.matches(c.tags());
+            });
+            ids.removeIf(id -> {
+                Question c = questionCache.get(id);
+                return c != null && !filter.matches(c.tags());
+            });
+        }
+        if (unreadable > 0) {
+            notes.add("The API returned " + listed.size() + " question(s) on a page but " + unreadable + " could not be read: no question id was found (looked for question_id, questionId, id, postId). "
+                    + "Fields on the first one: " + fieldsOf(firstUnreadable) + ".");
+        }
         prefetchAnswers(items, ids, commentedQuestions);
 
         String next;
-        if (root.path("has_more").asBoolean(false)) {
+        if (ApiJson.hasMore(root, page, pageSize(), ApiJson.items(root).size())) {
             next = pass + ":" + (page + 1);
         } else if (pass + 1 < passes) {
             next = (pass + 1) + ":1";
@@ -272,32 +339,94 @@ public final class StackExchangeAdapter implements SourceAdapter {
     }
 
     /** One batched call per listing page (up to 100 ids) instead of one call per question. */
+    private volatile boolean singleAnswers;
+    private volatile boolean tagFilterIgnored; // the site returned questions that do not carry the requested tag: it ignores our tag parameter
+    private volatile String lastListing;
+
+    /** The most recent question-listing request, as parameter names and values (the access key is never part of it). */
+    public String lastListingRequest() {
+        return lastListing;
+    }
+    private final List<String> notes = java.util.Collections.synchronizedList(new ArrayList<>());
+
+    @Override
+    public List<String> notes() {
+        synchronized (notes) {
+            return new ArrayList<>(new java.util.LinkedHashSet<>(notes));
+        }
+    }
+
+    private static String fieldsOf(JsonNode node) {
+        List<String> names = ApiJson.fieldNames(node);
+        return names.isEmpty() ? "none" : String.join(", ", names.size() > 25 ? names.subList(0, 25) : names) + (names.size() > 25 ? ", …" : "");
+    }
+
+    /** Does the documentation describe the answers endpoint with ONE question id ({id}) rather than a list ({ids})? */
+    private boolean documentedSingleAnswers() {
+        ApiCapabilities c = capabilities();
+        if (c == null) {
+            return false;
+        }
+        return c.capabilities().stream().anyMatch(x -> x.id().equals("answers") && x.found() && x.path() != null
+                && x.path().matches("(?i).*\\{(id|questionId|question_id)}.*") && !x.path().toLowerCase().contains("{ids}"));
+    }
+
+    /**
+     * Answers of one question (single) or of several (a list of ids), page by page. With a single question the answers belong to it even if
+     * the API does not repeat the question id on each answer.
+     */
+    private void loadAnswers(String idPart, String singleQuestionId, List<String> commentedAnswers) throws SourceException {
+        Map<String, String> params = new LinkedHashMap<>();
+        putFilter(params);
+        putOrder(params, "creation");
+        params.put(pm().size(), String.valueOf(pageSize()));
+        String path = "/questions/" + idPart + "/answers";
+        for (int page = 1; page <= MAX_PAGES_PER_BATCH; page++) {
+            params.put(pm().page(), String.valueOf(page));
+            JsonNode root = call(path, params);
+            for (JsonNode a : ApiJson.items(root)) {
+                String qid = singleQuestionId != null ? singleQuestionId : ApiJson.id(a, "question_id", "questionId", "parentId", "parent_id");
+                if (qid != null && answerCache.containsKey(qid)) {
+                    answerCache.get(qid).add(toAnswer(a, qid));
+                    Integer ac = ApiJson.integer(a, "comment_count", "commentCount", "commentsCount");
+                    if (ac != null && ac > 0) {
+                        commentedAnswers.add(ApiJson.id(a, "answer_id", "answerId", "id"));
+                    }
+                }
+            }
+            if (!ApiJson.hasMore(root, page, pageSize(), ApiJson.items(root).size())) {
+                break;
+            }
+        }
+    }
+
     private void prefetchAnswers(List<QuestionSummary> items, List<String> idsWithAnswers, List<String> commentedQuestions) throws SourceException {
         List<String> commentedAnswers = new ArrayList<>();
         for (QuestionSummary s : items) {
             answerCache.put(s.id(), new ArrayList<>());
         }
         if (!idsWithAnswers.isEmpty()) {
-            Map<String, String> params = new LinkedHashMap<>();
-            params.put("filter", bodyFilter);
-            params.put("sort", "creation");
-            params.put("order", "asc");
-            params.put("pagesize", String.valueOf(pageSize()));
-            String path = "/questions/" + String.join(";", idsWithAnswers) + "/answers";
-            for (int page = 1; page <= MAX_PAGES_PER_BATCH; page++) {
-                params.put("page", String.valueOf(page));
-                JsonNode root = call(path, params);
-                for (JsonNode a : root.path("items")) {
-                    String qid = a.path("question_id").asText(null);
-                    if (qid != null && answerCache.containsKey(qid)) {
-                        answerCache.get(qid).add(toAnswer(a, qid));
-                        if (a.path("comment_count").asInt(0) > 0) {
-                            commentedAnswers.add(a.path("answer_id").asText());
-                        }
+            boolean batched = !singleAnswers && !documentedSingleAnswers() && idsWithAnswers.size() > 0;
+            if (batched) {
+                try {
+                    // With exactly one question the answers belong to it even if the API does not repeat its id on each answer.
+                    loadAnswers(String.join(";", idsWithAnswers), idsWithAnswers.size() == 1 ? idsWithAnswers.get(0) : null, commentedAnswers);
+                } catch (SourceException e) {
+                    // An API that wants ONE question per call refuses a list of ids: switch to one call per question and remember it.
+                    boolean refusal = e.kind() == SourceException.Kind.FATAL || e.kind() == SourceException.Kind.NOT_FOUND;
+                    if (!refusal || idsWithAnswers.size() < 2) {
+                        throw e;
+                    }
+                    singleAnswers = true;
+                    notes.add("The API does not accept several question ids in one answers request, so answers are fetched one question at a time (slower).");
+                    for (String id : idsWithAnswers) {
+                        answerCache.put(id, new ArrayList<>());
                     }
                 }
-                if (!root.path("has_more").asBoolean(false)) {
-                    break;
+            }
+            if (!batched || singleAnswers) {
+                for (String id : idsWithAnswers) {
+                    loadAnswers(enc(id), id, commentedAnswers);
                 }
             }
         }
@@ -335,12 +464,11 @@ public final class StackExchangeAdapter implements SourceAdapter {
         for (int from = 0; from < ids.size(); from += IDS_PER_CALL) {
             List<String> batch = ids.subList(from, Math.min(ids.size(), from + IDS_PER_CALL));
             Map<String, String> params = new LinkedHashMap<>();
-            params.put("filter", bodyFilter);
-            params.put("sort", "creation");
-            params.put("order", "asc");
-            params.put("pagesize", String.valueOf(pageSize()));
+            putFilter(params);
+            putOrder(params, "creation");
+            params.put(pm().size(), String.valueOf(pageSize()));
             for (int page = 1; page <= MAX_PAGES_PER_BATCH; page++) {
-                params.put("page", String.valueOf(page));
+                params.put(pm().page(), String.valueOf(page));
                 JsonNode root;
                 try {
                     root = call(String.format(pathTemplate, String.join(";", batch)), params);
@@ -350,14 +478,15 @@ public final class StackExchangeAdapter implements SourceAdapter {
                     }
                     return out; // comments are optional context: never fail a collection because of them
                 }
-                for (JsonNode c : root.path("items")) {
-                    String post = c.path("post_id").asText(null);
+                for (JsonNode c : ApiJson.items(root)) {
+                    String post = ApiJson.id(c, "post_id", "postId", "parentId", "parent_id");
                     if (post != null) {
-                        out.computeIfAbsent(post, k -> new ArrayList<>()).add(new Comment(c.path("comment_id").asText(null), author(c),
-                                c.path("body").asText(""), epoch(c, "creation_date")));
+                        String text = ApiJson.text(c, "body", "text", "content", "bodyHtml");
+                        out.computeIfAbsent(post, k -> new ArrayList<>()).add(new Comment(ApiJson.id(c, "comment_id", "commentId", "id"), author(c),
+                                text == null ? "" : text, ApiJson.instant(c, "creation_date", "creationDate", "createdAt", "created_at", "created")));
                     }
                 }
-                if (!root.path("has_more").asBoolean(false)) {
+                if (!ApiJson.hasMore(root, page, pageSize(), ApiJson.items(root).size())) {
                     break;
                 }
             }
@@ -375,14 +504,14 @@ public final class StackExchangeAdapter implements SourceAdapter {
             root = call(path, params);
         } catch (SourceException e) {
             if (e.kind() == SourceException.Kind.FATAL && e.getMessage().toLowerCase().contains("filter") && createBodyFilter()) {
-                params.put("filter", bodyFilter);
+                putFilter(params);
                 return call(path, params);
             }
             throw e;
         }
-        JsonNode items = root.path("items");
+        JsonNode items = ApiJson.items(root);
         if (items.isArray() && !items.isEmpty() && !items.get(0).has("body") && createBodyFilter()) {
-            params.put("filter", bodyFilter);
+            putFilter(params);
             return call(path, params);
         }
         return root;
@@ -398,7 +527,7 @@ public final class StackExchangeAdapter implements SourceAdapter {
         fp.put("base", "default");
         fp.put("unsafe", "false");
         try {
-            String created = call("/filters/create", fp).path("items").path(0).path("filter").asText("");
+            String created = ApiJson.items(call("/filters/create", fp)).path(0).path("filter").asText("");
             if (!created.isBlank()) {
                 bodyFilter = created;
                 return true;
@@ -416,18 +545,34 @@ public final class StackExchangeAdapter implements SourceAdapter {
     @Override
     public Question fetchQuestion(String id) throws SourceException {
         Question cached = questionCache.get(id);
-        if (cached != null) {
+        // An internal API's list may leave out the text of each question: then the single-question endpoint has it.
+        boolean needsBody = cached != null && cached.body().isBlank() && (site == null || site.isBlank()) && hasCapability("question");
+        if (cached != null && !needsBody) {
             return cached;
         }
         Map<String, String> params = new LinkedHashMap<>();
-        params.put("filter", bodyFilter);
-        JsonNode root = call("/questions/" + encodeId(id), params);
-        JsonNode items = root.path("items");
-        if (!items.isArray() || items.isEmpty()) {
+        putFilter(params);
+        JsonNode root;
+        try {
+            root = call("/questions/" + encodeId(id), params);
+        } catch (SourceException e) {
+            if (needsBody && e.kind() != SourceException.Kind.AUTH_FAILED && e.kind() != SourceException.Kind.QUOTA_EXHAUSTED) {
+                return cached; // the text is a bonus here: keep what the list gave
+            }
+            throw e;
+        }
+        JsonNode items = ApiJson.items(root);
+        boolean wholeAnswerIsTheQuestion = root.isObject() && !items.isArray() && ApiJson.id(root, "question_id", "questionId", "id") != null;
+        JsonNode item = wholeAnswerIsTheQuestion ? root : items.isArray() && !items.isEmpty() ? items.get(0) : null;
+        if (item == null) {
+            if (needsBody) {
+                return cached;
+            }
             // The API answers 200 with no items for deleted or never-existing questions: not provably "deleted".
             throw new SourceException(SourceException.Kind.NOT_FOUND, "Question " + id + " is not returned by the API (deleted, never existed, or not visible)");
         }
-        return toQuestion(items.get(0));
+        Question fetched = toQuestion(item);
+        return needsBody && fetched.body().isBlank() ? cached : fetched;
     }
 
     @Override
@@ -448,17 +593,16 @@ public final class StackExchangeAdapter implements SourceAdapter {
             page = Integer.parseInt(cursor.substring(2));
         }
         Map<String, String> params = new LinkedHashMap<>();
-        params.put("filter", bodyFilter);
-        params.put("sort", "creation");
-        params.put("order", "asc");
-        params.put("pagesize", String.valueOf(pageSize()));
-        params.put("page", String.valueOf(page));
+        putFilter(params);
+        putOrder(params, "creation");
+        params.put(pm().size(), String.valueOf(pageSize()));
+        params.put(pm().page(), String.valueOf(page));
         JsonNode root = call("/questions/" + encodeId(questionId) + "/answers", params);
         List<Answer> answers = new ArrayList<>();
-        for (JsonNode a : root.path("items")) {
+        for (JsonNode a : ApiJson.items(root)) {
             answers.add(toAnswer(a, questionId));
         }
-        return new Page<>(answers, root.path("has_more").asBoolean(false) ? "p:" + (page + 1) : null);
+        return new Page<>(answers, ApiJson.hasMore(root, page, pageSize(), ApiJson.items(root).size()) ? "p:" + (page + 1) : null);
     }
 
     public record TagHit(String name, long count) {}
@@ -480,7 +624,7 @@ public final class StackExchangeAdapter implements SourceAdapter {
     }
 
     private static long countOf(JsonNode item) {
-        for (String field : new String[] {"count", "questions_count", "question_count", "questionCount", "total", "numQuestions", "uses"}) {
+        for (String field : new String[] {"count", "questions_count", "question_count", "questionCount", "questionsCount", "postCount", "post_count", "total", "numQuestions", "uses", "usageCount", "numberOfQuestions"}) {
             if (item.path(field).canConvertToLong() && item.has(field)) {
                 return item.get(field).asLong();
             }
@@ -527,8 +671,8 @@ public final class StackExchangeAdapter implements SourceAdapter {
                 return new TagReadResult(false, "the time limit was reached", pages, asked, unreliable);
             }
             asked = pageSize(); // may have been corrected by the site's own page-size rule
-            params.put("page", String.valueOf(page));
-            params.put("pagesize", String.valueOf(asked));
+            params.put(pm().page(), String.valueOf(page));
+            params.put(pm().size(), String.valueOf(asked));
             JsonNode root = null;
             SourceException failure = null;
             for (int attempt = 1; attempt <= 3 && root == null; attempt++) { // a slow or busy page is tried again, then reported
@@ -557,7 +701,7 @@ public final class StackExchangeAdapter implements SourceAdapter {
                         : "page " + page + " could not be read (" + (failure == null ? "unknown reason" : failure.getMessage()) + ")";
                 return new TagReadResult(false, why, pages, asked, unreliable);
             }
-            JsonNode items = root.path("items");
+            JsonNode items = ApiJson.items(root);
             List<TagHit> fresh = new ArrayList<>();
             int onPage = items.isArray() ? items.size() : 0;
             for (JsonNode t : items) {
@@ -579,7 +723,7 @@ public final class StackExchangeAdapter implements SourceAdapter {
             if (!sink.accept(fresh, page)) {
                 return new TagReadResult(false, "stopped", pages, asked, unreliable);
             }
-            boolean more = root.path("has_more").asBoolean(false);
+            boolean more = ApiJson.hasMore(root, page, asked, onPage);
             if (!more) {
                 if (onPage < asked) {
                     return new TagReadResult(true, "the site has no more tags", pages, asked, unreliable);
@@ -606,9 +750,9 @@ public final class StackExchangeAdapter implements SourceAdapter {
         if (!needle.isEmpty()) {
             params.put("inname", text.strip());
         }
-        params.put("pagesize", String.valueOf(pageSize()));
+        params.put(pm().size(), String.valueOf(pageSize()));
         for (int page = 1; page <= 5; page++) {
-            params.put("page", String.valueOf(page));
+            params.put(pm().page(), String.valueOf(page));
             JsonNode root;
             try {
                 root = call("/tags", params);
@@ -626,13 +770,13 @@ public final class StackExchangeAdapter implements SourceAdapter {
                 }
                 return hits;
             }
-            for (JsonNode t : root.path("items")) {
+            for (JsonNode t : ApiJson.items(root)) {
                 String name = t.path("name").asText(t.path("tag_name").asText(""));
                 if (!name.isEmpty() && squash(name).contains(needle) && hits.stream().noneMatch(h -> h.name().equals(name))) {
                     hits.add(new TagHit(name, countOf(t)));
                 }
             }
-            if (!root.path("has_more").asBoolean(false) || hits.size() >= limit * 3) {
+            if (!ApiJson.hasMore(root, page, pageSize(), ApiJson.items(root).size()) || hits.size() >= limit * 3) {
                 break;
             }
         }
@@ -640,17 +784,30 @@ public final class StackExchangeAdapter implements SourceAdapter {
         return hits.size() > limit ? new ArrayList<>(hits.subList(0, limit)) : hits;
     }
 
+    /** The number of questions in an /info answer (any of the usual field names, in the wrapper's first item or at the top), or -1. */
+    private static long totalQuestionsOf(JsonNode info) {
+        JsonNode first = ApiJson.items(info).path(0);
+        for (JsonNode holder : new JsonNode[] {first, info}) {
+            for (String f : new String[] {"total_questions", "totalQuestions", "questionCount", "questionsCount", "numberOfQuestions", "questions"}) {
+                if (holder.path(f).isNumber()) {
+                    return holder.get(f).asLong();
+                }
+            }
+        }
+        return -1;
+    }
+
     /** How many questions the whole site holds, or -1 if it does not say. */
     public long siteQuestionCount() throws SourceException {
         try {
             if (hasCapability("info")) {
-                long n = call("/info", new LinkedHashMap<>()).path("items").path(0).path("total_questions").asLong(-1);
+                long n = totalQuestionsOf(call("/info", new LinkedHashMap<>()));
                 if (n >= 0) {
                     return n;
                 }
             }
             Map<String, String> p = new LinkedHashMap<>();
-            p.put("pagesize", String.valueOf(pageSize()));
+            p.put(pm().size(), String.valueOf(pageSize()));
             p.put("filter", "total");
             JsonNode root = call("/questions", p);
             return root.has("total") ? root.get("total").asLong(-1) : -1;
@@ -675,7 +832,7 @@ public final class StackExchangeAdapter implements SourceAdapter {
         if (hasCapability("tagInfo")) {
             for (String v : variants) {
                 try {
-                    JsonNode items = call("/tags/" + enc(v) + "/info", new LinkedHashMap<>()).path("items");
+                    JsonNode items = ApiJson.items(call("/tags/" + enc(v) + "/info", new LinkedHashMap<>()));
                     if (items.isArray() && !items.isEmpty()) {
                         String exact = items.get(0).path("name").asText(v);
                         return new TagCheck(true, exact.isBlank() ? v : exact, countOf(items.get(0)), List.of(), "tag info");
@@ -703,11 +860,11 @@ public final class StackExchangeAdapter implements SourceAdapter {
         }
         for (String v : variants) { // the same search a collection performs
             Map<String, String> params = new LinkedHashMap<>();
-            params.put("tagged", v);
-            params.put("pagesize", String.valueOf(pageSize()));
+            params.put(pm().tag() == null ? "tagged" : pm().tag(), v);
+            params.put(pm().size(), String.valueOf(pageSize()));
             try {
                 JsonNode root = call("/questions", params);
-                JsonNode items = root.path("items");
+                JsonNode items = ApiJson.items(root);
                 if (items.isArray() && !items.isEmpty()) {
                     String exact = v;
                     for (JsonNode q : items) {
@@ -738,7 +895,7 @@ public final class StackExchangeAdapter implements SourceAdapter {
     /** Number of questions carrying the tag on the whole site (documented /tags/{tag}/info), or -1 when the tag does not exist. */
     public long tagCount(String tag) throws SourceException {
         JsonNode root = call("/tags/" + enc(TagFilter.normalize(tag)) + "/info", new LinkedHashMap<>());
-        JsonNode items = root.path("items");
+        JsonNode items = ApiJson.items(root);
         return items.isArray() && !items.isEmpty() ? items.get(0).path("count").asLong(0) : -1;
     }
 
@@ -749,10 +906,11 @@ public final class StackExchangeAdapter implements SourceAdapter {
         String size;
         if (hasCapability("info")) {
             root = call("/info", new LinkedHashMap<>());
-            size = root.path("items").path(0).path("total_questions").asText("?");
+            long reported = totalQuestionsOf(root);
+            size = reported >= 0 ? String.valueOf(reported) : "?";
         } else {
             Map<String, String> probe = new LinkedHashMap<>();
-            probe.put("pagesize", String.valueOf(pageSize()));
+            probe.put(pm().size(), String.valueOf(pageSize()));
             probe.put("filter", "total");
             root = call("/questions", probe);
             size = root.has("total") ? root.get("total").asText() : "?";
@@ -774,13 +932,13 @@ public final class StackExchangeAdapter implements SourceAdapter {
         } catch (SourceException e) {
             // "Invalid page size, use 15, 30, 50 or 100": adopt the largest allowed size and try once more.
             List<Integer> allowed = e.kind() == SourceException.Kind.FATAL ? ResponseInspector.allowedPageSizes(e.getMessage()) : List.of();
-            String asked = params.get("pagesize");
+            String asked = params.get(pm().size());
             if (!allowed.isEmpty() && asked != null) {
                 int better = allowed.stream().filter(x -> x <= 100).max(Integer::compare).orElse(allowed.get(0));
                 if (!String.valueOf(better).equals(asked)) {
                     pageSize = better;
                     pageSizeFromDocs = true;
-                    params.put("pagesize", String.valueOf(better));
+                    params.put(pm().size(), String.valueOf(better));
                     return callOnce(path, params);
                 }
             }
@@ -956,29 +1114,37 @@ public final class StackExchangeAdapter implements SourceAdapter {
     // ================================================================== mapping
 
     private Question toQuestion(JsonNode n) {
-        String id = n.path("question_id").asText(null);
-        List<String> tags = new ArrayList<>();
-        n.path("tags").forEach(t -> tags.add(t.asText()));
-        String link = n.path("link").asText(null);
-        return new Question(id, n.path("title").asText(""), n.path("body").asText(""), BodyFormat.HTML,
+        String id = ApiJson.id(n, "question_id", "questionId", "id", "postId", "post_id");
+        List<String> tags = ApiJson.tags(n);
+        String link = ApiJson.text(n, "link", "url", "webUrl", "web_url", "permalink", "htmlUrl");
+        String bodyHtml = ApiJson.text(n, "body", "bodyHtml", "body_html", "text", "content");
+        String bodyMarkdown = ApiJson.text(n, "bodyMarkdown", "body_markdown", "markdown");
+        boolean markdown = bodyHtml == null && bodyMarkdown != null;
+        Integer score = ApiJson.integer(n, "score", "votes", "voteCount", "vote_count");
+        return new Question(id, ApiJson.text(n, "title", "name", "subject") == null ? "" : ApiJson.text(n, "title", "name", "subject"),
+                markdown ? bodyMarkdown : bodyHtml == null ? "" : bodyHtml, markdown ? BodyFormat.MARKDOWN : BodyFormat.HTML,
                 link != null ? link : id == null ? null : "https://" + siteHost + "/questions/" + id,
-                tags, author(n), n.has("score") ? n.get("score").asInt() : null, epoch(n, "creation_date"),
-                epoch(n, "last_activity_date"), List.<Comment>of(), List.of());
+                tags, ApiJson.owner(n), score, ApiJson.instant(n, "creation_date", "creationDate", "createdAt", "created_at", "created", "createdDate", "dateCreated"),
+                ApiJson.instant(n, "last_activity_date", "lastActivityDate", "last_activity", "lastActivity", "lastEditDate", "last_edit_date", "modifiedAt", "updatedAt", "updated_at", "lastModified"),
+                List.<Comment>of(), List.of());
     }
 
     private Answer toAnswer(JsonNode n, String questionId) {
-        String id = n.path("answer_id").asText(null);
-        String link = n.path("link").asText(null);
-        String modified = epoch(n, "last_activity_date");
-        return new Answer(id, n.path("body").asText(""), BodyFormat.HTML,
+        String id = ApiJson.id(n, "answer_id", "answerId", "id", "postId", "post_id");
+        String link = ApiJson.text(n, "link", "url", "webUrl", "web_url", "permalink");
+        String bodyHtml = ApiJson.text(n, "body", "bodyHtml", "body_html", "text", "content");
+        String bodyMarkdown = ApiJson.text(n, "bodyMarkdown", "body_markdown", "markdown");
+        boolean markdown = bodyHtml == null && bodyMarkdown != null;
+        String created = ApiJson.instant(n, "creation_date", "creationDate", "createdAt", "created_at", "created", "createdDate");
+        String modified = ApiJson.instant(n, "last_activity_date", "lastActivityDate", "last_activity", "lastEditDate", "last_edit_date", "modifiedAt", "updatedAt", "updated_at");
+        return new Answer(id, markdown ? bodyMarkdown : bodyHtml == null ? "" : bodyHtml, markdown ? BodyFormat.MARKDOWN : BodyFormat.HTML,
                 link != null ? link : "https://" + siteHost + "/questions/" + questionId + "#" + id,
-                n.path("is_accepted").asBoolean(false), n.has("score") ? n.get("score").asInt() : null, author(n),
-                epoch(n, "creation_date"), modified, List.of());
+                ApiJson.bool(n, "is_accepted", "isAccepted", "accepted", "isAcceptedAnswer", "acceptedAnswer"),
+                ApiJson.integer(n, "score", "votes", "voteCount", "vote_count"), ApiJson.owner(n), created, modified, List.of());
     }
 
     private static String author(JsonNode n) {
-        JsonNode name = n.path("owner").path("display_name");
-        return name.isMissingNode() || name.isNull() ? null : name.asText();
+        return ApiJson.owner(n);
     }
 
     private static String epoch(JsonNode n, String field) {

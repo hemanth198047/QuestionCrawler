@@ -101,3 +101,5 @@ export interface TagHit { name: string; count: number }
 export interface TagSearch { ok: boolean; problem: string | null; tags: TagHit[]; exact: string | null; spellingDiffers: boolean; allTags: boolean; siteQuestions: number; truncated: boolean }
 export interface TagListingState { id: string | null; running: boolean; finished: boolean; loaded: number; pages: number; pageSize: number; complete: boolean; stopReason: string | null; problem: string | null; hasMoreUnreliable: boolean; siteQuestions: number }
 export interface TagChunk { state: TagListingState; from: number; tags: TagHit[] }
+export interface CollectionSample { id: string; title: string; tags: string[]; createdAt: string | null; answers: number; bodyCharacters: number }
+export interface CollectionTest { ok: boolean; problem: string | null; tags: string[]; found: number; shown: number; request: string | null; samples: CollectionSample[]; notes: string[]; tagsAll: boolean }

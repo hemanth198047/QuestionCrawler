@@ -104,6 +104,12 @@ public class SettingsController {
         workspace.cancelTagListing();
     }
 
+    /** Asks for a first page of questions the way a collection does and shows what came back and what was understood. */
+    @PostMapping("/connection/collect-test")
+    public Workspace.CollectionTest testCollection(@RequestBody(required = false) ValuesRequest request) {
+        return workspace.testCollection(request == null ? Map.of() : request.safe());
+    }
+
     // ---- connection check
     @PostMapping("/connection/check")
     public ConnectionReport check(@RequestBody(required = false) ValuesRequest request) {

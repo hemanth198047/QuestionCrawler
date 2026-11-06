@@ -390,6 +390,52 @@ public final class Workspace {
         tagListing.cancel();
     }
 
+    public record CollectionSample(String id, String title, List<String> tags, String createdAt, int answers, int bodyCharacters) {}
+
+    public record CollectionTest(boolean ok, String problem, List<String> tags, int found, int shown, String request, List<CollectionSample> samples, List<String> notes, boolean tagsAll) {}
+
+    /**
+     * Asks for the first page of questions exactly as a collection would (with the tags currently typed) and shows what came back and what was
+     * understood: how many questions, which ones, their tags, dates and answers. Nothing is stored.
+     */
+    public CollectionTest testCollection(Map<String, String> draft) {
+        Map<String, String> v = configService.read(configFile);
+        if (draft != null) {
+            v.putAll(draft);
+        }
+        List<String> tags = new ArrayList<>();
+        for (String t : v.getOrDefault("sync.tags", "").split(",")) {
+            if (!t.isBlank()) {
+                tags.add(t.strip());
+            }
+        }
+        boolean all = com.questioncrawler.core.source.TagFilter.asksForAll(tags);
+        if (tags.isEmpty()) {
+            return new CollectionTest(false, "Choose at least one tag first (or the tag 'all').", tags, 0, 0, null, List.of(), List.of(), false);
+        }
+        try {
+            var api = adapterFromDraft(draft);
+            var filter = new com.questioncrawler.core.source.TagFilter(tags, com.questioncrawler.core.source.TagMode.valueOf(v.getOrDefault("sync.tagMode", "ANY").toUpperCase()), false, null);
+            var page = api.listQuestions(filter, null, null);
+            List<CollectionSample> samples = new ArrayList<>();
+            for (var summary : page.items().stream().limit(3).toList()) {
+                var q = api.fetchQuestion(summary.id());
+                int answers = 0;
+                try {
+                    answers = api.listAnswers(summary.id(), null).items().size();
+                } catch (com.questioncrawler.core.source.SourceException e) {
+                    // answers are shown when available
+                }
+                samples.add(new CollectionSample(summary.id(), q.title(), q.tags(), q.createdAt(), answers, q.body() == null ? 0 : q.body().length()));
+            }
+            return new CollectionTest(true, null, tags, page.items().size(), samples.size(), api.lastListingRequest(), samples, api.notes(), all);
+        } catch (com.questioncrawler.core.source.SourceException e) {
+            return new CollectionTest(false, e.getMessage(), tags, 0, 0, null, List.of(), List.of(), all);
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return new CollectionTest(false, e.getMessage(), tags, 0, 0, null, List.of(), List.of(), all);
+        }
+    }
+
     public record TagSearch(boolean ok, String problem, List<com.questioncrawler.core.source.StackExchangeAdapter.TagHit> tags, String exact, boolean spellingDiffers,
                             boolean allTags, long siteQuestions, boolean truncated) {
         public TagSearch(boolean ok, String problem, List<com.questioncrawler.core.source.StackExchangeAdapter.TagHit> tags, String exact, boolean spellingDiffers) {

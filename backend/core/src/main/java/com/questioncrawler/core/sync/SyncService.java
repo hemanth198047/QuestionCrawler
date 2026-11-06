@@ -509,6 +509,11 @@ public final class SyncService {
                 limitations.add("Incremental sync cannot detect deletions, tag changes or access revocation, and may miss answers added without a question timestamp change. Run a full reconciliation periodically.");
             }
 
+            for (String note : adapter.notes()) {
+                if (!warnings.contains(note)) {
+                    warnings.add(note);
+                }
+            }
             if (!aborted && state.candidates.isEmpty()) {
                 warnings.add("No questions were returned for the tag(s) " + String.join(", ", options.tags()) + " "
                         + (createdAfter == null ? "(no time limit)" : "created in the last " + options.maxQuestionAge()) + ". "

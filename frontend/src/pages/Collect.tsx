@@ -92,7 +92,7 @@ function Result({ r, onEverything }: { r: SyncReport; onEverything: () => void }
           <ul className="plainlist">
             {limited && <li>A time window hides older questions. Choose <b>Everything</b> above and start again.</li>}
             <li>The tag may be spelled differently on the site (for example in capitals). Use <b>Find tags on the site</b> on the Connect screen.</li>
-            <li>Check what the site really answers with <b>See what the API really answers</b> (try <code>/questions?pagesize=15</code>).</li>
+            <li>On the Connect screen, use <b>Test the collection</b>: it shows what the site returns for your tags and what was understood. If the site returns questions there but a collection finds none, send me that report.</li>
           </ul>
         </Banner>)}
       {!(nothing && c.tone === 'ok') && <Banner tone={c.tone === 'bad' ? 'bad' : c.tone === 'ok' ? 'ok' : c.tone === 'warn' ? 'warn' : 'info'} title={c.label}>{c.text}</Banner>}

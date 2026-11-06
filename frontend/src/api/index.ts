@@ -1,5 +1,5 @@
 import type {
-  ApiDocsResult, ApiProbe, TagChunk, TagListingState, TagSearch, SavedDocs, CategoryListing, CategorySummary, ConfigView, ConnectionReport, Issue, Overview, Preset, SaveResult, SearchResponse,
+  ApiDocsResult, ApiProbe, CollectionTest, TagChunk, TagListingState, TagSearch, SavedDocs, CategoryListing, CategorySummary, ConfigView, ConnectionReport, Issue, Overview, Preset, SaveResult, SearchResponse,
   SyncReport, SyncState, Taxonomy, TaxonomyView, ThreadView, TopicProposal, TryResult,
 } from '../types/api'
 import { del, get, post, put } from './client'
@@ -57,3 +57,4 @@ export const searchTags = (values: Record<string, string>, q: string) => post<Ta
 export const startTagListing = (values: Record<string, string>) => post<TagListingState>('/tags/listing', { values })
 export const getTagListing = (from: number) => get<TagChunk>(`/tags/listing?from=${from}`)
 export const cancelTagListing = () => post<void>('/tags/listing/cancel', {})
+export const testCollection = (values: Record<string, string>) => post<CollectionTest>('/connection/collect-test', { values })

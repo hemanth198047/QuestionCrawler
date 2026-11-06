@@ -15,6 +15,11 @@ public interface SourceAdapter {
     /** Stable identifier of the source system, used in storage paths and keys. */
     String systemId();
 
+    /** Things the adapter noticed that the person should know (for example answers it received but could not read). */
+    default java.util.List<String> notes() {
+        return java.util.List.of();
+    }
+
     /** Whether listQuestions can honour a modifiedSince lower bound server-side. */
     boolean supportsModifiedSince();
 

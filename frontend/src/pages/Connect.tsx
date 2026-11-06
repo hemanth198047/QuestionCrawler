@@ -2,6 +2,7 @@ import { Building2, Globe, Layers, Play, Save, ShieldCheck, Sparkles } from 'luc
 import { useEffect, useMemo, useState } from 'react'
 import { checkConnection, getConfig, getLastConnection, getPresets, saveConfig, validateConfig } from '../api'
 import { ApiDocsPanel } from '../components/ApiDocsPanel'
+import { CollectTestPanel } from '../components/CollectTestPanel'
 import { RawAnswerPanel } from '../components/RawAnswerPanel'
 import { TagFinder } from '../components/TagFinder'
 import { IssueList, Section, SettingField } from '../components/Fields'
@@ -94,6 +95,7 @@ export default function ConnectPage() {
         {(source === 'live' || source === 'stackexchange') && <TagFinder values={draft} chosen={(draft['sync.tags'] ?? '').split(',').map((x) => x.trim()).filter(Boolean)}
           onUseAll={() => { setDraft({ ...draft, 'sync.tags': 'all' }); toast('ok', 'Every tag is selected: all questions on the site will be collected') }}
           onAdd={(tag) => { const cur = (draft['sync.tags'] ?? '').split(',').map((x) => x.trim()).filter(Boolean); setDraft({ ...draft, 'sync.tags': [...cur, tag].join(',') }); toast('ok', `Added ${tag}`) }} />}
+        {(source === 'live' || source === 'stackexchange') && <CollectTestPanel values={draft} />}
         {source === 'live' && <RawAnswerPanel values={draft} onUse={(patch) => setDraft({ ...draft, ...patch })} />}
         {source === 'fixture' && <Banner tone="info" title="Demo data needs nothing else">Sample questions are built into the app. Choose a real site above whenever you’re ready.</Banner>}
       </Section>

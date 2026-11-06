@@ -99,6 +99,7 @@ public final class DevApiServer {
             case "POST /api/config/validate": return Map.of("issues", workspace.validate(stringMap(body.path("values"))), "preview", workspace.previewConfig(stringMap(body.path("values"))));
             case "PUT /api/config": return workspace.saveConfig(stringMap(body.path("values")));
             case "POST /api/api-docs/discover": return workspace.discoverApi(stringMap(body.path("values")));
+            case "POST /api/connection/collect-test": return workspace.testCollection(stringMap(body.path("values")));
             case "POST /api/tags/listing": return workspace.startTagListing(stringMap(body.path("values")));
             case "GET /api/tags/listing": return workspace.tagListing(intVal(first(q, "from"), 0));
             case "POST /api/tags/listing/cancel": workspace.cancelTagListing(); return Map.of("ok", true);

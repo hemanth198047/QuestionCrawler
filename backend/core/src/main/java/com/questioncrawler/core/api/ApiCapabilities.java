@@ -11,7 +11,7 @@ import java.util.Optional;
  */
 public record ApiCapabilities(List<Capability> capabilities, boolean ready, List<String> problems,
                               boolean taggedFilter, boolean fromDate, boolean minActivity, boolean customFilter, boolean createFilter,
-                              int otherEndpoints, List<Integer> pageSizes) {
+                              int otherEndpoints, List<Integer> pageSizes, ParamMap params) {
 
     /** id: stable key; found: the documentation lists a matching endpoint. */
     public record Capability(String id, String label, String purpose, boolean required, boolean found,
@@ -48,18 +48,19 @@ public record ApiCapabilities(List<Capability> capabilities, boolean ready, List
             }
         }
         Optional<Operation> questions = catalog.find("GET", "/questions");
-        boolean tagged = questions.map(o -> o.hasParameter("tagged")).orElse(false);
-        boolean fromdate = questions.map(o -> o.hasParameter("fromdate")).orElse(false);
-        boolean min = questions.map(o -> o.hasParameter("min")).orElse(false);
-        boolean filter = questions.map(o -> o.hasParameter("filter")).orElse(false);
+        ParamMap pm = questions.map(o -> ParamMap.from(o.parameters())).orElse(ParamMap.defaults());
+        boolean tagged = questions.isPresent() && pm.tag() != null;
+        boolean fromdate = questions.isPresent() && pm.from() != null;
+        boolean min = questions.isPresent() && pm.min() != null;
+        boolean filter = questions.isPresent() && pm.filter() != null;
         boolean create = catalog.find("GET", "/filters/create").isPresent() || catalog.find("POST", "/filters/create").isPresent();
         if (questions.isPresent() && !tagged) {
-            problems.add("'/questions' has no 'tagged' parameter: questions will be filtered by tag after download, which is slower.");
+            problems.add("'/questions' has no tag parameter: questions will be filtered by tag after download, which is slower.");
         }
         int others = (int) catalog.operations().stream().filter(o -> !used.contains(o.method() + " " + o.path())).count();
         boolean ready = caps.stream().filter(Capability::required).allMatch(Capability::found);
         List<Integer> sizes = new ArrayList<>();
-        questions.flatMap(o -> o.parameters().stream().filter(p -> p.name().replaceAll("[_-]", "").equalsIgnoreCase("pagesize")).findFirst()).ifPresent(p -> {
+        questions.flatMap(o -> o.parameters().stream().filter(p -> p.name().equals(pm.size())).findFirst()).ifPresent(p -> {
             p.allowed().forEach(a -> { try { sizes.add(Integer.parseInt(a.strip())); } catch (NumberFormatException ignored) { /* not a number */ } });
             if (sizes.isEmpty()) { // some documents only mention the sizes in the description
                 java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\b(\\d{1,4})\\b").matcher(p.description() == null ? "" : p.description());
@@ -69,6 +70,6 @@ public record ApiCapabilities(List<Capability> capabilities, boolean ready, List
             }
         });
         java.util.Collections.sort(sizes);
-        return new ApiCapabilities(caps, ready, problems, tagged, fromdate, min, filter, create, others, List.copyOf(sizes));
+        return new ApiCapabilities(caps, ready, problems, tagged, fromdate, min, filter, create, others, List.copyOf(sizes), pm);
     }
 }

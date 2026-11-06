@@ -77,6 +77,8 @@ class InternalApiTest {
     static final Map<Integer, List<Map.Entry<String, Integer>>> CATALOGUES = new java.util.concurrent.ConcurrentHashMap<>();
     volatile int tagsFailFromPage = 0; // /tags answers 404 from this page on (0 = never)
     static final Map<String, Integer> TAGS = new LinkedHashMap<>(Map.of("ai", 2, "ml", 1, "gpu", 1, "finance", 1, "CASC", 7, "casc-prod", 3));
+    volatile boolean v3 = false; // a v3-style API: id, tag objects, ISO dates, page/pageSize, no text in lists, answers one question at a time
+    volatile String v3IdField = "id";
     volatile boolean redirectRootOnly = false; // only the bare API address redirects (like a website behind SSO whose API is open)
     volatile String needBearer = "off"; // off | text | json: the API also wants "Authorization: Bearer API-TOKEN"
     final List<String> authSeen = Collections.synchronizedList(new ArrayList<>());
@@ -157,7 +159,7 @@ class InternalApiTest {
             return;
         }
         if (path.equals("/swagger/v1/swagger.json")) {
-            send(ex, 200, "application/json", spec().getBytes(StandardCharsets.UTF_8), false, true);
+            send(ex, 200, "application/json", (v3 ? specV3() : spec()).getBytes(StandardCharsets.UTF_8), false, true);
             return;
         }
         if (!path.startsWith("/api/2.3/")) {
@@ -185,6 +187,9 @@ class InternalApiTest {
             return;
         }
         String api = path.substring("/api/2.3".length());
+        if (v3 && handleV3(ex, api, q)) {
+            return;
+        }
         if (allowedSizes != null && q.containsKey("pagesize") && !allowedSizes.contains(Integer.parseInt(q.get("pagesize")))) {
             rejected.incrementAndGet();
             List<String> words = allowedSizes.stream().map(String::valueOf).toList();
@@ -271,6 +276,106 @@ class InternalApiTest {
             case "text" -> send(ex, 200, "text/plain", "OK".getBytes(StandardCharsets.UTF_8), false, true);
             default -> sendJson(ex, 200, wrap(List.of(Map.of("total_questions", 3)), false), true);
         }
+    }
+
+    // ---- a v3-style API
+    private static Map<String, Object> v3q(int id, String title, List<String> tags, String created, String activity, int answers) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", id);
+        m.put("title", title);
+        m.put("tags", tags.stream().map(t -> Map.<String, Object>of("id", Math.abs(t.hashCode() % 1000), "name", t)).toList());
+        m.put("creationDate", created);
+        m.put("lastActivityDate", activity);
+        m.put("score", 4);
+        m.put("answerCount", answers);
+        m.put("isAnswered", answers > 0);
+        m.put("owner", Map.of("id", 7, "name", "alice"));
+        m.put("webUrl", "https://so.internal.example/questions/" + id);
+        return m;
+    }
+
+    private List<Map<String, Object>> v3Questions() {
+        return List.of(
+                v3q(101, "How do I fine-tune a transformer model?", List.of("ai", "ml"), "2023-11-14T22:13:20Z", "2023-11-14T22:21:40Z", 1),
+                v3q(102, "GPU memory error while training", List.of("ai", "gpu"), "2023-11-15T02:00:00Z", "2023-11-15T02:08:20Z", 1),
+                v3q(103, "Quarterly budget template", List.of("finance"), "2023-11-16T08:00:00Z", "2023-11-16T08:08:20Z", 0),
+                v3q(104, "How does CASC token refresh work?", List.of("CASC", "platform"), "2023-11-17T09:00:00Z", "2023-11-17T09:08:20Z", 0));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<String> v3TagNames(Map<String, Object> m) {
+        return ((List<Map<String, Object>>) m.get("tags")).stream().map(t -> (String) t.get("name")).toList();
+    }
+
+    private boolean handleV3(HttpExchange ex, String api, Map<String, String> q) throws java.io.IOException {
+        if (api.equals("/questions")) {
+            int size = Integer.parseInt(q.getOrDefault("pageSize", "15"));
+            if (!List.of(15, 30, 50, 100).contains(size)) {
+                send(ex, 400, "application/problem+json", ("{\"errors\":{\"PageSize\":[\"Invalid page size, use 15, 30, 50 or 100.\"]},\"title\":\"One or more validation errors occured.\",\"status\":400}").getBytes(StandardCharsets.UTF_8), false, true);
+                return true;
+            }
+            int page = Integer.parseInt(q.getOrDefault("page", "1"));
+            List<Map<String, Object>> all = new ArrayList<>(v3Questions());
+            if (q.containsKey("tags")) {
+                List<String> wanted = List.of(q.get("tags").toLowerCase().split(","));
+                all.removeIf(m -> !v3TagNames(m).stream().map(String::toLowerCase).toList().containsAll(wanted));
+            }
+            int pages = Math.max(1, (int) Math.ceil(all.size() / (double) size));
+            int from = Math.min(all.size(), (page - 1) * size);
+            List<Map<String, Object>> slice = new ArrayList<>();
+            for (Map<String, Object> m : all.subList(from, Math.min(all.size(), from + size))) {
+                Map<String, Object> copy = new LinkedHashMap<>(m);
+                if (!v3IdField.equals("id")) copy.put(v3IdField, copy.remove("id"));
+                slice.add(copy);
+            }
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("page", page);
+            out.put("pageSize", size);
+            out.put("totalCount", all.size());
+            out.put("totalPages", pages);
+            out.put("items", slice);
+            sendJson(ex, 200, out, true);
+            return true;
+        }
+        if (api.matches("^/questions/[^/]*;[^/]*(/answers)?$")) { // several ids in one request: not accepted
+            send(ex, 404, "application/problem+json", "{\"title\":\"Not Found\",\"status\":404}".getBytes(StandardCharsets.UTF_8), false, true);
+            return true;
+        }
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("^/questions/(\\d+)(/answers)?$").matcher(api);
+        if (m.matches()) {
+            int id = Integer.parseInt(m.group(1));
+            if (m.group(2) == null) { // one question, as the whole answer, WITH its text
+                Map<String, Object> full = new LinkedHashMap<>(v3Questions().stream().filter(x -> (int) x.get("id") == id).findFirst().orElse(Map.of()));
+                full.put("body", "Body of question " + id + " with <b>markup</b>");
+                sendJson(ex, 200, full, true);
+            } else {
+                List<Map<String, Object>> answers = id == 101 ? List.of(Map.of("id", 201, "body", "Use a warm-up schedule.", "score", 2, "isAccepted", true, "creationDate", "2023-11-14T22:25:00Z", "owner", Map.of("name", "bob")))
+                        : id == 102 ? List.of(Map.of("id", 202, "body", "Reduce the batch size.", "score", 1, "isAccepted", false, "creationDate", "2023-11-15T02:20:00Z", "owner", Map.of("name", "li"))) : List.of();
+                Map<String, Object> out = new LinkedHashMap<>();
+                out.put("page", 1);
+                out.put("pageSize", 15);
+                out.put("totalCount", answers.size());
+                out.put("totalPages", 1);
+                out.put("items", answers); // the answers do not repeat the question id
+                sendJson(ex, 200, out, true);
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private String specV3() {
+        return """
+                {"openapi":"3.0.1","info":{"title":"Internal Q&A API","version":"3"},"servers":[{"url":"/api/2.3"}],
+                 "components":{"securitySchemes":{"ApiKey":{"type":"apiKey","in":"query","name":"key"}}},
+                 "paths":{
+                  "/questions":{"get":{"parameters":[{"name":"page","in":"query","schema":{"type":"integer"}},{"name":"pageSize","in":"query","schema":{"type":"integer","enum":[15,30,50,100]}},
+                      {"name":"tags","in":"query","schema":{"type":"string"}},{"name":"sort","in":"query","schema":{"type":"string","enum":["activity","creation","votes"]}},
+                      {"name":"order","in":"query","schema":{"type":"string","enum":["asc","desc"]}}],"responses":{"200":{"description":"ok"}}}},
+                  "/questions/{id}":{"get":{"parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"integer"}}],"responses":{"200":{"description":"ok"}}}},
+                  "/questions/{id}/answers":{"get":{"parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"integer"}},{"name":"page","in":"query","schema":{"type":"integer"}},{"name":"pageSize","in":"query","schema":{"type":"integer"}}],"responses":{"200":{"description":"ok"}}}},
+                  "/tags":{"get":{"parameters":[{"name":"page","in":"query","schema":{"type":"integer"}},{"name":"pageSize","in":"query","schema":{"type":"integer"}}],"responses":{"200":{"description":"ok"}}}}
+                 }}""";
     }
 
     private List<Map<String, Object>> questions(Map<String, String> q, boolean withBody) {
@@ -468,7 +573,7 @@ class InternalApiTest {
         ApiCapabilities c = ApiCapabilities.analyze(catalog);
         assertFalse(c.ready());
         assertTrue(c.problems().stream().anyMatch(p -> p.contains("/questions/{ids}/answers")));
-        assertTrue(c.problems().stream().anyMatch(p -> p.contains("'tagged'")));
+        assertTrue(c.problems().stream().anyMatch(p -> p.contains("no tag parameter")));
         assertFalse(c.taggedFilter());
     }
 
@@ -1465,5 +1570,143 @@ class InternalApiTest {
         assertTrue(r.complete(), r.stopReason());
         assertFalse(r.hasMoreUnreliable(), "has_more=false on the last page was right");
         assertEquals(2, r.pagesRead(), "one extra request to be sure, which came back empty");
+    }
+
+    // ------------------------------------------------------------------ a differently-shaped API must not end in "no questions found"
+    @Test
+    void aV3StyleApiIsCollectedWithItsOwnFieldNamesAndParameterNames() throws Exception {
+        v3 = true;
+        CoreConfig c = config("sync.tags=casc\n");
+        KnowledgeBase kb = new KnowledgeBase(c, c.createAdapter(env()), null, Clock.systemUTC());
+        SyncReport r = kb.sync(options(c));
+        assertEquals(SyncReport.COMPLETE, r.outcome(), r.abortReason());
+        assertEquals(1, r.added(), "the question tagged CASC was found: " + r.warnings());
+        var t = kb.store().loadThread("internal-qa", "104").orElseThrow();
+        assertEquals("How does CASC token refresh work?", t.question().title());
+        assertEquals(List.of("CASC", "platform"), t.question().tags(), "tags given as objects are read");
+        assertEquals("2023-11-17T09:00:00Z", t.question().createdAt(), "ISO dates are understood");
+        assertTrue(t.question().body().contains("Body of question 104"), "the text came from the single-question endpoint: " + t.question().body());
+        assertEquals("https://so.internal.example/questions/104", t.question().url());
+        var listing = requests.stream().filter(x -> x.startsWith("/api/2.3/questions?")).toList();
+        assertTrue(listing.stream().allMatch(x -> x.contains("tags=casc") && x.contains("pageSize=") && x.contains("page=1")), "the documented names were used: " + listing);
+        assertTrue(requests.stream().noneMatch(x -> x.contains("pagesize=") || x.contains("tagged=")), "no Stack Exchange names were sent: " + requests);
+    }
+
+    @Test
+    void everyQuestionOfAV3StyleApiIsCollectedWithItsAnswersFetchedOneByOne() throws Exception {
+        v3 = true;
+        CoreConfig c = config("sync.tags=all\n");
+        KnowledgeBase kb = new KnowledgeBase(c, c.createAdapter(env()), null, Clock.systemUTC());
+        SyncReport r = kb.sync(options(c));
+        assertEquals(SyncReport.COMPLETE, r.outcome(), r.abortReason());
+        assertEquals(4, r.added());
+        var t = kb.store().loadThread("internal-qa", "101").orElseThrow();
+        assertEquals(1, t.question().answers().size());
+        var answer = t.question().answers().get(0);
+        assertEquals("201", answer.id());
+        assertTrue(answer.accepted(), "isAccepted is understood");
+        assertEquals("Use a warm-up schedule.", answer.body());
+        assertEquals("bob", answer.author());
+        assertEquals("2023-11-14T22:25:00Z", answer.createdAt());
+        assertTrue(requests.stream().anyMatch(x -> x.startsWith("/api/2.3/questions/101/answers")), "one question per request");
+        assertTrue(requests.stream().noneMatch(x -> x.contains("/questions/101;") || x.contains(";102/answers")), "the documentation says {id}: no lists of ids were sent");
+        assertTrue(t.question().body().contains("Body of question 101"));
+    }
+
+    @Test
+    void anApiThatRefusesAListOfIdsIsHandledEvenWithoutDocumentation() throws Exception {
+        v3 = true;
+        CoreConfig c = config("api.swaggerUrl=\nsource.baseUrl=" + origin + "/api/2.3\nsync.tags=all\n");
+        KnowledgeBase kb = new KnowledgeBase(c, c.createAdapter(env()), null, Clock.systemUTC());
+        SyncReport r = kb.sync(options(c));
+        assertEquals(SyncReport.COMPLETE, r.outcome(), r.abortReason());
+        assertEquals(4, r.added());
+        assertEquals(1, kb.store().loadThread("internal-qa", "102").orElseThrow().question().answers().size(), "answers were still found, one question at a time");
+        assertTrue(r.warnings().stream().anyMatch(w -> w.contains("does not accept several question ids")), r.warnings().toString());
+        assertTrue(requests.stream().anyMatch(x -> x.contains("/questions/101;102/answers")), "the list was tried first");
+    }
+
+    @Test
+    void questionsTheCollectorCannotReadAreReportedWithTheFieldsItSaw() throws Exception {
+        v3 = true;
+        v3IdField = "qid"; // an id field the collector has never heard of
+        CoreConfig c = config("sync.tags=all\n");
+        KnowledgeBase kb = new KnowledgeBase(c, c.createAdapter(env()), null, Clock.systemUTC());
+        SyncReport r = kb.sync(options(c));
+        assertEquals(0, r.added());
+        String note = r.warnings().stream().filter(w -> w.contains("could not be read")).findFirst().orElseThrow();
+        assertTrue(note.contains("4 question(s)") && note.contains("no question id was found") && note.contains("qid") && note.contains("title"), note);
+        assertTrue(r.warnings().stream().anyMatch(w -> w.startsWith("No questions were returned")));
+    }
+
+    // ------------------------------------------------------------------ "Test the collection"
+    @Test
+    void theCollectionTestShowsWhatWasAskedAndWhatWasUnderstood() throws Exception {
+        v3 = true;
+        Map<String, String> v = new LinkedHashMap<>(draft());
+        v.put("sync.tags", "casc");
+        v.put("api.swaggerUrl", origin + "/swagger/index.html");
+        var test = workspace("ct1", env()).testCollection(v);
+        assertTrue(test.ok(), test.problem());
+        assertEquals(1, test.found());
+        assertEquals(1, test.shown());
+        var sample = test.samples().get(0);
+        assertEquals("104", sample.id());
+        assertEquals("How does CASC token refresh work?", sample.title());
+        assertEquals(List.of("CASC", "platform"), sample.tags());
+        assertEquals("2023-11-17T09:00:00Z", sample.createdAt());
+        assertTrue(sample.bodyCharacters() > 10, "the text was found");
+        assertTrue(test.request().startsWith("GET /questions with ") && test.request().contains("tags=casc") && test.request().contains("pageSize=100"), test.request());
+        assertFalse(test.request().contains(KEY), "the access key is never shown");
+        assertTrue(test.notes().isEmpty());
+
+        v.put("sync.tags", "all");
+        var all = workspace("ct2", env()).testCollection(v);
+        assertEquals(4, all.found());
+        assertEquals(3, all.shown(), "the first three are shown in detail");
+        assertTrue(all.tagsAll());
+        assertEquals(1, all.samples().get(0).answers());
+
+        v.put("sync.tags", "nosuchtag");
+        assertEquals(0, workspace("ct3", env()).testCollection(v).found());
+    }
+
+    @Test
+    void theCollectionTestSaysWhenQuestionsCannotBeRead() throws Exception {
+        v3 = true;
+        v3IdField = "qid";
+        Map<String, String> v = new LinkedHashMap<>(draft());
+        v.put("sync.tags", "all");
+        v.put("api.swaggerUrl", origin + "/swagger/index.html");
+        var test = workspace("ct4", env()).testCollection(v);
+        assertTrue(test.ok());
+        assertEquals(0, test.found());
+        assertTrue(test.notes().stream().anyMatch(n -> n.contains("could not be read") && n.contains("qid")), test.notes().toString());
+        assertFalse(workspace("ct5", env()).testCollection(Map.of("source.type", "live", "source.baseUrl", origin + "/api/2.3", "source.allowInsecureHttp", "true", "api.keyEnv", "INTERNAL_KEY", "sync.tags", "")).ok(), "no tags chosen");
+    }
+
+    @Test
+    void aSiteThatIgnoresTheTagParameterIsNoticedAndTheTagIsMatchedHere() throws Exception {
+        v3 = true; // asks for "tagged=...", which this API does not know: without documentation the name is a guess
+        CoreConfig c = config("api.swaggerUrl=\nsource.baseUrl=" + origin + "/api/2.3\nsync.tags=casc\n");
+        KnowledgeBase kb = new KnowledgeBase(c, c.createAdapter(env()), null, Clock.systemUTC());
+        SyncReport r = kb.sync(options(c));
+        assertEquals(SyncReport.COMPLETE, r.outcome(), r.abortReason());
+        assertEquals(1, r.added(), "only the question that really carries the tag: " + r.warnings());
+        assertTrue(kb.store().loadThread("internal-qa", "104").isPresent());
+        assertTrue(kb.store().loadThread("internal-qa", "101").isEmpty(), "an unrelated question was not collected");
+        assertTrue(r.warnings().stream().anyMatch(w -> w.contains("ignored the tag parameter") && w.contains("Add the API documentation")), r.warnings().toString());
+    }
+
+    @Test
+    void answersOfASingleQuestionAreKeptEvenWhenTheApiDoesNotRepeatTheQuestionId() throws Exception {
+        v3 = true;
+        CoreConfig c = config("api.swaggerUrl=\nsource.baseUrl=" + origin + "/api/2.3\nsync.tags=ml\n"); // only question 101 carries 'ml'
+        KnowledgeBase kb = new KnowledgeBase(c, c.createAdapter(env()), null, Clock.systemUTC());
+        SyncReport r = kb.sync(options(c));
+        assertEquals(1, r.added(), r.warnings().toString());
+        var answers = kb.store().loadThread("internal-qa", "101").orElseThrow().question().answers();
+        assertEquals(1, answers.size(), "the answer was not dropped");
+        assertEquals("Use a warm-up schedule.", answers.get(0).body());
     }
 }
