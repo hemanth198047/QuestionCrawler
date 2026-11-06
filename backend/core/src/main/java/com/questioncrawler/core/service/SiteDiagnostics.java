@@ -702,7 +702,12 @@ public final class SiteDiagnostics {
             } catch (SourceException e) {
                 status = e.kind() == SourceException.Kind.AUTH_FAILED || e.kind() == SourceException.Kind.FORBIDDEN ? "FAIL" : "WARN";
                 summary = "The test call failed: " + friendly(e);
-                needs.add(new Need(e.kind() == SourceException.Kind.AUTH_FAILED ? "A valid API access key and the right way to send it" : "A working API address", "The documented API did not accept our test call.", "The site owners"));
+                if (e.getMessage() != null && e.getMessage().toLowerCase().contains("bearer")) {
+                    needs.add(new Need("A Bearer token for the API", "The API wants a token in an 'Authorization: Bearer' header in addition to the key. Set 'Bearer token sign-in' to 'Bearer token' and name the environment variable that holds it.",
+                            "You (profile settings: API / personal access tokens) or the site owners"));
+                } else {
+                    needs.add(new Need(e.kind() == SourceException.Kind.AUTH_FAILED ? "A valid API access key and the right way to send it" : "A working API address", "The documented API did not accept our test call.", "The site owners"));
+                }
             }
         }
         d.restApiReady = status.equals("PASS");

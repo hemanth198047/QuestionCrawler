@@ -38,9 +38,13 @@ public final class HttpSourceClient {
     private static final int MAX_BODY_BYTES = 10 * 1024 * 1024;
 
     /** Raw result of one exchange; {@code retryAfter} is the unparsed Retry-After header or null. */
-    public record Response(int status, String body, String retryAfter, String contentType, String location) {
+    public record Response(int status, String body, String retryAfter, String contentType, String location, String wwwAuthenticate) {
         public Response(int status, String body, String retryAfter) {
-            this(status, body, retryAfter, null, null);
+            this(status, body, retryAfter, null, null, null);
+        }
+
+        public Response(int status, String body, String retryAfter, String contentType, String location) {
+            this(status, body, retryAfter, contentType, location, null);
         }
     }
 
@@ -120,7 +124,8 @@ public final class HttpSourceClient {
             boolean gzipSignature = sig.length == 2 && (sig[0] & 0xff) == 0x1f && (sig[1] & 0xff) == 0x8b;
             InputStream in = gzipHeader || gzipSignature ? new java.util.zip.GZIPInputStream(peek) : peek;
             return new Response(response.statusCode(), readBounded(in), response.headers().firstValue("Retry-After").orElse(null),
-                    response.headers().firstValue("Content-Type").orElse(null), response.headers().firstValue("Location").orElse(null));
+                    response.headers().firstValue("Content-Type").orElse(null), response.headers().firstValue("Location").orElse(null),
+                    response.headers().firstValue("WWW-Authenticate").orElse(null));
         } catch (IOException e) {
             throw new SourceException(SourceException.Kind.TRANSIENT, "Error reading response from " + describe(uri), null, e);
         }

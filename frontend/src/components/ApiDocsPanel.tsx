@@ -121,7 +121,7 @@ export function ApiDocsPanel({ values, onUse }: { values: Record<string, string>
 
   const read = async (extra: Record<string, string> = {}) => {
     setState('loading')
-    try { setResult(await discoverApiDocs({ ...values, ...extra })) } catch (e) { setResult({ ok: false, problem: e instanceof Error ? e.message : 'Could not read it', catalog: null, capabilities: null, tried: [], suggestedBaseUrl: null, suggestedKeyName: null, suggestedKeyIn: null, needsSignIn: false, suggestedBasePath: null }) }
+    try { setResult(await discoverApiDocs({ ...values, ...extra })) } catch (e) { setResult({ ok: false, problem: e instanceof Error ? e.message : 'Could not read it', catalog: null, capabilities: null, tried: [], suggestedBaseUrl: null, suggestedKeyName: null, suggestedKeyIn: null, needsSignIn: false, suggestedBasePath: null, bearerRequired: false }) }
     setState('done')
   }
   const fill = () => {
@@ -130,6 +130,7 @@ export function ApiDocsPanel({ values, onUse }: { values: Record<string, string>
     if (result.suggestedBaseUrl && !values['source.baseUrl']) patch['source.baseUrl'] = result.suggestedBaseUrl
     if (result.suggestedKeyName) patch['api.keyName'] = result.suggestedKeyName
     if (result.suggestedKeyIn) patch['api.keyIn'] = result.suggestedKeyIn
+    if (result.bearerRequired) patch['source.auth.method'] = 'token'
     onUse(patch)
   }
 
@@ -164,6 +165,8 @@ export function ApiDocsPanel({ values, onUse }: { values: Record<string, string>
           <div className="found-grid">
             <div className="found-card"><KeyRound size={18} /><div><strong>Access key</strong>
               <div className="muted small">{result.catalog.security.filter((s) => s.type === 'apiKey').map((s) => `Sent as “${s.name}” in the ${s.in === 'header' ? 'request header' : 'address'}`).join('; ') || 'The documentation does not say how the key is sent. The usual “key” in the address is used.'}</div></div></div>
+            {result.bearerRequired && <div className="found-card"><ShieldCheck size={18} /><div><strong>Bearer token required</strong>
+              <div className="muted small">The documentation says requests need a Bearer token as well. “Use these settings” turns Bearer token sign-in on; then name the variable that holds your token.</div></div></div>}
             <div className="found-card"><Search size={18} /><div><strong>API address</strong>
               <div className="muted small">{result.suggestedBaseUrl ?? (result.suggestedBasePath ? `The documentation says the API lives under ${result.suggestedBasePath}. Enter your site's address in front of it, for example https://your-site${result.suggestedBasePath}` : 'The documentation does not give one: enter it above.')}</div></div></div>
           </div>

@@ -46,9 +46,23 @@ and what to check. Your key is never shown (it appears as `•••`). **Copy t
 | A **proxy or firewall block page** | Your proxy blocked the request | Check proxy settings, or ask IT to allow the address |
 | A **not found** page | Wrong path in front of `/questions` | Compare with the `servers` entry of the documentation |
 | **Empty** | A wrong address or a gateway that swallows the request | Check the address and proxy |
+| **"Missing bearer token"** (HTTP 401, often with a `WWW-Authenticate: Bearer` header) | The API also wants a token in an `Authorization: Bearer <token>` header, in addition to the API key | See "A Bearer token" below |
 | JSON with an **error message** (HTTP 400/401/403) | The API itself refused: the message names the problem (for example `key_required`) | Fix what the message says |
 
 Responses with a byte-order mark or a security prefix such as `)]}',` are cleaned automatically and are not an error.
+
+## A Bearer token (HTTP 401 "Missing bearer token")
+Some sites require both the API key **and** a token sent as `Authorization: Bearer <token>`. When the answer says so, the *See what the API really answers* card shows
+**"This API wants a Bearer token"** with the fix:
+
+1. **Get a token.** Look in your profile settings on the site for **API tokens** or **Personal access tokens** (the name varies). If you cannot find one, ask the site owners for a token or a service account.
+2. **Put it in an environment variable** in the terminal that starts the app: `$env:INTERNAL_QA_TOKEN="your-token"` (PowerShell) and start the app from that same terminal. The token is never saved to a file or shown.
+3. On the Connect screen set **Bearer token sign-in** to *Bearer token* and enter the variable's **name** (for example `INTERNAL_QA_TOKEN`), or type the name into the card and press **Use it and ask again**.
+4. If it then says "A Bearer token WAS sent but was not accepted", the token is expired, for another site, or lacks permission: create a new one.
+
+If the Swagger documentation lists a Bearer scheme, *Read the documentation* shows "Bearer token required" and **Use these settings** switches Bearer sign-in on.
+The same token is used for the documentation, the connection check and the collection. If your gateway expects another header name than `Authorization`, change *Bearer header name* under advanced settings.
+A server that asks for **Windows sign-in** (NTLM/Kerberos) cannot be used directly: ask for a token.
 
 ## Which endpoints are used for what
 

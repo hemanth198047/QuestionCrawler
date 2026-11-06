@@ -68,7 +68,60 @@ public final class ResponseInspector {
         return q < 0 ? url : url.substring(0, q);
     }
 
+    /** Which sign-in method an API asks for, read from the WWW-Authenticate header and the wording of the refusal; null if none is recognizable. */
+    public static String authKind(int status, String wwwAuthenticate, String body) {
+        if (status != 401 && status != 403) {
+            return null;
+        }
+        String header = wwwAuthenticate == null ? "" : wwwAuthenticate.toLowerCase(Locale.ROOT);
+        String text = (body == null ? "" : body.substring(0, Math.min(body.length(), 2000))).toLowerCase(Locale.ROOT);
+        if (header.contains("bearer") || text.matches("(?s).*\\bbearer\\b.*")) {
+            return "bearer";
+        }
+        if (header.contains("negotiate") || header.contains("ntlm")) {
+            return "windows";
+        }
+        if (header.contains("basic")) {
+            return "basic";
+        }
+        if (text.contains("access token") || text.contains("api token") || text.contains("missing token") || text.contains("invalid token") || text.contains("token is")) {
+            return "bearer";
+        }
+        return null;
+    }
+
+    /** Plain-language advice for a refused request, by sign-in method. */
+    public static List<String> authHints(String kind) {
+        if ("bearer".equals(kind)) {
+            return List.of("The API wants a Bearer token: a secret sent in an 'Authorization: Bearer <token>' header, in addition to the API key. "
+                    + "On the Connect screen, set 'Bearer token sign-in' to 'Bearer token' and enter the NAME of the environment variable that holds the token, then set that variable in the terminal that starts the app.",
+                    "Get a token from the site: look in your profile settings for 'API tokens' or 'Personal access tokens' (the name varies). If you cannot find one, ask the site owners for a token or service account.");
+        }
+        if ("windows".equals(kind)) {
+            return List.of("The server asks for Windows sign-in (NTLM/Kerberos), which this app cannot do by itself. Ask the site owners for a token, or for an API address that accepts the API key.");
+        }
+        if ("basic".equals(kind)) {
+            return List.of("The server asks for a user name and password (Basic sign-in). Ask the site owners whether the API supports tokens instead.");
+        }
+        return List.of();
+    }
+
     public static Inspection inspect(int status, String contentType, String location, String rawBody, Collection<String> secrets) {
+        return inspect(status, contentType, location, null, rawBody, secrets);
+    }
+
+    public static Inspection inspect(int status, String contentType, String location, String wwwAuthenticate, String rawBody, Collection<String> secrets) {
+        Inspection base = inspectBody(status, contentType, location, rawBody, secrets);
+        List<String> auth = authHints(authKind(status, wwwAuthenticate, stripNoise(rawBody)));
+        if (auth.isEmpty()) {
+            return base;
+        }
+        List<String> hints = new ArrayList<>(auth);
+        hints.addAll(base.hints());
+        return new Inspection(base.kind(), base.summary(), base.preview(), hints);
+    }
+
+    private static Inspection inspectBody(int status, String contentType, String location, String rawBody, Collection<String> secrets) {
         String body = stripNoise(rawBody);
         String type = contentType == null ? "" : contentType.toLowerCase(Locale.ROOT);
         String preview = redact(body.length() > PREVIEW_CHARS ? body.substring(0, PREVIEW_CHARS) + " …" : body, secrets);

@@ -62,6 +62,8 @@ class InternalApiTest {
     volatile boolean specHasTagged = true;
     volatile String swaggerIndex = "html-direct";
     volatile String infoMode = "json"; // json | html-login | redirect | docs-page | blocked | bom | empty | text
+    volatile String needBearer = "off"; // off | text | json: the API also wants "Authorization: Bearer API-TOKEN"
+    final List<String> authSeen = Collections.synchronizedList(new ArrayList<>());
     volatile String docsAuth = "none"; // none | bearer | key: what the documentation itself demands
 
     // ------------------------------------------------------------------ the fake internal site
@@ -109,6 +111,20 @@ class InternalApiTest {
         if (!path.startsWith("/api/2.3/")) {
             send(ex, 404, "text/plain", "no".getBytes(), false, true);
             return;
+        }
+        // ---- a gateway in front of the API that wants a Bearer token
+        if (!needBearer.equals("off")) {
+            String given = ex.getRequestHeaders().getFirst("Authorization");
+            authSeen.add(given == null ? "(none)" : given);
+            if (!"Bearer API-TOKEN".equals(given)) {
+                ex.getResponseHeaders().add("WWW-Authenticate", "Bearer realm=\"acme\"");
+                if (needBearer.equals("json")) {
+                    send(ex, 401, "application/json", "{\"message\":\"Missing bearer token\"}".getBytes(StandardCharsets.UTF_8), false, true);
+                } else {
+                    send(ex, 401, "text/plain", "Missing bearer token".getBytes(StandardCharsets.UTF_8), false, true);
+                }
+                return;
+            }
         }
         // ---- the API: every request needs the key (query or X-Api-Key header)
         boolean keyed = KEY.equals(q.get("key")) || KEY.equals(ex.getRequestHeaders().getFirst("X-Api-Key"));
@@ -683,5 +699,94 @@ class InternalApiTest {
                 "source.allowInsecureHttp", "true"), "/info");
         assertTrue(viaDocs.reached(), viaDocs.problem());
         assertEquals("JSON", viaDocs.kind());
+    }
+
+    // ------------------------------------------------------------------ the API also wants a Bearer token
+    private static Function<String, String> envWithToken() {
+        return k -> k.equals("INTERNAL_KEY") ? KEY : k.equals("API_TOKEN") ? "API-TOKEN" : k.equals("WRONG_TOKEN") ? "expired-token-123" : null;
+    }
+
+    @Test
+    void aMissingBearerTokenIsRecognisedFromTheHeaderAndTheText() throws Exception {
+        needBearer = "text";
+        var r = workspace("b1", env()).probeApi(draft(), "/info");
+        assertEquals(401, r.status());
+        assertEquals("TEXT", r.kind());
+        assertEquals("bearer", r.authNeeded());
+        assertTrue(r.wwwAuthenticate().contains("Bearer"));
+        assertEquals("Missing bearer token", r.preview());
+        assertTrue(r.hints().get(0).contains("Bearer token") && r.hints().get(0).contains("environment variable"), r.hints().toString());
+        assertFalse(r.tokenSent());
+
+        infoMode = "json";
+        CoreConfig c = config("");
+        SourceException e = assertThrows(SourceException.class, () -> c.createAdapter(env()).ping());
+        assertEquals(SourceException.Kind.AUTH_FAILED, e.kind());
+        assertTrue(e.getMessage().contains("Bearer token") && e.getMessage().contains("Missing bearer token"), e.getMessage());
+    }
+
+    @Test
+    void aJsonRefusalThatNamesTheBearerTokenIsRecognisedToo() throws Exception {
+        needBearer = "json";
+        var r = workspace("b2", env()).probeApi(draft(), "/info");
+        assertEquals("JSON", r.kind());
+        assertEquals("bearer", r.authNeeded());
+        assertTrue(r.hints().get(0).contains("Bearer token"), r.hints().toString());
+        CoreConfig c = config("");
+        SourceException e = assertThrows(SourceException.class, () -> c.createAdapter(env()).ping());
+        assertEquals(SourceException.Kind.AUTH_FAILED, e.kind());
+        assertTrue(e.getMessage().contains("Bearer token"), e.getMessage());
+    }
+
+    @Test
+    void withTheTokenConfiguredTheCallWorksAndTheCollectionCompletes() throws Exception {
+        needBearer = "text";
+        Map<String, String> withToken = new LinkedHashMap<>(draft());
+        withToken.put("source.auth.method", "token");
+        withToken.put("source.auth.tokenEnv", "API_TOKEN");
+        var r = workspace("b3", envWithToken()).probeApi(withToken, "/info");
+        assertEquals(200, r.status());
+        assertEquals("JSON", r.kind());
+        assertTrue(r.tokenSent() && r.keySent());
+        assertFalse(Json.write(r).contains("API-TOKEN") || Json.write(r).contains(KEY), "neither the token nor the key is ever shown");
+
+        CoreConfig c = config("source.auth.method=token\nsource.auth.tokenEnv=API_TOKEN\n");
+        KnowledgeBase kb = new KnowledgeBase(c, c.createAdapter(envWithToken()), null, Clock.systemUTC());
+        SyncReport report = kb.sync(options(c));
+        assertEquals(SyncReport.COMPLETE, report.outcome(), report.abortReason());
+        assertEquals(2, report.added());
+        assertTrue(authSeen.stream().allMatch("Bearer API-TOKEN"::equals), "every API call carried the token: " + authSeen);
+    }
+
+    @Test
+    void aTokenThatIsSentButRefusedIsSaidToBeSent() throws Exception {
+        needBearer = "text";
+        Map<String, String> wrong = new LinkedHashMap<>(draft());
+        wrong.put("source.auth.method", "token");
+        wrong.put("source.auth.tokenEnv", "WRONG_TOKEN");
+        var r = workspace("b4", envWithToken()).probeApi(wrong, "/info");
+        assertEquals(401, r.status());
+        assertTrue(r.tokenSent());
+        assertTrue(r.hints().get(0).contains("WAS sent but was not accepted"), r.hints().toString());
+        assertFalse(Json.write(r).contains("expired-token-123"));
+    }
+
+    @Test
+    void aBearerSchemeInTheDocumentationIsFlaggedAndTheConnectionCheckNamesWhatIsNeeded() throws Exception {
+        String bearerSpec = spec().replace("\"ApiKey\":{\"type\":\"apiKey\",\"in\":\"query\",\"name\":\"key\",\"description\":\"API access key\"}",
+                "\"ApiKey\":{\"type\":\"apiKey\",\"in\":\"query\",\"name\":\"key\"},\"Bearer\":{\"type\":\"http\",\"scheme\":\"bearer\"}");
+        Workspace w = workspace("b5", env());
+        var saved = w.saveApiDocs(bearerSpec);
+        assertTrue(saved.ok(), saved.problem());
+        assertTrue(w.discoverApi(Map.of("api.swaggerFile", saved.path())).bearerRequired());
+        assertFalse(w.saveApiDocs(spec()).path() == null);
+        assertFalse(w.discoverApi(Map.of("api.swaggerFile", w.apiDocsFile().toString())).bearerRequired(), "no bearer scheme documented");
+
+        needBearer = "text";
+        var check = workspace("b6", env()).checkConnection(Map.of("source.type", "live", "api.swaggerUrl", origin + "/swagger/index.html", "api.keyEnv", "INTERNAL_KEY",
+                "source.allowInsecureHttp", "true", "source.timeoutSeconds", "5"));
+        var data = check.stages().stream().filter(x -> x.id().equals("data")).findFirst().orElseThrow();
+        assertEquals("FAIL", data.status());
+        assertTrue(data.needs().stream().anyMatch(n -> n.what().contains("Bearer token")), data.needs().toString());
     }
 }

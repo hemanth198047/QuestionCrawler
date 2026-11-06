@@ -171,7 +171,7 @@ public final class Workspace {
     public record ApiDocsResult(boolean ok, String problem, com.questioncrawler.core.api.ApiCatalog catalog,
                                 com.questioncrawler.core.api.ApiCapabilities capabilities, List<String> tried,
                                 String suggestedBaseUrl, String suggestedKeyName, String suggestedKeyIn,
-                                boolean needsSignIn, String suggestedBasePath) {}
+                                boolean needsSignIn, String suggestedBasePath, boolean bearerRequired) {}
 
     /** Reads the API documentation (address or saved file) and lists every endpoint. Nothing is saved. */
     public ApiDocsResult discoverApi(Map<String, String> draft) {
@@ -182,7 +182,7 @@ public final class Workspace {
         String swagger = v.getOrDefault("api.swaggerUrl", "").strip();
         String file = v.getOrDefault("api.swaggerFile", "").strip();
         if (swagger.isEmpty() && file.isEmpty()) {
-            return new ApiDocsResult(false, "Enter the API documentation (Swagger) address first, or upload a saved copy of it.", null, null, List.of(), null, null, null, false, null);
+            return new ApiDocsResult(false, "Enter the API documentation (Swagger) address first, or upload a saved copy of it.", null, null, List.of(), null, null, null, false, null, false);
         }
         try {
             java.net.URI u = swagger.isEmpty() ? null : java.net.URI.create(swagger);
@@ -200,18 +200,20 @@ public final class Workspace {
             String path = given != null && base == null ? given : null;
             return new ApiDocsResult(true, null, discovery.catalog(), discovery.capabilities(), discovery.tried(), base,
                     key.map(com.questioncrawler.core.api.ApiCatalog.SecurityScheme::name).orElse(null), key.map(com.questioncrawler.core.api.ApiCatalog.SecurityScheme::in).orElse(null),
-                    false, path);
+                    false, path, discovery.catalog().security().stream().anyMatch(x -> ("http".equals(x.type()) && "bearer".equalsIgnoreCase(x.scheme()))
+                            || "oauth2".equals(x.type()) || "openIdConnect".equals(x.type())));
         } catch (com.questioncrawler.core.source.SourceException e) {
             boolean signIn = e.kind() == com.questioncrawler.core.source.SourceException.Kind.AUTH_FAILED || e.kind() == com.questioncrawler.core.source.SourceException.Kind.FORBIDDEN;
-            return new ApiDocsResult(false, e.getMessage(), null, null, List.of(), null, null, null, signIn, null);
+            return new ApiDocsResult(false, e.getMessage(), null, null, List.of(), null, null, null, signIn, null, false);
         } catch (IllegalArgumentException e) {
-            return new ApiDocsResult(false, "That is not a valid web address.", null, null, List.of(), null, null, null, false, null);
+            return new ApiDocsResult(false, "That is not a valid web address.", null, null, List.of(), null, null, null, false, null, false);
         }
     }
 
     /** The raw answer of one API call: what the site really sends back. The key and tokens are never included. */
     public record ApiProbe(boolean reached, String problem, String url, int status, String contentType, int characters, String kind,
-                           String summary, String preview, List<String> hints, boolean keySent, String keyPlacement) {}
+                           String summary, String preview, List<String> hints, boolean keySent, String keyPlacement,
+                           String authNeeded, String wwwAuthenticate, boolean tokenSent) {}
 
     /**
      * Makes one GET request to the API (default /info) exactly as a collection would, and shows the answer. Used to find out why
@@ -224,7 +226,7 @@ public final class Workspace {
         }
         String path = requestedPath == null || requestedPath.isBlank() ? "/info" : requestedPath.strip();
         if (!path.startsWith("/") || path.contains("://") || path.contains("..") || path.contains(" ")) {
-            return new ApiProbe(false, "Enter a path that starts with / (for example /info or /questions?pagesize=1).", null, 0, null, 0, null, null, null, List.of(), false, null);
+            return new ApiProbe(false, "Enter a path that starts with / (for example /info or /questions?pagesize=1).", null, 0, null, 0, null, null, null, List.of(), false, null, null, null, false);
         }
         var api = apiOptions(v);
         String base = v.getOrDefault("source.baseUrl", "").strip();
@@ -242,7 +244,7 @@ public final class Workspace {
             }
         }
         if (base.isEmpty()) {
-            return new ApiProbe(false, "The API address is not known yet. Enter it above, or read the documentation first.", null, 0, null, 0, null, null, null, List.of(), false, null);
+            return new ApiProbe(false, "The API address is not known yet. Enter it above, or read the documentation first.", null, 0, null, 0, null, null, null, List.of(), false, null, null, null, false);
         }
         java.net.URI baseUri;
         try {
@@ -251,7 +253,7 @@ public final class Workspace {
                 throw new IllegalArgumentException("no host");
             }
         } catch (IllegalArgumentException e) {
-            return new ApiProbe(false, "The API address is not a valid web address.", null, 0, null, 0, null, null, null, List.of(), false, null);
+            return new ApiProbe(false, "The API address is not a valid web address.", null, 0, null, 0, null, null, null, List.of(), false, null, null, null, false);
         }
         String keyValue = env.apply(v.getOrDefault("api.keyEnv", ""));
         String tokenValue = api.accessTokenEnv() == null ? null : env.apply(api.accessTokenEnv());
@@ -304,16 +306,24 @@ public final class Workspace {
                     "The site answered with JSON (HTTP " + response.status() + ")" + (response.status() >= 400 ? ", but it is an error." : "."),
                     com.questioncrawler.core.source.ResponseInspector.redact(stripped.length() > 700 ? stripped.substring(0, 700) + " …" : stripped, secrets),
                     response.status() >= 400 ? List.of("Read the error message in the answer above: it usually names the problem (key, parameter, permission).") : List.of())
-                    : com.questioncrawler.core.source.ResponseInspector.inspect(response.status(), response.contentType(), response.location(), response.body(), secrets);
+                    : com.questioncrawler.core.source.ResponseInspector.inspect(response.status(), response.contentType(), response.location(), response.wwwAuthenticate(), response.body(), secrets);
             List<String> hints = new ArrayList<>(inspection.hints());
+            String authNeeded = com.questioncrawler.core.source.ResponseInspector.authKind(response.status(), response.wwwAuthenticate(), stripped);
+            if (json && authNeeded != null) { // a JSON refusal that names the sign-in it wants
+                hints.addAll(0, com.questioncrawler.core.source.ResponseInspector.authHints(authNeeded));
+            }
+            if (bearer != null && "bearer".equals(authNeeded)) {
+                hints.add(0, "A Bearer token WAS sent but was not accepted: it may be expired, for another site, or lack permission. Create a new token and try again.");
+            }
             if (!keySent) {
                 hints.add(0, "No API access key was sent: the variable '" + v.getOrDefault("api.keyEnv", "") + "' is not set in the terminal that started the app.");
             }
             return new ApiProbe(true, null, shownUrl, response.status(), response.contentType(), response.body() == null ? 0 : response.body().length(),
-                    inspection.kind(), inspection.summary(), inspection.preview(), hints, keySent, placement);
+                    inspection.kind(), inspection.summary(), inspection.preview(), hints, keySent, placement, authNeeded,
+                    com.questioncrawler.core.source.ResponseInspector.redact(response.wwwAuthenticate() == null ? "" : response.wwwAuthenticate(), secrets), bearer != null);
         } catch (com.questioncrawler.core.source.SourceException e) {
             return new ApiProbe(false, com.questioncrawler.core.source.ResponseInspector.redact(e.getMessage(), secrets), shownUrl, 0, null, 0, null, null, null,
-                    List.of("The request did not get an answer at all: see the Check access result for the network steps (proxy, certificate)."), keySent, placement);
+                    List.of("The request did not get an answer at all: see the Check access result for the network steps (proxy, certificate)."), keySent, placement, null, null, bearer != null);
         }
     }
 

@@ -511,6 +511,14 @@ public final class StackExchangeAdapter implements SourceAdapter {
     private SourceException mapError(HttpSourceClient.Response response, JsonNode root, String url) {
         int errorId = root.path("error_id").asInt(-1);
         String message = root.path("error_message").asText("");
+        if (message.isBlank()) {
+            for (String field : new String[] {"message", "error", "detail", "title"}) {
+                if (root.path(field).isTextual() && !root.path(field).asText().isBlank()) {
+                    message = root.path(field).asText();
+                    break;
+                }
+            }
+        }
         if (errorId == 502) { // throttle violation or quota exhausted
             Matcher m = WAIT_SECONDS.matcher(message);
             long seconds = m.find() ? Long.parseLong(m.group(1)) : 60;
@@ -535,6 +543,12 @@ public final class StackExchangeAdapter implements SourceAdapter {
         if (errorId >= 0) {
             return new SourceException(SourceException.Kind.FATAL, "Stack Exchange API error " + errorId + ": " + message);
         }
+        // A refusal that says which sign-in it wants (for example {"message":"Missing bearer token"}) is explained as such.
+        String authKind = ResponseInspector.authKind(response.status(), response.wwwAuthenticate(), response.body());
+        if (authKind != null) {
+            return new SourceException(SourceException.Kind.AUTH_FAILED, "HTTP " + response.status() + ": the API refused the request"
+                    + (message.isBlank() ? "" : " (" + message + ")") + ". " + ResponseInspector.authHints(authKind).get(0));
+        }
         // No JSON error body: fall back to generic HTTP status mapping (never includes the query string).
         return client.mapStatus(response.status(), response.retryAfter(), java.net.URI.create(ResponseInspector.withoutQuery(url)));
     }
@@ -556,14 +570,18 @@ public final class StackExchangeAdapter implements SourceAdapter {
                 secrets.add(env.apply(name));
             }
         }
-        var inspection = ResponseInspector.inspect(response.status(), response.contentType(), response.location(), response.body(), secrets);
+        var inspection = ResponseInspector.inspect(response.status(), response.contentType(), response.location(), response.wwwAuthenticate(), response.body(), secrets);
         boolean ok = response.status() >= 200 && response.status() < 300;
-        SourceException.Kind kind = ok ? (inspection.kind().equals("HTML_LOGIN") ? SourceException.Kind.AUTH_FAILED : SourceException.Kind.FATAL)
+        boolean authText = ResponseInspector.authKind(response.status(), response.wwwAuthenticate(), ResponseInspector.stripNoise(response.body())) != null;
+        SourceException.Kind kind = authText ? SourceException.Kind.AUTH_FAILED
+                : ok ? (inspection.kind().equals("HTML_LOGIN") ? SourceException.Kind.AUTH_FAILED : SourceException.Kind.FATAL)
                 : inspection.kind().equals("REDIRECT") && inspection.hints().get(0).contains("sign-in")
                         ? SourceException.Kind.AUTH_FAILED
                         : client.mapStatus(response.status(), response.retryAfter(), java.net.URI.create(ResponseInspector.withoutQuery(url))).kind();
         String hint = inspection.hints().isEmpty() ? "" : " " + inspection.hints().get(0);
-        throw new SourceException(kind, "The API did not answer with JSON. " + inspection.summary() + hint
+        String said = !inspection.kind().startsWith("HTML") && !inspection.preview().isBlank() && inspection.preview().length() <= 200
+                ? " The site said: \"" + inspection.preview().strip() + "\"." : "";
+        throw new SourceException(kind, "The API did not answer with JSON. " + inspection.summary() + said + hint
                 + " (On the Connect screen, 'See what the API really answers' shows the full answer.)");
     }
 
