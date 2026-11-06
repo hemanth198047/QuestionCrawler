@@ -57,7 +57,7 @@ public final class Cli {
               --format json     Machine-readable output (also --json)
 
             sync options:   --tag <t> (repeatable)  --tag-mode any|all  --partial-tags  --full
-                            --max-question-age <age>   only collect questions created within this age
+                            --max-question-age <age>   only collect questions created within this age (use "all" for no limit)
             search options: --tag <t>  --category <id>  --top <n>  --max-chars <n>  --max-passage-chars <n>
             age filters (search, categories <id>): ages look like 12h, 30d, 2w, 6m, 1y and are measured back from now
                             --max-question-age <age>   only questions created within this age (newer than)

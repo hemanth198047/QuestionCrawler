@@ -312,14 +312,17 @@ public record CoreConfig(
         return syncOptions(tagOverride, modeOverride, partialOverride, mode, null);
     }
 
-    /** {@code maxQuestionAgeOverride} (for example "30d") limits collection to recently created questions. */
+    /**
+     * {@code maxQuestionAgeOverride} (for example "30d") limits collection to recently created questions; "all" means no limit even if the
+     * saved settings have a window; null keeps the saved window.
+     */
     public SyncOptions syncOptions(List<String> tagOverride, TagMode modeOverride, Boolean partialOverride, SyncMode mode,
                                    String maxQuestionAgeOverride) {
         return new SyncOptions(tagOverride == null || tagOverride.isEmpty() ? tags : tagOverride,
                 modeOverride == null ? tagMode : modeOverride,
                 partialOverride == null ? partialTags : partialOverride,
                 mode, overlap, concurrency, retentionDays,
-                maxQuestionAgeOverride != null ? maxQuestionAgeOverride : maxQuestionAge);
+                maxQuestionAgeOverride == null ? maxQuestionAge : com.questioncrawler.core.util.AgeSpec.isEverything(maxQuestionAgeOverride) ? null : maxQuestionAgeOverride);
     }
 
     /** Writes the commented configuration template with the given storage root. */

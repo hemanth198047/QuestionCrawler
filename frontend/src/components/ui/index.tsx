@@ -177,15 +177,18 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const push = useCallback((tone: Tone, text: string) => {
     const id = ++seq.current
     setItems((x) => [...x, { id, tone, text }])
-    window.setTimeout(() => setItems((x) => x.filter((t) => t.id !== id)), 4200)
+    // Errors stay (30 s, or until dismissed) so they can be read; everything else disappears quickly.
+    window.setTimeout(() => setItems((x) => x.filter((t) => t.id !== id)), tone === 'bad' ? 30000 : 4200)
   }, [])
+  const dismiss = (id: number) => setItems((x) => x.filter((t) => t.id !== id))
   return (
     <ToastContext.Provider value={push}>
       {children}
       <div className="toasts" aria-live="polite">
         {items.map((t) => (
-          <div key={t.id} className={`toast toast-${t.tone}`}>
+          <div key={t.id} className={`toast toast-${t.tone}`} role={t.tone === 'bad' ? 'alert' : 'status'}>
             {t.tone === 'ok' ? <CheckCircle2 size={18} /> : t.tone === 'bad' ? <XCircle size={18} /> : <Info size={18} />}<span>{t.text}</span>
+            {t.tone === 'bad' && <button type="button" className="toast-close" aria-label="Dismiss" onClick={() => dismiss(t.id)}>✕</button>}
           </div>
         ))}
       </div>

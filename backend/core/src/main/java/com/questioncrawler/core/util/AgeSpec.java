@@ -13,6 +13,16 @@ import java.util.regex.Pattern;
  */
 public final class AgeSpec {
 
+    /** "all", "everything", "none" or "unlimited": an explicit request for NO time window (as opposed to "use the saved one"). */
+    public static boolean isEverything(String text) {
+        if (text == null) {
+            return false;
+        }
+        String t = text.strip().toLowerCase(java.util.Locale.ROOT);
+        return t.equals("all") || t.equals("everything") || t.equals("none") || t.equals("unlimited");
+    }
+
+
     private static final Pattern SPEC = Pattern.compile("^(\\d{1,5})\\s*([hdwmy])$", Pattern.CASE_INSENSITIVE);
 
     private AgeSpec() {}

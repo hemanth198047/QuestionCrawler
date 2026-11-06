@@ -62,22 +62,42 @@ function LivePanel({ state, startedAt }: { state: SyncState; startedAt: string |
   )
 }
 
-function Result({ r }: { r: SyncReport }) {
+function windowUsed(r: SyncReport): string {
+  const l = r.limitations.find((x) => x.startsWith('Collection window'))
+  const m = l ? /\((\w+) ago\)/.exec(l) : null
+  return m ? `last ${m[1]}` : 'everything'
+}
+
+function Result({ r, onEverything }: { r: SyncReport; onEverything: () => void }) {
   const c = plainCompleteness(r.completeness)
+  const nothing = r.questionsListed === 0 && r.outcome !== 'FAILED'
+  const limited = windowUsed(r) !== 'everything'
   const tone = r.outcome === 'COMPLETE' ? 'ok' : r.outcome === 'PARTIAL' ? 'warn' : 'bad'
   return (
-    <Card className={`result result-${tone} rise`}>
+    <Card className={`result result-${tone} rise`} id="collect-result">
       <div className="spread">
-        <div className="row"><Badge tone={tone}>{r.outcome === 'COMPLETE' ? 'Finished' : r.outcome === 'PARTIAL' ? 'Finished with problems' : 'Stopped'}</Badge><span className="muted small">{r.mode === 'FULL' ? 'Full check' : 'Quick update'} · {timeAgo(r.finishedAt)}</span></div>
+        <div className="row"><Badge tone={nothing ? 'warn' : tone}>{nothing ? 'Nothing collected' : r.outcome === 'COMPLETE' ? 'Finished' : r.outcome === 'PARTIAL' ? 'Finished with problems' : 'Stopped'}</Badge><span className="muted small">{r.mode === 'FULL' ? 'Full check' : 'Quick update'} · {timeAgo(r.finishedAt)} · time window: {windowUsed(r)} · tags: {r.tags.join(', ')}</span></div>
         <div className="row"><Button size="sm" icon={<Search size={15} />} onClick={() => go('/explore')}>Explore the results</Button></div>
       </div>
       <div className="counters" style={{ marginTop: 14 }}>
         <div><b>{r.added}</b><span>new</span></div><div><b>{r.updated}</b><span>changed</span></div><div><b>{r.unchanged}</b><span>unchanged</span></div>
         <div><b>{r.statusChanged}</b><span>no longer visible</span></div><div className={r.failures.length ? 'bad' : ''}><b>{r.failures.length}</b><span>problems</span></div>
       </div>
-      <Banner tone={c.tone === 'bad' ? 'bad' : c.tone === 'ok' ? 'ok' : c.tone === 'warn' ? 'warn' : 'info'} title={c.label}>{c.text}</Banner>
+      {nothing && (
+        <Banner tone="warn" title="The site returned no questions"
+          action={<div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            {limited && <Button size="sm" variant="primary" onClick={onEverything}>Choose Everything</Button>}
+            <Button size="sm" onClick={() => go('/connect')}>Find the tag on the site</Button></div>}>
+          <p>Nothing matched the tag{r.tags.length === 1 ? '' : 's'} <b>{r.tags.join(', ')}</b>{limited ? <> within the <b>{windowUsed(r)}</b> window</> : ' (no time limit)'}.</p>
+          <ul className="plainlist">
+            {limited && <li>A time window hides older questions. Choose <b>Everything</b> above and start again.</li>}
+            <li>The tag may be spelled differently on the site (for example in capitals). Use <b>Find tags on the site</b> on the Connect screen.</li>
+            <li>Check what the site really answers with <b>See what the API really answers</b> (try <code>/questions?pagesize=15</code>).</li>
+          </ul>
+        </Banner>)}
+      {!(nothing && c.tone === 'ok') && <Banner tone={c.tone === 'bad' ? 'bad' : c.tone === 'ok' ? 'ok' : c.tone === 'warn' ? 'warn' : 'info'} title={c.label}>{c.text}</Banner>}
       {r.abortReason && <Banner tone="bad" title="Why it stopped">{r.abortReason}</Banner>}
-      {r.warnings.map((w) => <Banner key={w} tone="info">{w}</Banner>)}
+      {r.warnings.filter((w) => !w.startsWith('No questions were returned')).map((w) => <Banner key={w} tone="info">{w}</Banner>)}
       {r.limitations.filter((l) => l.startsWith('Collection window')).map((l) => <Banner key={l} tone="info" title="Time window">{l}</Banner>)}
       {r.statusChanges.length > 0 && (<div><h4>Questions that changed visibility</h4><ul className="plainlist">{r.statusChanges.map((s) => <li key={s.questionId}><b>#{s.questionId}</b> {s.from.toLowerCase().replace('_', ' ')} → <b>{s.to.toLowerCase().replace('_', ' ')}</b> <span className="muted">· {s.reason}</span></li>)}</ul></div>)}
       {r.failures.length > 0 && (<div><h4>Questions that could not be downloaded</h4><ul className="plainlist">{r.failures.slice(0, 8).map((f) => <li key={f.questionId}><b>#{f.questionId}</b> {f.message}</li>)}</ul><p className="muted small">They are retried automatically on the next update.</p></div>)}
@@ -92,13 +112,24 @@ export default function CollectPage() {
   const [win, setWin] = useState<string | null>(null)
   const [state, setState] = useState<SyncState | null>(null)
   const [starting, setStarting] = useState(false)
+  const [startError, setStartError] = useState<string | null>(null)
   const reports = useRemote((s) => getSyncReports(s), [state?.running])
 
+  const finished = (s: SyncState) => {
+    if (s.lastError && !s.lastReport) toast('bad', `The run could not finish: ${s.lastError}`)
+    else if (s.lastReport) {
+      const r = s.lastReport
+      if (r.outcome === 'FAILED') toast('bad', `The run stopped: ${r.abortReason ?? 'see the details below'}`)
+      else if (r.questionsListed === 0) toast('info', 'The run finished, but the site returned no questions. See the explanation below.')
+      else toast(r.outcome === 'COMPLETE' ? 'ok' : 'info', r.outcome === 'COMPLETE' ? `Collection finished: ${r.added} new, ${r.updated} changed` : 'Collection ended with problems')
+    }
+    window.setTimeout(() => document.getElementById('collect-result')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 250)
+  }
   useEffect(() => { getSyncState().then(setState).catch(() => undefined) }, [])
   useEffect(() => { if (o && win === null) setWin(o.window ?? '') }, [o, win])
   useEffect(() => {
     if (!state?.running) return
-    const t = window.setInterval(() => getSyncState().then((s) => { setState(s); if (!s.running) { reload(); reports.reload(); if (s.lastReport) toast(s.lastReport.outcome === 'COMPLETE' ? 'ok' : 'info', s.lastReport.outcome === 'COMPLETE' ? 'Collection finished' : 'Collection ended') } }).catch(() => undefined), 900)
+    const t = window.setInterval(() => getSyncState().then((s) => { setState(s); if (!s.running) { reload(); reports.reload(); finished(s) } }).catch(() => undefined), 900)
     return () => window.clearInterval(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state?.running])
@@ -107,8 +138,15 @@ export default function CollectPage() {
   const noTags = o.tags.length === 0
   const isSE = o.sourceType === 'stackexchange'
   const start = async () => {
-    setStarting(true)
-    try { setState(await startSync(mode === 'full', win ?? '')); reload() } catch (e) { toast('bad', e instanceof Error ? e.message : 'Could not start') } finally { setStarting(false) }
+    setStarting(true); setStartError(null)
+    try {
+      const s = await startSync(mode === 'full', win ?? '')
+      setState(s); reload()
+      if (!s.running) finished(s) // it ended before the first progress check
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Could not start'
+      setStartError(message); toast('bad', message)
+    } finally { setStarting(false) }
   }
   const running = state?.running ?? false
 
@@ -143,11 +181,13 @@ export default function CollectPage() {
           <Button variant="primary" size="lg" icon={<Play size={18} />} busy={starting || running} disabled={noTags} onClick={start}>{running ? 'Running…' : mode === 'full' ? 'Start full check' : 'Start quick update'}</Button>
           {o.freshness.lastSuccessfulSyncAt && <span className="muted small">Last successful update {timeAgo(o.freshness.lastSuccessfulSyncAt)}</span>}
         </div>
+        <p className="muted small" style={{ marginTop: 12 }}>This will collect questions tagged <b>{o.tags.join(', ') || '…'}</b> from <b>{(win ?? '') === '' ? 'all time' : `the last ${win}`}</b> as a <b>{mode === 'full' ? 'full check' : 'quick update'}</b>.</p>
+        {startError && <div style={{ marginTop: 12 }}><Banner tone="bad" title="The run could not be started">{startError}</Banner></div>}
       </Card>
 
       {state && running && <LivePanel state={state} startedAt={state.startedAt} />}
       {state?.lastError && !running && <Banner tone="bad" title="The last run could not finish">{state.lastError}</Banner>}
-      {state?.lastReport && !running && <Result r={state.lastReport} />}
+      {state?.lastReport && !running && <Result r={state.lastReport} onEverything={() => { setWin(''); window.scrollTo({ top: 0, behavior: 'smooth' }); toast('info', 'Time window set to Everything. Press Start again.') }} />}
 
       <section>
         <div className="spread" style={{ marginBottom: 14 }}><h2>History</h2>{reports.refreshing && <RefreshCw size={16} className="spin" color="var(--ink-3)" />}</div>

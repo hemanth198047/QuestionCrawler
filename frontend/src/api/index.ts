@@ -19,7 +19,7 @@ export const getLastConnection = (s?: AbortSignal) => get<ConnectionReport | nul
 // collecting
 export interface AgeParams { maxQuestionAge: string; minQuestionAge: string; maxAnswerAge: string; minAnswerAge: string }
 export const NO_AGE: AgeParams = { maxQuestionAge: '', minQuestionAge: '', maxAnswerAge: '', minAnswerAge: '' }
-export const startSync = (full: boolean, maxQuestionAge: string) => post<SyncState>('/sync', { full, maxQuestionAge: maxQuestionAge || undefined })
+export const startSync = (full: boolean, maxQuestionAge: string) => post<SyncState>('/sync', { full, maxQuestionAge: maxQuestionAge || 'all' }) // '' means Everything: say so explicitly, or the saved window would silently apply
 export const getSyncState = (s?: AbortSignal) => get<SyncState>('/sync/status', s)
 export const getSyncReports = (s?: AbortSignal) => get<SyncReport[]>('/sync/reports?limit=12', s)
 

@@ -12,6 +12,8 @@ import java.util.function.Supplier;
 /** Runs one synchronization at a time on a background thread and exposes live progress. */
 public final class SyncRunner {
 
+    private static final System.Logger LOG = System.getLogger("questioncrawler.sync");
+
     public record State(boolean running, String startedAt, String mode, SyncProgress progress, SyncReport lastReport, String lastError) {}
 
     private final Supplier<KnowledgeBase> knowledgeBase;
@@ -40,8 +42,8 @@ public final class SyncRunner {
         executor.submit(() -> {
             try {
                 execute(options);
-            } catch (RuntimeException ignored) {
-                // recorded in lastError
+            } catch (RuntimeException | Error ignored) {
+                // recorded in lastError (and logged)
             } finally {
                 running.set(false);
             }
@@ -69,12 +71,17 @@ public final class SyncRunner {
     }
 
     private SyncReport execute(SyncOptions options) {
+        LOG.log(System.Logger.Level.INFO, "Collection started: mode={0}, tags={1}, window={2}", options.mode(), options.tags(),
+                options.maxQuestionAge() == null ? "everything" : options.maxQuestionAge());
         try {
             SyncReport report = knowledgeBase.get().sync(options, p -> progress = p);
             lastReport = report;
+            LOG.log(System.Logger.Level.INFO, "Collection ended: outcome={0}, found={1}, new={2}, changed={3}, problems={4}{5}", report.outcome(), report.questionsListed(),
+                    report.added(), report.updated(), report.failures().size(), report.abortReason() == null ? "" : ", reason: " + report.abortReason());
             return report;
-        } catch (RuntimeException e) {
+        } catch (RuntimeException | Error e) {
             lastError = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+            LOG.log(System.Logger.Level.ERROR, "Collection failed: " + lastError, e);
             throw e;
         }
     }

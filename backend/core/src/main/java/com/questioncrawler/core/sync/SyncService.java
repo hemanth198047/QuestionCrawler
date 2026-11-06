@@ -509,6 +509,12 @@ public final class SyncService {
                 limitations.add("Incremental sync cannot detect deletions, tag changes or access revocation, and may miss answers added without a question timestamp change. Run a full reconciliation periodically.");
             }
 
+            if (!aborted && state.candidates.isEmpty()) {
+                warnings.add("No questions were returned for the tag(s) " + String.join(", ", options.tags()) + " "
+                        + (createdAfter == null ? "(no time limit)" : "created in the last " + options.maxQuestionAge()) + ". "
+                        + "Check the tag's exact spelling, widen the time window" + (createdAfter == null ? "" : " (choose Everything)")
+                        + ", and see what the site answers (Connect > See what the API really answers).");
+            }
             SyncReport report = new SyncReport(state.runId, scopeKey, system, options.tags(), options.tagMode().name(),
                     options.partialTags(), options.mode().name(), started.toString(), finished.toString(), outcome, resumed,
                     state.since, state.listingComplete, state.pagesListed, state.candidates.size(), state.duplicateListings,
