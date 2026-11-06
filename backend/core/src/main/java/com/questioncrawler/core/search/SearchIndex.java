@@ -11,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.ServiceConfigurationError;
 import java.util.Locale;
 import org.apache.lucene.analysis.core.WhitespaceAnalyzer;
 import org.apache.lucene.document.Document;
@@ -79,9 +80,13 @@ public final class SearchIndex implements AutoCloseable {
                 throw new StoreException("The search index at " + dir + " was built by an older version. Run 'reindex' to rebuild it.");
             }
             directory = new NIOFSDirectory(dir);
-            IndexWriterConfig config = new IndexWriterConfig(new WhitespaceAnalyzer());
-            config.setOpenMode(IndexWriterConfig.OpenMode.CREATE_OR_APPEND);
-            writer = new IndexWriter(directory, config);
+            try {
+                IndexWriterConfig config = new IndexWriterConfig(new WhitespaceAnalyzer());
+                config.setOpenMode(IndexWriterConfig.OpenMode.CREATE_OR_APPEND);
+                writer = new IndexWriter(directory, config);
+            } catch (ServiceConfigurationError | LinkageError e) { // Lucene cannot scan its plug-ins: a conflicting Lucene is on the classpath
+                throw new IllegalStateException(LuceneDoctor.explain(e), e);
+            }
         }
         return writer;
     }
@@ -238,7 +243,7 @@ public final class SearchIndex implements AutoCloseable {
         }
         try (Directory d = new NIOFSDirectory(dir); DirectoryReader reader = DirectoryReader.open(d)) {
             return reader.numDocs();
-        } catch (IOException e) {
+        } catch (IOException | ServiceConfigurationError | LinkageError e) { // the reason for a broken Lucene is reported by LuceneDoctor
             return -1;
         }
     }
@@ -247,7 +252,7 @@ public final class SearchIndex implements AutoCloseable {
     public static boolean exists(Path dir) {
         try (Directory d = new NIOFSDirectory(dir)) {
             return Files.isDirectory(dir) && DirectoryReader.indexExists(d);
-        } catch (IOException e) {
+        } catch (IOException | ServiceConfigurationError | LinkageError e) {
             return false;
         }
     }

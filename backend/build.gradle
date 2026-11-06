@@ -5,4 +5,11 @@ subprojects {
     repositories {
         mavenCentral()
     }
+
+    // This application only creates and reads indexes in the current Lucene format, so it never needs the old-format codecs.
+    // Excluding them stops another library from bringing an older lucene-backward-codecs (7.x/8.x) onto the classpath, which breaks
+    // Lucene 9 at start-up with "Lucene50Codec: Unable to get public no-arg constructor".
+    configurations.configureEach {
+        exclude group: 'org.apache.lucene', module: 'lucene-backward-codecs'
+    }
 }

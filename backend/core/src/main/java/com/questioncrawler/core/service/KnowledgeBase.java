@@ -336,6 +336,9 @@ public final class KnowledgeBase {
                 + (config.taxonomyFile() == null ? " (bundled starter taxonomy)" : " (" + config.taxonomyFile() + ")")));
         int docs = SearchIndex.readDocCount(store.paths().indexDir());
         checks.add(new Check("search-index", docs >= 0 ? "OK" : "WARN", docs >= 0 ? docs + " indexed documents" : "No index yet (created by sync/demo/reindex)."));
+        var lucene = com.questioncrawler.core.search.LuceneDoctor.cachedInspection();
+        checks.add(new Check("search-library", lucene.healthy() ? "OK" : "FAIL", lucene.healthy() ? "Lucene " + lucene.luceneVersion()
+                : String.join(" ", lucene.problems()) + " " + String.join(" ", lucene.fixes())));
         if (config.sourceType().equals("live")) {
             String env = config.source().tokenEnv();
             if (config.source().authMethod().equalsIgnoreCase("token")) {
@@ -343,7 +346,7 @@ public final class KnowledgeBase {
                 checks.add(new Check("credentials", present ? "OK" : "FAIL",
                         present ? "Environment variable " + env + " is set (value not shown)." : "Environment variable " + env + " is not set."));
             }
-            checks.add(new Check("live-adapter", "WARN", "Live endpoint integration is not implemented (see docs/LIVE_INTEGRATION.md)."));
+            checks.add(new Check("live-adapter", "OK", "The internal site is read through its REST API (Stack Exchange 2.3 style). Use 'Check access' on the Connect screen to test it."));
         }
         if (checkConnectivity) {
             try {

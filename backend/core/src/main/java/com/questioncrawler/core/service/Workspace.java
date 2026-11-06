@@ -556,6 +556,11 @@ public final class Workspace {
                 questions > 0 ? "READY" : "LOCKED", "explore"));
         String next = steps.stream().filter(s -> s.status().equals("TODO") || s.status().equals("ATTENTION")).map(Overview.SetupStep::id).findFirst().orElse("explore");
         List<String> notes = new ArrayList<>();
+        var lucene = com.questioncrawler.core.search.LuceneDoctor.cachedInspection();
+        if (!lucene.healthy()) { // a conflicting Lucene makes every collection fail at the end: say so before the person tries
+            notes.add("The search library (Lucene) has a conflict on the classpath, so collecting will fail at the last step. " + String.join(" ", lucene.problems())
+                    + (lucene.fixes().isEmpty() ? "" : " " + lucene.fixes().get(0)));
+        }
         if (loadError != null) {
             notes.add(loadError);
         }

@@ -80,7 +80,8 @@ public final class SyncRunner {
                     report.added(), report.updated(), report.failures().size(), report.abortReason() == null ? "" : ", reason: " + report.abortReason());
             return report;
         } catch (RuntimeException | Error e) {
-            lastError = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+            lastError = com.questioncrawler.core.search.LuceneDoctor.isLuceneProblem(e) ? com.questioncrawler.core.search.LuceneDoctor.explain(e)
+                    : e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
             LOG.log(System.Logger.Level.ERROR, "Collection failed: " + lastError, e);
             throw e;
         }

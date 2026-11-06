@@ -20,6 +20,14 @@ public class ApiExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
     }
 
+    /** The search library (Lucene) cannot start because of a conflicting jar on the classpath: say which one and how to remove it. */
+    @ExceptionHandler({java.util.ServiceConfigurationError.class, LinkageError.class})
+    public ProblemDetail searchLibrary(Error e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE,
+                com.questioncrawler.core.search.LuceneDoctor.isLuceneProblem(e) ? com.questioncrawler.core.search.LuceneDoctor.explain(e)
+                        : "A required library could not be loaded: " + e);
+    }
+
     /** Missing store, schema problems, running CLI sync, corrupt files: the message says what to do. */
     @ExceptionHandler(StoreException.class)
     public ProblemDetail store(StoreException e) {
