@@ -5,6 +5,8 @@ import com.questioncrawler.core.source.ConfluenceAdapter;
 import com.questioncrawler.core.source.ConfluenceOptions;
 import com.questioncrawler.core.source.JiveAdapter;
 import com.questioncrawler.core.source.JiveOptions;
+import com.questioncrawler.core.source.SharePointAdapter;
+import com.questioncrawler.core.source.SharePointOptions;
 import com.questioncrawler.core.source.FixtureSourceAdapter;
 import com.questioncrawler.core.source.HttpSourceClient;
 import com.questioncrawler.core.source.SourceAdapter;
@@ -49,7 +51,8 @@ public record CoreConfig(
         String maxQuestionAge,
         boolean explicitKeyName,
         ConfluenceOptions confluence,
-        JiveOptions jive) {
+        JiveOptions jive,
+        SharePointOptions sharepoint) {
 
     public static Path defaultStorageRoot() {
         return Path.of(System.getProperty("user.home"), ".questioncrawler", "data");
@@ -133,10 +136,23 @@ public record CoreConfig(
                 Boolean.parseBoolean(p.getProperty("source.jive.includePlaceTag", "true").strip()),
                 p.getProperty("source.jive.username", ""),
                 p.getProperty("source.jive.usernameEnv", ""));
-        if (liveApi || confluenceSource || jiveSource) {
+        boolean sharepointSource = type.equals("sharepoint");
+        SharePointOptions sharepoint = new SharePointOptions(
+                p.getProperty("source.sharepoint.tenantId", ""),
+                p.getProperty("source.sharepoint.clientId", ""),
+                p.getProperty("source.sharepoint.clientSecretEnv", "SHAREPOINT_CLIENT_SECRET"),
+                p.getProperty("source.sharepoint.siteId", ""),
+                SharePointOptions.csv(p.getProperty("source.sharepoint.listIds", "")),
+                p.getProperty("source.sharepoint.contentMode", "pages"),
+                p.getProperty("source.sharepoint.graphBaseUrl", "https://graph.microsoft.com/v1.0"),
+                Boolean.parseBoolean(p.getProperty("source.sharepoint.collectComments", "false").strip()),
+                intValue(p, "source.sharepoint.pageSize", 25),
+                Boolean.parseBoolean(p.getProperty("source.sharepoint.includeSiteTag", "true").strip()));
+        if (liveApi || confluenceSource || jiveSource || sharepointSource) {
             // The API address (and Swagger, for live) may be on different hosts: allow those, nothing else.
             java.util.LinkedHashSet<String> allowed = new java.util.LinkedHashSet<>(csv(hosts));
-            for (String url : new String[] {baseUrl, liveApi ? swagger : ""}) {
+            for (String url : new String[] {baseUrl, liveApi ? swagger : "",
+                    sharepointSource ? sharepoint.graphBaseUrl() : ""}) {
                 try {
                     String h = url.isBlank() ? null : java.net.URI.create(url).getHost();
                     if (h != null) {
@@ -145,6 +161,9 @@ public record CoreConfig(
                 } catch (IllegalArgumentException ignored) {
                     // validation reports it
                 }
+            }
+            if (sharepointSource) {
+                allowed.add(SharePointAdapter.graphHost(sharepoint.graphBaseUrl()));
             }
             hosts = String.join(",", allowed);
         }
@@ -173,19 +192,33 @@ public record CoreConfig(
             if ((prefixes.isBlank() || prefixes.strip().equals("/")) && !baseUrl.isBlank()) {
                 prefixes = jive.defaultApiRootPath() + "/";
             }
+        } else if (sharepointSource) {
+            if (systemId.isEmpty()) {
+                systemId = "sharepoint";
+            }
+            if ((prefixes.isBlank() || prefixes.strip().equals("/"))) {
+                // Graph calls use /v1.0/... on graph.microsoft.com (site URL is only for resolve).
+                try {
+                    String path = java.net.URI.create(sharepoint.graphBaseUrl()).getPath();
+                    prefixes = (path == null || path.isBlank() || path.equals("/")) ? "/v1.0/" : path + "/";
+                } catch (IllegalArgumentException e) {
+                    prefixes = "/v1.0/";
+                }
+            }
         } else if (systemId.isEmpty()) {
             systemId = "internal-qa";
         }
 
         String authMethodDefault = confluenceSource
                 ? (confluence.cloud() ? "basic-env" : "token")
-                : (jiveSource ? "basic-env" : "none");
+                : (jiveSource ? "basic-env" : (sharepointSource ? "token" : "none"));
         String authMethod = p.getProperty("source.auth.method", authMethodDefault).strip();
         String tokenEnvDefault = confluenceSource
                 ? (confluence.cloud() ? "CONFLUENCE_API_TOKEN" : "CONFLUENCE_PAT")
-                : (jiveSource ? "JIVE_PASSWORD" : "INTERNAL_QA_TOKEN");
+                : (jiveSource ? "JIVE_PASSWORD"
+                : (sharepointSource ? "SHAREPOINT_ACCESS_TOKEN" : "INTERNAL_QA_TOKEN"));
         String followRedirects = p.getProperty("source.followRedirects",
-                (confluenceSource || jiveSource) ? "same-host" : "all");
+                (confluenceSource || jiveSource || sharepointSource) ? "same-host" : "all");
         String ca = p.getProperty("source.caCertFile", "").strip();
         String authUser = confluenceSource ? confluence.email() : (jiveSource ? jive.username() : null);
         String authUserEnv = confluenceSource
@@ -221,7 +254,7 @@ public record CoreConfig(
                 TagMode.valueOf(p.getProperty("sync.tagMode", "ANY").strip().toUpperCase()),
                 Boolean.parseBoolean(p.getProperty("sync.partialTags", "false").strip()),
                 Duration.ofMinutes(intValue(p, "sync.overlapMinutes", 60)),
-                intValue(p, "sync.concurrency", (confluenceSource || jiveSource) ? 2 : 4),
+                intValue(p, "sync.concurrency", (confluenceSource || jiveSource || sharepointSource) ? 2 : 4),
                 intValue(p, "sync.maxAttempts", 5),
                 intValue(p, "sync.retentionDays", 30),
                 Boolean.parseBoolean(p.getProperty("sync.scheduler.enabled", "false").strip()),
@@ -230,7 +263,8 @@ public record CoreConfig(
                 p.getProperty("sync.maxQuestionAge", "").strip().isEmpty() ? null : p.getProperty("sync.maxQuestionAge").strip(),
                 !p.getProperty("api.keyName", "").isBlank(),
                 confluence,
-                jive);
+                jive,
+                sharepoint);
     }
 
     public static CoreConfig forStorage(Path storageRoot) {
@@ -241,8 +275,8 @@ public record CoreConfig(
 
     public List<String> validate() {
         List<String> problems = new ArrayList<>();
-        if (!List.of("fixture", "live", "stackexchange", "confluence", "jive").contains(sourceType)) {
-            problems.add("source.type must be 'fixture', 'live', 'stackexchange', 'confluence' or 'jive' (was '" + sourceType + "')");
+        if (!List.of("fixture", "live", "stackexchange", "confluence", "jive", "sharepoint").contains(sourceType)) {
+            problems.add("source.type must be 'fixture', 'live', 'stackexchange', 'confluence', 'jive' or 'sharepoint' (was '" + sourceType + "')");
         }
         if (maxQuestionAge != null && !com.questioncrawler.core.util.AgeSpec.isValid(maxQuestionAge)) {
             problems.add("sync.maxQuestionAge must look like 30d, 12h, 2w, 6m or 1y (was '" + maxQuestionAge + "')");
@@ -266,13 +300,17 @@ public record CoreConfig(
         if (tags.isEmpty()) {
             problems.add("sync.tags is empty: at least one target tag is required to run 'sync'");
         }
-        if (sourceType.equals("live") || sourceType.equals("confluence") || sourceType.equals("jive")) {
+        if (sourceType.equals("live") || sourceType.equals("confluence") || sourceType.equals("jive")
+                || sourceType.equals("sharepoint")) {
             if (sourceType.equals("live") && source.baseUrl().isBlank() && !source.api().hasDocs()) {
                 problems.add("Give the API address (source.baseUrl) or the API documentation address (api.swaggerUrl) for source.type=live");
             } else if (sourceType.equals("confluence") && source.baseUrl().isBlank()) {
                 problems.add("source.baseUrl is required for Confluence (for example https://acme.atlassian.net)");
             } else if (sourceType.equals("jive") && source.baseUrl().isBlank()) {
                 problems.add("source.baseUrl is required for Jive (for example https://community.example.com)");
+            } else if (sourceType.equals("sharepoint") && source.baseUrl().isBlank()
+                    && (sharepoint == null || sharepoint.siteId().isBlank())) {
+                problems.add("source.baseUrl (SharePoint site URL) or source.sharepoint.siteId is required");
             } else if (!source.baseUrl().isBlank()) {
                 try {
                     java.net.URI uri = java.net.URI.create(source.baseUrl());
@@ -288,10 +326,17 @@ public record CoreConfig(
                     problems.add("source.baseUrl is not a valid URL");
                 }
             }
+            if (sourceType.equals("sharepoint")) {
+                String graphHost = SharePointAdapter.graphHost(sharepoint.graphBaseUrl());
+                if (source.allowedHosts().stream().noneMatch(h -> h.equalsIgnoreCase(graphHost))) {
+                    problems.add("source.allowedHosts must include the Graph host '" + graphHost + "'");
+                }
+            }
             if ((source.authMethod().equalsIgnoreCase("token")
                     || source.authMethod().equalsIgnoreCase("basic-env")
                     || source.authMethod().equalsIgnoreCase("confluence-api-token"))
-                    && source.tokenEnv().isBlank()) {
+                    && source.tokenEnv().isBlank()
+                    && !(sourceType.equals("sharepoint") && sharepoint != null && sharepoint.usesClientCredentials())) {
                 problems.add("source.auth.tokenEnv must name the environment variable that holds the token");
             }
             if (sourceType.equals("confluence")) {
@@ -318,6 +363,27 @@ public record CoreConfig(
                 }
                 if (TagFilter.asksForAll(tags) && !jive.hasBoundedScope() && maxQuestionAge == null) {
                     problems.add("Jive tag 'all' needs a place id or sync.maxQuestionAge window (refusing unbounded site sync)");
+                }
+            }
+            if (sourceType.equals("sharepoint")) {
+                if (!sharepoint.usesClientCredentials()
+                        && (source.tokenEnv() == null || source.tokenEnv().isBlank())) {
+                    problems.add("SharePoint needs source.auth.tokenEnv (Bearer) or source.sharepoint.tenantId + clientId + clientSecretEnv");
+                }
+                if (sharepoint.usesClientCredentials()) {
+                    if (sharepoint.tenantId().isBlank() || sharepoint.clientId().isBlank()) {
+                        problems.add("SharePoint client credentials need source.sharepoint.tenantId and source.sharepoint.clientId");
+                    }
+                    if (sharepoint.clientSecretEnv().isBlank()) {
+                        problems.add("SharePoint client credentials need source.sharepoint.clientSecretEnv (env var name only)");
+                    }
+                }
+                if (sharepoint.listItemsEnabled() && !sharepoint.pagesEnabled() && sharepoint.listIds().isEmpty()) {
+                    problems.add("SharePoint list-items mode needs source.sharepoint.listIds");
+                }
+                if (TagFilter.asksForAll(tags) && source.baseUrl().isBlank() && sharepoint.siteId().isBlank()
+                        && maxQuestionAge == null) {
+                    problems.add("SharePoint tag 'all' needs a site URL/siteId or sync.maxQuestionAge window (refusing unbounded sync)");
                 }
             }
             if (source.caCertFile() != null && !Files.isReadable(source.caCertFile())) {
@@ -355,6 +421,10 @@ public record CoreConfig(
         if (sourceType.equals("jive")) {
             // Dedicated adapter — separate from Confluence / SharePoint / Stack Exchange.
             return new JiveAdapter(source, jive, new HttpSourceClient(source, env), env);
+        }
+        if (sourceType.equals("sharepoint")) {
+            // Dedicated adapter — separate from Confluence / Jive / Stack Exchange.
+            return new SharePointAdapter(source, sharepoint, env);
         }
         if (fixtureDirs.isEmpty()) {
             return FixtureSourceAdapter.fromClasspath(fixturePageSize, fixturePageSize, "fixtures/demo-site");
@@ -422,7 +492,8 @@ public record CoreConfig(
         String age = maxQuestionAgeOverride == null ? maxQuestionAge
                 : com.questioncrawler.core.util.AgeSpec.isEverything(maxQuestionAgeOverride) ? null : maxQuestionAgeOverride;
         String scopeExtra = sourceType.equals("confluence") && confluence != null ? confluence.scopeFragment()
-                : (sourceType.equals("jive") && jive != null ? jive.scopeFragment() : null);
+                : (sourceType.equals("jive") && jive != null ? jive.scopeFragment()
+                : (sourceType.equals("sharepoint") && sharepoint != null ? sharepoint.scopeFragment() : null));
         return new SyncOptions(tagOverride == null || tagOverride.isEmpty() ? tags : tagOverride,
                 modeOverride == null ? tagMode : modeOverride,
                 partialOverride == null ? partialTags : partialOverride,

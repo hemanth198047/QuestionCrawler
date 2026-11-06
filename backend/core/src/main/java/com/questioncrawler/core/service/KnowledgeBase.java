@@ -110,6 +110,13 @@ public final class KnowledgeBase {
             throw new IllegalArgumentException("Collecting every Jive item ('all') without a place id or time window is refused. "
                     + "Set source.jive.places or a collection window on the Collect page.");
         }
+        if (com.questioncrawler.core.source.TagFilter.asksForAll(options.tags()) && config.sourceType().equals("sharepoint")
+                && options.maxQuestionAge() == null
+                && (config.source().baseUrl() == null || config.source().baseUrl().isBlank())
+                && (config.sharepoint() == null || config.sharepoint().siteId().isBlank())) {
+            throw new IllegalArgumentException("Collecting every SharePoint item ('all') without a site URL/site id or time window is refused. "
+                    + "Set source.baseUrl, source.sharepoint.siteId, or a collection window on the Collect page.");
+        }
         store.init();
         SourceAdapter adapter = adapterOverride != null ? adapterOverride : config.createAdapter();
         Pipeline pipeline = new Pipeline();

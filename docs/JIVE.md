@@ -2,7 +2,7 @@
 
 QuestionCrawler can collect **Jive community content** into the same local knowledge store used for Stack Exchange, Confluence, and demo data.
 
-`source.type=jive` is a **first-class, separate** source. It does **not** share settings with Stack Exchange, Confluence, the internal live Q&A adapter, or future **SharePoint** connectors.
+`source.type=jive` is a **first-class, separate** source. It does **not** share settings with Stack Exchange, Confluence, the internal live Q&A adapter, or **SharePoint**.
 
 ## What you get
 
@@ -73,6 +73,6 @@ If search says the index is an older version, rebuild once: Settings → Where i
 
 Connect and Settings expose a Jive preset and Jive-only fields (username, places, content types). Collect/Explore work once content is synced; Explore treats Jive hits as pages (and shows discussion replies when present).
 
-## Next
+## Related
 
-**SharePoint** remains a separate future `source.type` with its own config keys and Settings section — do not reuse Jive or Confluence fields for it.
+**SharePoint** is a separate `source.type` (`docs/SHAREPOINT.md`) with its own config keys and Settings section — do not reuse Jive or Confluence fields for it.

@@ -100,6 +100,7 @@ export default function ConnectPage() {
         {source === 'fixture' && <Banner tone="info" title="Demo data needs nothing else">Sample questions are built into the app. Choose a real site above whenever you’re ready.</Banner>}
         {source === 'confluence' && <Banner tone="info" title="Confluence pages become local threads">Tags mean Confluence labels. Set space keys and an API token env var (Cloud: email + CONFLUENCE_API_TOKEN; Server/DC: CONFLUENCE_PAT). Jive and SharePoint are separate sources.</Banner>}
         {source === 'jive' && <Banner tone="info" title="Jive content becomes local threads">Tags mean Jive content tags. Set place ids and credentials via env vars (Basic: username + JIVE_PASSWORD; OAuth: JIVE_ACCESS_TOKEN). Confluence and SharePoint are separate sources.</Banner>}
+        {source === 'sharepoint' && <Banner tone="info" title="SharePoint pages become local threads">Set the site URL and Graph credentials via env vars (Bearer: SHAREPOINT_ACCESS_TOKEN, or Azure AD client credentials with tenant/client/secret env). Confluence and Jive are separate sources.</Banner>}
       </Section>
 
       <Section num={3} title="Can we reach it?" hint="We test the whole path and explain each step in plain language. Nothing is changed or downloaded.">

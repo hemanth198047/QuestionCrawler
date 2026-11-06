@@ -7,7 +7,7 @@ import java.util.List;
  * Jive-only connection options. Kept separate from Stack Exchange / Confluence / live / fixture settings
  * so community keys never mix with wiki or Q&amp;A API fields. Secrets stay as environment-variable names.
  *
- * <p>SharePoint will be a separate {@code source.type} later — not an extension of this record.
+ * <p>SharePoint is a separate {@code source.type} — not an extension of this record.
  */
 public record JiveOptions(
         String apiRoot,

@@ -144,7 +144,8 @@ public final class Workspace {
         String ca = v.getOrDefault("source.caCertFile", "").strip();
         int timeout = parseInt(v.get("source.timeoutSeconds"), 15);
         String authMethod = v.getOrDefault("source.auth.method",
-                (type.equals("confluence") || type.equals("jive")) ? "basic-env" : "none");
+                type.equals("sharepoint") ? "token"
+                        : ((type.equals("confluence") || type.equals("jive")) ? "basic-env" : "none"));
         String authUser = type.equals("jive")
                 ? v.getOrDefault("source.jive.username", "")
                 : v.getOrDefault("source.confluence.email", "");
@@ -606,6 +607,7 @@ public final class Workspace {
             case "stackexchange" -> "Stack Exchange: " + config.source().site();
             case "confluence" -> "Confluence" + (config.source().baseUrl().isBlank() ? "" : ": " + config.source().baseUrl());
             case "jive" -> "Jive" + (config.source().baseUrl().isBlank() ? "" : ": " + config.source().baseUrl());
+            case "sharepoint" -> "SharePoint" + (config.source().baseUrl().isBlank() ? "" : ": " + config.source().baseUrl());
             default -> "Internal site";
         };
         int questions = 0;

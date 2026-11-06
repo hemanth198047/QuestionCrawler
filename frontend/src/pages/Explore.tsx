@@ -24,6 +24,12 @@ const SUGGESTIONS: Record<string, string[]> = {
     'onboarding checklist',
     'troubleshooting login',
   ],
+  sharepoint: [
+    'how do I configure SSO',
+    'where is the onboarding runbook',
+    'architecture overview',
+    'incident response playbook',
+  ],
   live: ['error message', 'how to configure', 'deployment failure'],
 }
 
