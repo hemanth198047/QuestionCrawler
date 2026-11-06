@@ -12,12 +12,13 @@ export function OverviewProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
   const [tick, setTick] = useState(0)
   const timer = useRef<number | undefined>(undefined)
+  const failing = error !== null
   useEffect(() => {
     let alive = true
     const load = () => getOverview().then((o) => { if (alive) { setOverview(o); setError(null) } }).catch((e: unknown) => { if (alive) setError(e instanceof Error ? e.message : 'Cannot load') })
     void load()
-    timer.current = window.setInterval(load, overview?.syncRunning ? 2000 : 15000)
+    timer.current = window.setInterval(load, overview?.syncRunning ? 2000 : failing ? 3000 : 15000) // retry quickly while the backend is still starting
     return () => { alive = false; window.clearInterval(timer.current) }
-  }, [tick, overview?.syncRunning])
+  }, [tick, overview?.syncRunning, failing])
   return <OverviewCtx.Provider value={{ overview, error, reload: () => setTick((t) => t + 1) }}>{children}</OverviewCtx.Provider>
 }

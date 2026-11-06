@@ -347,16 +347,16 @@ async function serve() {
     ? startService('api', magenta, backendCmd, [], { cwd: ROOT, shell: true, env: { PORT: String(API_PORT) } })
     : startService('api', magenta, quote(GRADLE.cmd), [':app:bootRun', `--args=--server.port=${API_PORT}`, '--console=plain', ...extraGradleArgs()], { cwd: BACKEND })
   let ui = null
+  const apiUp = await waitFor('the backend', `http://127.0.0.1:${API_PORT}/api/health`, Number(process.env.QC_WAIT_SECONDS ?? 420), () => api.exitCode === null)
+  if (!apiUp) { explainBackendFailure(api); shutdown(1); return fail('The backend did not start', ['See the box above for the first problem.']) }
+  ok(`Backend is up at http://127.0.0.1:${API_PORT}`)
   if (!PROD && !BACKEND_ONLY) {
+    // The interface starts only now, so it never forwards requests to a backend that is not there yet.
+    say(`  ${dim('Starting the interface…')}`)
     const uiCmd = process.env.QC_FRONTEND_CMD
     ui = uiCmd
       ? startService('ui', blue, uiCmd, [], { cwd: ROOT, shell: true, env: { PORT: String(UI_PORT) } })
       : startService('ui', blue, 'npm', ['run', 'dev', '--', '--port', String(UI_PORT), '--strictPort', '--host', '127.0.0.1'], { cwd: FRONTEND, env: { VITE_BACKEND_URL: `http://127.0.0.1:${API_PORT}` } })
-  }
-  const apiUp = await waitFor('the backend', `http://127.0.0.1:${API_PORT}/api/health`, Number(process.env.QC_WAIT_SECONDS ?? 420), () => api.exitCode === null)
-  if (!apiUp) { explainBackendFailure(api); shutdown(1); return fail('The backend did not start', ['See the box above for the first problem.']) }
-  ok(`Backend is up at http://127.0.0.1:${API_PORT}`)
-  if (ui) {
     const uiUp = await waitFor('the interface', `http://127.0.0.1:${UI_PORT}/`, 90, () => ui.exitCode === null)
     if (!uiUp) { shutdown(1); return fail('The interface did not start', ['Scroll up for the error from the [ui] lines.']) }
     ok(`Interface is up at http://localhost:${UI_PORT}`)
