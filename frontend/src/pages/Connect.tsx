@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { checkConnection, getConfig, getLastConnection, getPresets, saveConfig, validateConfig } from '../api'
 import { ApiDocsPanel } from '../components/ApiDocsPanel'
 import { RawAnswerPanel } from '../components/RawAnswerPanel'
+import { TagFinder } from '../components/TagFinder'
 import { IssueList, Section, SettingField } from '../components/Fields'
 import { PageHeader } from '../components/PageHeader'
 import { useOverview } from '../components/OverviewContext'
@@ -90,6 +91,8 @@ export default function ConnectPage() {
           <SettingField key={f.key} field={f} value={draft[f.key] ?? ''} onChange={(v) => set(f.key, v)} issues={issuesFor(f.key)} />
         ))}
         {source === 'live' && <ApiDocsPanel values={draft} onUse={(patch) => { setDraft({ ...draft, ...patch }); toast('ok', 'Settings filled in from the documentation') }} />}
+        {(source === 'live' || source === 'stackexchange') && <TagFinder values={draft} chosen={(draft['sync.tags'] ?? '').split(',').map((x) => x.trim()).filter(Boolean)}
+          onAdd={(tag) => { const cur = (draft['sync.tags'] ?? '').split(',').map((x) => x.trim()).filter(Boolean); setDraft({ ...draft, 'sync.tags': [...cur, tag].join(',') }); toast('ok', `Added ${tag}`) }} />}
         {source === 'live' && <RawAnswerPanel values={draft} onUse={(patch) => setDraft({ ...draft, ...patch })} />}
         {source === 'fixture' && <Banner tone="info" title="Demo data needs nothing else">Sample questions are built into the app. Choose a real site above whenever you’re ready.</Banner>}
       </Section>

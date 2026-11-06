@@ -180,7 +180,8 @@ public final class StackExchangeAdapter implements SourceAdapter {
         if (pass >= passes) {
             return new Page<>(List.of(), null);
         }
-        String tagged = all ? String.join(";", tags) : tags.get(pass);
+        String tagged = (all ? String.join(";", tags) : tags.get(pass));
+        tagged = java.util.Arrays.stream(tagged.split(";")).map(t -> exactTags.getOrDefault(t, t)).collect(java.util.stream.Collectors.joining(";"));
 
         Map<String, String> params = new LinkedHashMap<>();
         if (serverTagFilter) {
@@ -201,6 +202,28 @@ public final class StackExchangeAdapter implements SourceAdapter {
         java.time.Instant since = Times.parse(modifiedSince).orElse(null);
 
         JsonNode root = listWithBodyFilter("/questions", params);
+        if (serverTagFilter && (site == null || site.isBlank()) && page == 1 && root.path("items").isArray() && root.path("items").isEmpty() && tagResolutionTried.add(tagged)) {
+            // Nothing found: an internal site may spell the tag differently (for example in capitals). Find its own spelling and ask again.
+            // The lookup is a convenience: if it fails for any reason the collection simply goes on with the empty answer.
+            try {
+                List<String> resolved = new ArrayList<>();
+                boolean changed = false;
+                for (String t : tagged.split(";")) {
+                    String exact = findExactTagName(t);
+                    resolved.add(exact == null ? t : exact);
+                    if (exact != null && !exact.equals(t)) {
+                        exactTags.put(t, exact);
+                        changed = true;
+                    }
+                }
+                if (changed) {
+                    params.put("tagged", String.join(";", resolved));
+                    root = listWithBodyFilter("/questions", params);
+                }
+            } catch (SourceException ignored) {
+                // keep the original (empty) answer
+            }
+        }
         List<QuestionSummary> items = new ArrayList<>();
         List<String> ids = new ArrayList<>();
         List<String> commentedQuestions = new ArrayList<>();
@@ -435,6 +458,143 @@ public final class StackExchangeAdapter implements SourceAdapter {
             answers.add(toAnswer(a, questionId));
         }
         return new Page<>(answers, root.path("has_more").asBoolean(false) ? "p:" + (page + 1) : null);
+    }
+
+    public record TagHit(String name, long count) {}
+
+    /**
+     * @param exists    a tag with this name was found on the site
+     * @param exactName the spelling the site uses (may differ in case from what was typed)
+     * @param count     number of questions with the tag, or -1 if the site did not say
+     * @param similar   other tags whose names resemble the one asked for (when it was not found)
+     * @param how       how it was found: "tag info", "tag list" or "question search"
+     */
+    public record TagCheck(boolean exists, String exactName, long count, List<TagHit> similar, String how) {}
+
+    private final Map<String, String> exactTags = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.Set<String> tagResolutionTried = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    private static String squash(String tag) {
+        return tag == null ? "" : tag.toLowerCase(java.util.Locale.ROOT).replaceAll("[\\s_-]+", "");
+    }
+
+    private static long countOf(JsonNode item) {
+        for (String field : new String[] {"count", "questions_count", "question_count", "questionCount", "total", "numQuestions", "uses"}) {
+            if (item.path(field).canConvertToLong() && item.has(field)) {
+                return item.get(field).asLong();
+            }
+        }
+        return -1;
+    }
+
+    /** Tags on the site whose names contain the text (the site's own spelling), best matches first. */
+    public List<TagHit> findTags(String text, int limit) throws SourceException {
+        String needle = squash(text);
+        List<TagHit> hits = new ArrayList<>();
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("inname", text.strip());
+        params.put("pagesize", String.valueOf(pageSize()));
+        for (int page = 1; page <= 5; page++) {
+            params.put("page", String.valueOf(page));
+            JsonNode root;
+            try {
+                root = call("/tags", params);
+            } catch (SourceException e) {
+                if (e.kind() == SourceException.Kind.AUTH_FAILED || e.kind() == SourceException.Kind.QUOTA_EXHAUSTED || e.kind() == SourceException.Kind.RATE_LIMITED
+                        || e.kind() == SourceException.Kind.TRANSIENT) {
+                    throw e;
+                }
+                if (params.remove("inname") != null) { // the site does not know that parameter: list tags and filter here
+                    page--;
+                    continue;
+                }
+                return hits;
+            }
+            for (JsonNode t : root.path("items")) {
+                String name = t.path("name").asText(t.path("tag_name").asText(""));
+                if (!name.isEmpty() && squash(name).contains(needle) && hits.stream().noneMatch(h -> h.name().equals(name))) {
+                    hits.add(new TagHit(name, countOf(t)));
+                }
+            }
+            if (!root.path("has_more").asBoolean(false) || hits.size() >= limit * 3) {
+                break;
+            }
+        }
+        hits.sort(java.util.Comparator.comparing((TagHit h) -> !squash(h.name()).equals(needle)).thenComparing(h -> -h.count()).thenComparing(TagHit::name));
+        return hits.size() > limit ? new ArrayList<>(hits.subList(0, limit)) : hits;
+    }
+
+    /**
+     * Does this tag exist on the site, and how does the site spell it? Tries the tag's own info (as typed and in other casings),
+     * then the site's tag list, and finally a real question search by that tag, which is what a collection does.
+     */
+    public TagCheck checkTag(String typed) throws SourceException {
+        String plain = typed == null ? "" : typed.strip();
+        String normalized = TagFilter.normalize(plain);
+        java.util.LinkedHashSet<String> variants = new java.util.LinkedHashSet<>(List.of(normalized, plain, plain.toUpperCase(java.util.Locale.ROOT),
+                plain.replaceAll("\\s+", "-"), plain.replaceAll("\\s+", "-").toUpperCase(java.util.Locale.ROOT)));
+        variants.removeIf(String::isBlank);
+        if (hasCapability("tagInfo")) {
+            for (String v : variants) {
+                try {
+                    JsonNode items = call("/tags/" + enc(v) + "/info", new LinkedHashMap<>()).path("items");
+                    if (items.isArray() && !items.isEmpty()) {
+                        String exact = items.get(0).path("name").asText(v);
+                        return new TagCheck(true, exact.isBlank() ? v : exact, countOf(items.get(0)), List.of(), "tag info");
+                    }
+                } catch (SourceException e) {
+                    if (e.kind() == SourceException.Kind.AUTH_FAILED || e.kind() == SourceException.Kind.QUOTA_EXHAUSTED || e.kind() == SourceException.Kind.TRANSIENT) {
+                        throw e;
+                    }
+                    // this variant is not known (or the endpoint objects to it): try the next way
+                }
+            }
+        }
+        List<TagHit> similar = List.of();
+        try {
+            similar = findTags(plain, 8);
+            for (TagHit h : similar) {
+                if (squash(h.name()).equals(squash(plain))) {
+                    return new TagCheck(true, h.name(), h.count(), similar, "tag list");
+                }
+            }
+        } catch (SourceException e) {
+            if (e.kind() == SourceException.Kind.AUTH_FAILED || e.kind() == SourceException.Kind.QUOTA_EXHAUSTED) {
+                throw e;
+            }
+        }
+        for (String v : variants) { // the same search a collection performs
+            Map<String, String> params = new LinkedHashMap<>();
+            params.put("tagged", v);
+            params.put("pagesize", String.valueOf(pageSize()));
+            try {
+                JsonNode root = call("/questions", params);
+                JsonNode items = root.path("items");
+                if (items.isArray() && !items.isEmpty()) {
+                    String exact = v;
+                    for (JsonNode q : items) {
+                        for (JsonNode t : q.path("tags")) {
+                            if (squash(t.asText()).equals(squash(v))) {
+                                exact = t.asText();
+                            }
+                        }
+                    }
+                    long total = root.path("total").canConvertToLong() && root.has("total") ? root.get("total").asLong() : -1;
+                    return new TagCheck(true, exact, total, similar, "question search");
+                }
+            } catch (SourceException e) {
+                if (e.kind() == SourceException.Kind.AUTH_FAILED || e.kind() == SourceException.Kind.QUOTA_EXHAUSTED || e.kind() == SourceException.Kind.TRANSIENT) {
+                    throw e;
+                }
+            }
+        }
+        return new TagCheck(false, null, -1, similar, null);
+    }
+
+    /** The site's own spelling of a tag, or null if it cannot be found. */
+    private String findExactTagName(String tag) throws SourceException {
+        TagCheck c = checkTag(tag);
+        return c.exists() ? c.exactName() : null;
     }
 
     /** Number of questions carrying the tag on the whole site (documented /tags/{tag}/info), or -1 when the tag does not exist. */

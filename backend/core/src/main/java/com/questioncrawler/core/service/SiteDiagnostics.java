@@ -537,6 +537,7 @@ public final class SiteDiagnostics {
         String quotaInfo;
         long tagQuestions = Long.MIN_VALUE;
         boolean tagChecked;
+        StackExchangeAdapter.TagCheck tagCheck;
         String tagError;
         List<String> candidateEndpoints = new ArrayList<>();
     }
@@ -561,7 +562,8 @@ public final class SiteDiagnostics {
                 if (!in.tags().isEmpty()) {
                     try {
                         d.tagChecked = true;
-                        d.tagQuestions = adapter.tagCount(in.tags().get(0));
+                        d.tagCheck = adapter.checkTag(in.tags().get(0));
+                        d.tagQuestions = d.tagCheck.exists() ? d.tagCheck.count() : -1;
                     } catch (SourceException e) {
                         d.tagError = e.getMessage();
                     }
@@ -734,7 +736,8 @@ public final class SiteDiagnostics {
                 if (!in.tags().isEmpty()) {
                     try {
                         d.tagChecked = true;
-                        d.tagQuestions = adapter.tagCount(in.tags().get(0));
+                        d.tagCheck = adapter.checkTag(in.tags().get(0));
+                        d.tagQuestions = d.tagCheck.exists() ? d.tagCheck.count() : -1;
                     } catch (SourceException e) {
                         d.tagError = e.getMessage();
                     }
@@ -862,13 +865,30 @@ public final class SiteDiagnostics {
         if (!in.sourceType().equals("stackexchange") && !d.restApi) {
             return stage("scope", title, q, "SKIPPED", "Checking that a tag exists needs the site's API, which is not connected yet.", facts, List.of(), t0);
         }
-        if (d.tagChecked && d.tagQuestions >= 0) {
-            return stage("scope", title, q, "PASS", "The tag '" + in.tags().get(0) + "' exists and has " + String.format("%,d", d.tagQuestions) + " question(s) on the site.",
-                    List.of(new Fact("Tag", in.tags().get(0)), new Fact("Questions with this tag (all time)", String.format("%,d", d.tagQuestions))), List.of(), t0);
+        if (d.tagChecked && d.tagCheck != null && d.tagCheck.exists()) {
+            String typed = in.tags().get(0);
+            String exact = d.tagCheck.exactName();
+            List<Fact> found = new ArrayList<>();
+            found.add(new Fact("Tag you chose", typed));
+            boolean differs = exact != null && !exact.equals(typed);
+            if (differs) {
+                found.add(new Fact("Exact name on the site", exact));
+            }
+            found.add(new Fact("Questions with this tag (all time)", d.tagCheck.count() >= 0 ? String.format("%,d", d.tagCheck.count()) : "yes, the count is not given"));
+            found.add(new Fact("Found by", d.tagCheck.how()));
+            return stage("scope", title, q, "PASS", "The tag '" + typed + "' exists on the site" + (differs ? " (the site writes it '" + exact + "'; that spelling is used automatically)" : "")
+                    + (d.tagCheck.count() >= 0 ? " and has " + String.format("%,d", d.tagCheck.count()) + " question(s)." : "."), found, List.of(), t0);
         }
         if (d.tagChecked) {
-            return stage("scope", title, q, "WARN", "The site has no tag named '" + in.tags().get(0) + "'.", facts,
-                    List.of(new Need("The exact tag name used on the site", "Tags use lowercase words joined by hyphens, for example artificial-intelligence.", "You")), t0);
+            List<Fact> notFound = new ArrayList<>(facts);
+            List<StackExchangeAdapter.TagHit> similar = d.tagCheck == null ? List.of() : d.tagCheck.similar();
+            if (!similar.isEmpty()) {
+                notFound.add(new Fact("Similar tags on the site", similar.stream().limit(8).map(h -> h.name() + (h.count() >= 0 ? " (" + String.format("%,d", h.count()) + ")" : "")).collect(java.util.stream.Collectors.joining(", "))));
+            }
+            return stage("scope", title, q, "WARN", "We could not find a tag named '" + in.tags().get(0) + "' on the site" + (similar.isEmpty() ? "." : ", but similar tags exist (listed below)."), notFound,
+                    List.of(new Need("The exact tag name used on the site", similar.isEmpty()
+                            ? "We tried the name in several spellings, the site's tag list and a real question search. On the Connect screen use 'Find tags on the site' to search the site's own list, or ask the site owners for the exact name."
+                            : "Pick one of the similar tags with 'Find tags on the site' on the Connect screen.", "You")), t0);
         }
         return stage("scope", title, q, "INFO", "Could not check the tag" + (d.tagError == null ? "." : ": " + d.tagError), facts, List.of(), t0);
     }

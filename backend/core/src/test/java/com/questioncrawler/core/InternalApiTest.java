@@ -67,6 +67,9 @@ class InternalApiTest {
     volatile boolean rejectTagged = false;
     final java.util.concurrent.atomic.AtomicInteger rejected = new java.util.concurrent.atomic.AtomicInteger();
     volatile String redirectMode = "off"; // off | same-host | no-query | cross-host | loop | login | login-keycloak
+    volatile boolean tagInfoBroken = false; // /tags/{t}/info answers 404
+    volatile boolean tagsBroken = false; // /tags answers 404
+    static final Map<String, Integer> TAGS = new LinkedHashMap<>(Map.of("ai", 2, "ml", 1, "gpu", 1, "finance", 1, "CASC", 7, "casc-prod", 3));
     volatile boolean redirectRootOnly = false; // only the bare API address redirects (like a website behind SSO whose API is open)
     volatile String needBearer = "off"; // off | text | json: the API also wants "Authorization: Bearer API-TOKEN"
     final List<String> authSeen = Collections.synchronizedList(new ArrayList<>());
@@ -203,9 +206,24 @@ class InternalApiTest {
                     sendJson(ex, 200, wrap(List.of(Map.of("comment_id", 9001, "post_id", 101, "body", "Which version are you on?", "creation_date", 1_700_000_100L, "owner", Map.of("display_name", "sam"))), false), true);
             case "/answers/201/comments", "/answers/201;202/comments", "/answers/202;201/comments" ->
                     sendJson(ex, 200, wrap(List.of(Map.of("comment_id", 9002, "post_id", 201, "body", "Thanks, that fixed it", "creation_date", 1_700_000_200L, "owner", Map.of("display_name", "li"))), false), true);
+            case "/tags" -> {
+                if (tagsBroken) {
+                    sendJson(ex, 404, Map.of("error_id", 404, "error_name", "no_method", "error_message", "no such method"), true);
+                    return;
+                }
+                String inname = q.getOrDefault("inname", "").toLowerCase();
+                List<Map<String, Object>> tags = new ArrayList<>();
+                TAGS.forEach((name, count) -> { if (name.toLowerCase().contains(inname)) tags.add(Map.of("name", name, "count", count)); });
+                sendJson(ex, 200, wrap(tags, false), true);
+            }
             default -> {
                 if (api.startsWith("/tags/") && api.endsWith("/info")) {
-                    sendJson(ex, 200, wrap(List.of(Map.of("name", api.split("/")[2], "count", 3)), false), true);
+                    if (tagInfoBroken) {
+                        sendJson(ex, 404, Map.of("error_id", 404, "error_name", "no_method", "error_message", "no such method"), true);
+                        return;
+                    }
+                    String name = api.split("/")[2]; // case-sensitive, like a site that stores tags as typed
+                    sendJson(ex, 200, wrap(TAGS.containsKey(name) ? List.of(Map.of("name", name, "count", TAGS.get(name))) : List.of(), false), true);
                 } else {
                     sendJson(ex, 404, Map.of("error_id", 404, "error_name", "no_method", "error_message", "no such method"), true);
                 }
@@ -234,6 +252,7 @@ class InternalApiTest {
         List<Map<String, Object>> all = new ArrayList<>();
         all.add(question(101, "How do I fine-tune a transformer model?", List.of("ai", "ml"), 1_700_000_000L, 1_700_000_500L, 1, 1, withBody, "I want to fine-tune a <b>transformer</b>; loss does not drop.<pre><code>trainer.train()</code></pre>"));
         all.add(question(102, "GPU memory error while training", List.of("ai", "gpu"), 1_700_100_000L, 1_700_100_500L, 1, 0, withBody, "CUDA out of memory when training the network."));
+        all.add(question(104, "How does CASC token refresh work?", List.of("CASC", "platform"), 1_700_300_000L, 1_700_300_500L, 0, 0, withBody, "Question about the CASC service."));
         all.add(question(103, "Quarterly budget template", List.of("finance"), 1_700_200_000L, 1_700_200_500L, 0, 0, withBody, "Where is the budget spreadsheet?"));
         String tagged = q.get("tagged");
         List<Map<String, Object>> out = new ArrayList<>();
@@ -1110,5 +1129,86 @@ class InternalApiTest {
         assertTrue(access.summary().contains("REST API accepts our access key"), access.summary());
         assertTrue(access.facts().stream().anyMatch(f -> f.label().equals("Sign-in system") && f.value().equals("Keycloak")), "what the website uses is still shown");
         assertEquals("REST_API", report.route().kind());
+    }
+
+    // ------------------------------------------------------------------ finding the tag that really exists
+    private com.questioncrawler.core.source.StackExchangeAdapter adapter() throws Exception {
+        return (com.questioncrawler.core.source.StackExchangeAdapter) config("").createAdapter(env());
+    }
+
+    @Test
+    void aTagTheSiteSpellsInCapitalsIsFoundWithItsExactNameAndCount() throws Exception {
+        var check = adapter().checkTag("casc");
+        assertTrue(check.exists());
+        assertEquals("CASC", check.exactName());
+        assertEquals(7, check.count());
+        assertEquals("tag info", check.how());
+    }
+
+    @Test
+    void theTagIsStillFoundWhenTheTagInfoEndpointDoesNotHelp() throws Exception {
+        tagInfoBroken = true;
+        var viaList = adapter().checkTag("casc");
+        assertTrue(viaList.exists());
+        assertEquals("CASC", viaList.exactName());
+        assertEquals("tag list", viaList.how());
+
+        tagsBroken = true; // neither tag endpoint works: a real question search still tells
+        var viaSearch = adapter().checkTag("casc");
+        assertTrue(viaSearch.exists(), "found by asking for questions with that tag, like a collection does");
+        assertEquals("CASC", viaSearch.exactName());
+        assertEquals("question search", viaSearch.how());
+    }
+
+    @Test
+    void aTagThatIsNotThereOffersSimilarOnes() throws Exception {
+        var check = adapter().checkTag("cas");
+        assertFalse(check.exists());
+        assertEquals(List.of("CASC", "casc-prod"), check.similar().stream().map(h -> h.name()).sorted().toList());
+        assertTrue(check.similar().stream().anyMatch(h -> h.name().equals("CASC") && h.count() == 7));
+    }
+
+    @Test
+    void collectingUsesTheSitesOwnSpellingWhenTheTypedTagFindsNothing() throws Exception {
+        CoreConfig c = config("sync.tags=casc\n");
+        KnowledgeBase kb = new KnowledgeBase(c, c.createAdapter(env()), null, Clock.systemUTC());
+        SyncReport r = kb.sync(options(c));
+        assertEquals(SyncReport.COMPLETE, r.outcome(), r.abortReason());
+        assertEquals(1, r.added(), "question 104 carries the tag CASC");
+        assertTrue(requests.stream().anyMatch(x -> x.startsWith("/api/2.3/questions?") && x.contains("tagged=casc")), "first asked as typed");
+        assertTrue(requests.stream().anyMatch(x -> x.startsWith("/api/2.3/questions?") && x.contains("tagged=CASC")), "then with the site's spelling: " + requests);
+        assertTrue(kb.store().loadThread("internal-qa", "104").isPresent());
+    }
+
+    @Test
+    void theTagFinderOnTheConnectScreenReturnsTheSitesOwnNames() throws Exception {
+        var found = workspace("t1", env()).searchTags(draft(), "casc");
+        assertTrue(found.ok(), found.problem());
+        assertEquals("CASC", found.exact());
+        assertTrue(found.spellingDiffers());
+        assertEquals("CASC", found.tags().get(0).name(), "the exact match first");
+        assertEquals(7, found.tags().get(0).count());
+        assertTrue(found.tags().stream().anyMatch(t -> t.name().equals("casc-prod")));
+        assertFalse(workspace("t2", env()).searchTags(draft(), "  ").ok());
+        assertFalse(workspace("t3", env()).searchTags(Map.of("source.type", "fixture"), "casc").ok());
+        var none = workspace("t4", env()).searchTags(draft(), "zzzz");
+        assertTrue(none.ok() && none.tags().isEmpty() && none.problem().contains("No tag on the site looks like"), none.toString());
+    }
+
+    @Test
+    void theTopicStepShowsTheExactNameOrSimilarTags() throws Exception {
+        Map<String, String> found = new LinkedHashMap<>(draft());
+        found.put("sync.tags", "casc");
+        found.put("api.swaggerUrl", origin + "/swagger/index.html");
+        var ok = workspace("t5", env()).checkConnection(found).stages().stream().filter(x -> x.id().equals("scope")).findFirst().orElseThrow();
+        assertEquals("PASS", ok.status(), ok.summary());
+        assertTrue(ok.summary().contains("the site writes it 'CASC'"), ok.summary());
+        assertTrue(ok.facts().stream().anyMatch(f -> f.label().equals("Exact name on the site") && f.value().equals("CASC")));
+
+        found.put("sync.tags", "cas");
+        var missing = workspace("t6", env()).checkConnection(found).stages().stream().filter(x -> x.id().equals("scope")).findFirst().orElseThrow();
+        assertEquals("WARN", missing.status());
+        assertTrue(missing.facts().stream().anyMatch(f -> f.label().equals("Similar tags on the site") && f.value().contains("CASC (7)")), missing.facts().toString());
+        assertTrue(missing.needs().get(0).why().contains("Find tags on the site"));
     }
 }

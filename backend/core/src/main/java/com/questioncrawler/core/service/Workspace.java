@@ -357,6 +357,42 @@ public final class Workspace {
         }
     }
 
+    public record TagSearch(boolean ok, String problem, List<com.questioncrawler.core.source.StackExchangeAdapter.TagHit> tags, String exact, boolean spellingDiffers) {}
+
+    /** Looks up tags on the site by a few letters, with the site's own spelling and counts. Uses what is currently typed on the Connect screen. */
+    public TagSearch searchTags(Map<String, String> draft, String text) {
+        if (text == null || text.isBlank()) {
+            return new TagSearch(false, "Type a few letters of the tag you are looking for.", List.of(), null, false);
+        }
+        Map<String, String> v = configService.read(configFile);
+        if (draft != null) {
+            v.putAll(draft);
+        }
+        String type = v.getOrDefault("source.type", "fixture");
+        if (!type.equals("live") && !type.equals("stackexchange")) {
+            return new TagSearch(false, "Tags can be looked up on a real site only. Choose a site first.", List.of(), null, false);
+        }
+        try {
+            CoreConfig config = CoreConfig.load(null, v);
+            var adapter = config.createAdapter(env);
+            if (!(adapter instanceof com.questioncrawler.core.source.StackExchangeAdapter api)) {
+                return new TagSearch(false, "Tags can be looked up on a real site only.", List.of(), null, false);
+            }
+            var check = api.checkTag(text);
+            List<com.questioncrawler.core.source.StackExchangeAdapter.TagHit> hits = new ArrayList<>(api.findTags(text, 20));
+            String exact = check.exists() ? check.exactName() : null;
+            if (exact != null && hits.stream().noneMatch(h -> h.name().equals(exact))) {
+                hits.add(0, new com.questioncrawler.core.source.StackExchangeAdapter.TagHit(exact, check.count()));
+            }
+            return new TagSearch(true, hits.isEmpty() ? "No tag on the site looks like '" + text.strip() + "'. Check the spelling, or ask the site owners." : null, hits, exact,
+                    exact != null && !exact.equals(text.strip()));
+        } catch (com.questioncrawler.core.source.SourceException e) {
+            return new TagSearch(false, e.getMessage(), List.of(), null, false);
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return new TagSearch(false, e.getMessage(), List.of(), null, false);
+        }
+    }
+
     /** Where an uploaded copy of the documentation is kept: next to the settings file. */
     public Path apiDocsFile() {
         Path dir = configFile.toAbsolutePath().getParent();

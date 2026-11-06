@@ -51,6 +51,16 @@ and what to check. Your key is never shown (it appears as `•••`). **Copy t
 
 Responses with a byte-order mark or a security prefix such as `)]}',` are cleaned automatically and are not an error.
 
+## "The site has no tag named ..." (finding the exact tag name)
+The tag you typed may exist on the site under a slightly different name (capitals such as `CASC`, hyphens, another spelling), or the site's tag-info endpoint may answer differently from the standard one.
+The check no longer relies on one lookup. It tries, in order: the tag's own info (as typed and in other spellings), the site's **tag list** (searching by a few letters), and finally a real
+**question search** by that tag (what a collection does). It reports how it was found and the **exact name the site uses**.
+
+- **Connect screen: Find tags on the site.** Type a few letters (`casc`), and click the tag you mean. You see the site's own spelling and the number of questions of each tag.
+- **Collecting uses the site's spelling automatically.** If asking for `casc` returns nothing, the app looks up how the site writes it (`CASC`) and asks again, so you can type the tag either way.
+- **When nothing matches**, the *Your topic* step lists similar tags on the site instead of just saying "no such tag".
+- If the tag list itself is not readable (an endpoint the site does not offer), the question search is still tried; if that also finds nothing, check the spelling with the site owners and whether your key can see questions with that tag.
+
 ## "The site sends visitors to a sign-in page" (single sign-on)
 A program cannot complete a browser sign-in (redirects, an SSO page, MFA), and this app deliberately does not try to get around one. The sign-in step and the raw-answer card
 name the system they end at (Microsoft Entra ID / Azure AD, AD FS, Okta, Keycloak, Auth0, Ping, SAML, ... ) and say what a program needs from it.

@@ -28,6 +28,8 @@ public class SettingsController {
 
     public record ContentRequest(String content) {}
 
+    public record TagSearchRequest(Map<String, String> values, String q) {}
+
     public record ProbeRequest(Map<String, String> values, String path) {}
 
     public record TryRequest(Taxonomy taxonomy, String title, String body, List<String> tags) {}
@@ -75,6 +77,12 @@ public class SettingsController {
     @PostMapping("/api-docs/probe")
     public Workspace.ApiProbe probeApi(@RequestBody(required = false) ProbeRequest request) {
         return request == null ? workspace.probeApi(Map.of(), null) : workspace.probeApi(request.values() == null ? Map.of() : request.values(), request.path());
+    }
+
+    /** Finds tags on the site by a few letters (the site's own spelling and counts). */
+    @PostMapping("/tags/search")
+    public Workspace.TagSearch searchTags(@RequestBody(required = false) TagSearchRequest request) {
+        return request == null ? workspace.searchTags(Map.of(), null) : workspace.searchTags(request.values() == null ? Map.of() : request.values(), request.q());
     }
 
     // ---- connection check

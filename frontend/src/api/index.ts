@@ -1,5 +1,5 @@
 import type {
-  ApiDocsResult, ApiProbe, SavedDocs, CategoryListing, CategorySummary, ConfigView, ConnectionReport, Issue, Overview, Preset, SaveResult, SearchResponse,
+  ApiDocsResult, ApiProbe, TagSearch, SavedDocs, CategoryListing, CategorySummary, ConfigView, ConnectionReport, Issue, Overview, Preset, SaveResult, SearchResponse,
   SyncReport, SyncState, Taxonomy, TaxonomyView, ThreadView, TopicProposal, TryResult,
 } from '../types/api'
 import { del, get, post, put } from './client'
@@ -52,3 +52,4 @@ export const discoverApiDocs = (values: Record<string, string>) => post<ApiDocsR
 export const discoverTopics = (k: number) => post<TopicProposal>('/topics/discover', { k })
 export const uploadApiDocs = (content: string) => post<SavedDocs>('/api-docs/file', { content })
 export const probeApi = (values: Record<string, string>, path: string) => post<ApiProbe>('/api-docs/probe', { values, path })
+export const searchTags = (values: Record<string, string>, q: string) => post<TagSearch>('/tags/search', { values, q })
