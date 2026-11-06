@@ -69,6 +69,8 @@ class InternalApiTest {
     volatile String redirectMode = "off"; // off | same-host | no-query | cross-host | loop | login | login-keycloak
     volatile boolean tagInfoBroken = false; // /tags/{t}/info answers 404
     volatile boolean tagsBroken = false; // /tags answers 404
+    volatile boolean manyTags = false; // the site has 250 tags (6 + 244), served in pages
+    volatile int tagsFailFromPage = 0; // /tags answers 404 from this page on (0 = never)
     static final Map<String, Integer> TAGS = new LinkedHashMap<>(Map.of("ai", 2, "ml", 1, "gpu", 1, "finance", 1, "CASC", 7, "casc-prod", 3));
     volatile boolean redirectRootOnly = false; // only the bare API address redirects (like a website behind SSO whose API is open)
     volatile String needBearer = "off"; // off | text | json: the API also wants "Authorization: Bearer API-TOKEN"
@@ -212,9 +214,21 @@ class InternalApiTest {
                     return;
                 }
                 String inname = q.getOrDefault("inname", "").toLowerCase();
+                int size = Integer.parseInt(q.getOrDefault("pagesize", "100"));
+                int pageNo = Integer.parseInt(q.getOrDefault("page", "1"));
+                if (tagsFailFromPage > 0 && pageNo >= tagsFailFromPage) {
+                    sendJson(ex, 404, Map.of("error_id", 404, "error_name", "no_method", "error_message", "no such page"), true);
+                    return;
+                }
+                Map<String, Integer> catalogue = new LinkedHashMap<>(TAGS);
+                if (manyTags) {
+                    for (int i = 1; i <= 244; i++) catalogue.put(String.format("tag-%03d", i), (i % 5) + 1);
+                }
                 List<Map<String, Object>> tags = new ArrayList<>();
-                TAGS.forEach((name, count) -> { if (name.toLowerCase().contains(inname)) tags.add(Map.of("name", name, "count", count)); });
-                sendJson(ex, 200, wrap(tags, false), true);
+                catalogue.forEach((name, count) -> { if (name.toLowerCase().contains(inname)) tags.add(Map.of("name", name, "count", count)); });
+                int from = Math.min(tags.size(), (pageNo - 1) * size);
+                int to = Math.min(tags.size(), from + size);
+                sendJson(ex, 200, wrap(tags.subList(from, to), to < tags.size()), true);
             }
             default -> {
                 if (api.startsWith("/tags/") && api.endsWith("/info")) {
@@ -1268,5 +1282,59 @@ class InternalApiTest {
         assertTrue(refused.problem().toLowerCase().contains("https") || refused.problem().toLowerCase().contains("unencrypted") || refused.problem().toLowerCase().contains("not allowed"), refused.problem());
         var searched = workspace("tr2", env()).searchTags(Map.of("source.type", "live", "source.baseUrl", origin + "/api/2.3", "api.keyEnv", "INTERNAL_KEY"), "casc");
         assertFalse(searched.ok(), searched.toString());
+    }
+
+    // ------------------------------------------------------------------ every tag, not just the first hundred
+    private long tagRequests() {
+        return requests.stream().filter(x -> x.startsWith("/api/2.3/tags?") && !x.contains("inname")).count();
+    }
+
+    @Test
+    void everyTagOfALargeSiteIsListedPageByPage() throws Exception {
+        manyTags = true;
+        var all = workspace("tl1", env()).searchTags(draft(), "");
+        assertTrue(all.ok() && all.allTags(), all.problem());
+        assertEquals(250, all.tags().size(), "all 250 tags, not 100");
+        assertFalse(all.truncated());
+        assertEquals("CASC", all.tags().get(0).name(), "most used first");
+        assertTrue(all.tags().stream().anyMatch(t -> t.name().equals("tag-244")), "even the last page");
+        assertEquals(250, all.tags().stream().map(t -> t.name()).distinct().count(), "no tag twice");
+        assertEquals(3, tagRequests(), "100 + 100 + 50");
+    }
+
+    @Test
+    void theSitesOwnPageSizeRuleIsRespectedWhileReadingAllTags() throws Exception {
+        manyTags = true;
+        allowedSizes = List.of(15, 30);
+        var all = workspace("tl2", env()).searchTags(draft(), "all");
+        assertTrue(all.ok(), all.problem());
+        assertEquals(250, all.tags().size());
+        assertTrue(requests.stream().anyMatch(x -> x.startsWith("/api/2.3/tags?") && x.contains("pagesize=30")), "learned page size 30");
+    }
+
+    @Test
+    void thePageLimitAndATimeBudgetStopEarlyAndSaySo() throws Exception {
+        manyTags = true;
+        var adapter = adapter();
+        var two = adapter.listAllTags(2, 60_000);
+        assertEquals(200, two.tags().size());
+        assertFalse(two.complete(), "the site has more");
+        var none = adapter.listAllTags(500, -1);
+        assertTrue(none.tags().isEmpty() && !none.complete(), "no time left: nothing was asked");
+    }
+
+    @Test
+    void aPageThatFailsLaterKeepsWhatWasReadButTheFirstPageFailingIsAnError() throws Exception {
+        manyTags = true;
+        tagsFailFromPage = 3;
+        var partial = workspace("tl3", env()).searchTags(draft(), "");
+        assertTrue(partial.ok(), partial.problem());
+        assertEquals(200, partial.tags().size());
+        assertTrue(partial.truncated(), "marked incomplete so the screen can say so");
+
+        tagsFailFromPage = 0;
+        tagsBroken = true;
+        var broken = workspace("tl4", env()).searchTags(draft(), "");
+        assertFalse(broken.ok(), "nothing could be read: a problem, not an empty list");
     }
 }

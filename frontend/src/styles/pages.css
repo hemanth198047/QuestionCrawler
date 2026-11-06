@@ -204,3 +204,15 @@ button.rm-node:hover { background: var(--bg-sunken); }
 /* ---------- all tags ---------- */
 .all-tags { display: flex; align-items: center; gap: 14px; margin-top: 16px; padding: 12px 16px; border: 1px dashed var(--line-strong); border-radius: var(--r-md); color: var(--ink-2); }
 .all-tags svg { color: var(--brand); flex: none; } .all-tags.on { border-style: solid; border-color: var(--brand-100); background: var(--brand-50); }
+
+/* ---------- scrollable tag list ---------- */
+.taglist { display: grid; gap: 10px; }
+.taglist-tools { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.taglist-filter { display: flex; align-items: center; gap: 8px; padding: 0 12px; height: 40px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-md); flex: 1; min-width: 220px; max-width: 360px; color: var(--ink-3); }
+.taglist-filter:focus-within { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-50); } .taglist-filter input { border: 0; outline: 0; background: transparent; flex: 1; font: inherit; color: var(--ink); }
+.taglist-scroll { overflow-y: auto; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); position: relative; }
+.taglist-scroll:focus-visible { outline: 2px solid var(--brand); }
+.tagrow { position: absolute; left: 0; right: 0; display: flex; align-items: center; gap: 14px; padding: 0 16px; border: 0; border-bottom: 1px solid var(--line); background: transparent; cursor: pointer; text-align: left; font: inherit; color: var(--ink); }
+.tagrow:hover:not(:disabled) { background: var(--brand-50); } .tagrow.taken { color: var(--ink-3); cursor: default; background: var(--bg-sunken); }
+.tagrow-name { flex: 1; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .tagrow-count { color: var(--ink-3); font-variant-numeric: tabular-nums; min-width: 54px; text-align: right; }
+.tagrow-act { color: var(--brand); font-size: 12.5px; font-weight: 600; min-width: 64px; text-align: right; } .tagrow.taken .tagrow-act { color: var(--ok); }

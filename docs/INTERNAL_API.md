@@ -56,7 +56,7 @@ Type the tag **`all`** (or `*`) to collect **every question on the site, whateve
 
 - It is **not** done tag by tag: the site is asked for questions *without* a tag filter. That is faster, uses far fewer requests, and downloads each question once, even though a question has several tags.
 - If you type `all` together with other tags, `all` wins (the other tags would add nothing).
-- **Find tags on the site → Show all tags** lists the site's tags, most used first, with their question counts and (when the site says) how many questions it holds in total.
+- **Find tags on the site → Show all tags** reads **every page** of the site's tag list and shows all of them in a scrollable window, with their question counts and (when the site says) how many questions it holds in total. Use the filter box to narrow the list, switch between *Most used* and *A–Z*, click a tag to add it, or **Copy list** to take the whole list (name and count) elsewhere. The window draws only the rows in view, so thousands of tags stay smooth. Reading stops (and the screen says so) after 500 pages or two minutes, or if a later page fails; whatever was read is kept.
 - *Check access* ("Your topic") says how many questions the whole site holds, and advises a time window when that is large (over 20,000). **Start with a time window** such as 1 year, then widen it.
 - On a **public Stack Exchange site** (for example stackoverflow.com) `all` is refused unless you choose a time window: it would be millions of questions and would use up the request allowance.
 - A real tag literally named "all" cannot be requested by that name (it means every tag); use the site's tag finder to see if one exists.

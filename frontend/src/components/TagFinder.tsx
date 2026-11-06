@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { searchTags } from '../api'
 import type { TagSearch } from '../types/api'
 import { Banner, Button, Card } from './ui'
+import { TagList } from './TagList'
 
 /** Looks tags up on the site itself, so the exact name (and its spelling) never has to be guessed. */
 export function TagFinder({ values, chosen, onAdd, onUseAll }: { values: Record<string, string>; chosen: string[]; onAdd: (tag: string) => void; onUseAll: () => void }) {
@@ -43,14 +44,22 @@ export function TagFinder({ values, chosen, onAdd, onUseAll }: { values: Record<
       {result && result.ok && (
         <div className="stack-sm" style={{ marginTop: 16 }}>
           {result.problem && <Banner tone="warn">{result.problem}</Banner>}
-          {result.allTags && <p className="small"><b>{result.tags.length}{result.truncated ? '+' : ''} tags</b>, most used first{result.siteQuestions >= 0 ? <>. The site holds about <b>{result.siteQuestions.toLocaleString()}</b> question{result.siteQuestions === 1 ? '' : 's'} in total.</> : '.'}{result.truncated ? ' Showing the first 100: use “Find tags” to look for a specific one.' : ''}</p>}
-          {result.spellingDiffers && result.exact && <Banner tone="info" title={`The site writes this tag “${result.exact}”`}>You can type it either way: the site&apos;s own spelling is used automatically when collecting.</Banner>}
-          <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
-            {result.tags.map((t) => (
-              <button key={t.name} type="button" className={`chip${isChosen(t.name) ? ' active' : ''}`} disabled={isChosen(t.name)} onClick={() => onAdd(t.name)}
-                title={isChosen(t.name) ? 'Already chosen' : 'Click to add'}>{t.name}{t.count >= 0 ? ` · ${t.count.toLocaleString()}` : ''}{isChosen(t.name) ? ' ✓' : ''}</button>))}
-          </div>
-          {result.tags.length > 0 && <p className="muted small">Click a tag to add it to your tags above.</p>}
+          {result.allTags && (
+            <>
+              <p className="small">The site lists <b>{result.tags.length.toLocaleString()}{result.truncated ? '+' : ''} tags</b>{result.siteQuestions >= 0 ? <> and holds about <b>{result.siteQuestions.toLocaleString()}</b> question{result.siteQuestions === 1 ? '' : 's'} in total.</> : '.'}</p>
+              {result.truncated && <Banner tone="warn" title="Not every tag could be loaded">The site has more tags than were read (the reading stopped early, for example because of a limit or a slow answer). Use “Find tags” to look for a specific one.</Banner>}
+              {result.tags.length > 0 && <TagList tags={result.tags} chosen={chosen} onAdd={onAdd} />}
+            </>)}
+          {!result.allTags && (
+            <>
+              {result.spellingDiffers && result.exact && <Banner tone="info" title={`The site writes this tag “${result.exact}”`}>You can type it either way: the site&apos;s own spelling is used automatically when collecting.</Banner>}
+              <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+                {result.tags.map((t) => (
+                  <button key={t.name} type="button" className={`chip${isChosen(t.name) ? ' active' : ''}`} disabled={isChosen(t.name)} onClick={() => onAdd(t.name)}
+                    title={isChosen(t.name) ? 'Already chosen' : 'Click to add'}>{t.name}{t.count >= 0 ? ` · ${t.count.toLocaleString()}` : ''}{isChosen(t.name) ? ' ✓' : ''}</button>))}
+              </div>
+              {result.tags.length > 0 && <p className="muted small">Click a tag to add it to your tags above.</p>}
+            </>)}
         </div>)}
     </Card>
   )

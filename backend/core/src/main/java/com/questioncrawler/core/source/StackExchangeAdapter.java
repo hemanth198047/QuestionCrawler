@@ -488,6 +488,50 @@ public final class StackExchangeAdapter implements SourceAdapter {
         return -1;
     }
 
+    /** @param complete false when the site has more tags than were read (a page limit, the time limit, or a failing page) */
+    public record TagListing(List<TagHit> tags, boolean complete) {}
+
+    /**
+     * EVERY tag the site lists, most used first: all pages are read (not just the first few). Stops early, and says so, if it hits the page limit
+     * or the time budget, or if a later page fails; a failure on the very first page is an error.
+     */
+    public TagListing listAllTags(int maxPages, long budgetMillis) throws SourceException {
+        long deadline = System.currentTimeMillis() + budgetMillis;
+        Map<String, TagHit> byName = new java.util.LinkedHashMap<>();
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("pagesize", String.valueOf(pageSize()));
+        boolean complete = false;
+        for (int page = 1; page <= maxPages; page++) {
+            if (System.currentTimeMillis() > deadline) {
+                break;
+            }
+            params.put("page", String.valueOf(page));
+            params.put("pagesize", String.valueOf(pageSize())); // may have been corrected by the site's own page-size rule
+            JsonNode root;
+            try {
+                root = call("/tags", params);
+            } catch (SourceException e) {
+                if (page == 1 || e.kind() == SourceException.Kind.AUTH_FAILED || e.kind() == SourceException.Kind.QUOTA_EXHAUSTED) {
+                    throw e;
+                }
+                break; // keep what was read; the listing is marked incomplete
+            }
+            for (JsonNode t : root.path("items")) {
+                String name = t.path("name").asText(t.path("tag_name").asText(""));
+                if (!name.isEmpty()) {
+                    byName.putIfAbsent(name, new TagHit(name, countOf(t)));
+                }
+            }
+            if (!root.path("has_more").asBoolean(false) || !root.path("items").isArray() || root.path("items").isEmpty()) {
+                complete = true;
+                break;
+            }
+        }
+        List<TagHit> tags = new ArrayList<>(byName.values());
+        tags.sort(java.util.Comparator.comparingLong((TagHit h) -> -h.count()).thenComparing(TagHit::name));
+        return new TagListing(tags, complete);
+    }
+
     /** Tags on the site whose names contain the text (the site's own spelling), best matches first. */
     public List<TagHit> findTags(String text, int limit) throws SourceException {
         String needle = squash(text);

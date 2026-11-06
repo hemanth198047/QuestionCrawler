@@ -382,7 +382,8 @@ public final class Workspace {
                 return new TagSearch(false, "Tags can be looked up on a real site only.", List.of(), null, false);
             }
             if (browse) { // every tag of the site, most used first, and how many questions the whole site holds
-                var all = api.findTags("", 100);
+                var listing = api.listAllTags(500, 120_000); // every page: up to 500 pages or two minutes
+                var all = listing.tags();
                 long size = -1;
                 try {
                     size = api.siteQuestionCount(); // nice to have: the tag list is the result, so a failure here must not hide it
@@ -390,7 +391,7 @@ public final class Workspace {
                     // the size is simply not shown
                 }
                 return new TagSearch(true, all.isEmpty() ? "The site did not list any tags. You can still collect everything with the tag 'all'." : null, all, null, false,
-                        true, size, all.size() >= 100);
+                        true, size, !listing.complete());
             }
             var check = api.checkTag(text);
             List<com.questioncrawler.core.source.StackExchangeAdapter.TagHit> hits = new ArrayList<>(api.findTags(text, 20));
