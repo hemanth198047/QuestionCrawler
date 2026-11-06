@@ -67,6 +67,7 @@ final class TextFormat {
             if (e.accepted()) sb.append("   ACCEPTED");
             sb.append("   votes ").append(e.votes() == null ? "unknown" : e.votes()).append('\n');
             sb.append("    Title: ").append(e.title()).append('\n');
+            sb.append("    Author: ").append(e.author() == null ? "unknown" : e.author()).append('\n');
             sb.append("    Categories: ").append(String.join(", ", e.categoryNames())).append('\n');
             sb.append("    Source: ").append(e.sourceUrl() == null ? "unknown" : e.sourceUrl()).append('\n');
             sb.append("    Created: ").append(e.createdAt() == null ? "unknown" : e.createdAt())

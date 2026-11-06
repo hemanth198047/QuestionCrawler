@@ -55,7 +55,7 @@ export interface AgeFilter { maxQuestionAge: string | null; minQuestionAge: stri
 export interface Evidence {
   rank: number; type: 'question' | 'answer'; questionId: string; answerId: string | null; title: string; passage: string
   sourceUrl: string | null; questionUrl: string | null; categories: string[]; categoryNames: string[]; tags: string[]
-  accepted: boolean; votes: number | null; createdAt: string | null; questionCreatedAt: string | null
+  accepted: boolean; votes: number | null; author: string | null; createdAt: string | null; questionCreatedAt: string | null
   sourceModifiedAt: string | null; lastSyncedAt: string | null; score: number; termCoverage: number
   threadStatus: string; flags: string[]; untrusted: boolean
 }

@@ -71,6 +71,7 @@ class SearchTest {
         assertEquals("1001", answer.questionId());
         assertTrue(answer.accepted());
         assertEquals(12, answer.votes());
+        assertEquals("dana", answer.author());
         assertEquals("2025-01-12T08:00:00Z", answer.sourceModifiedAt());
         assertNotNull(answer.lastSyncedAt());
         assertFalse(answer.categories().isEmpty());
@@ -101,6 +102,12 @@ class SearchTest {
                 .count();
         assertTrue(answersOn1001 >= 2, "expected multiple answers for question 1001, got " + answersOn1001
                 + " in " + r.evidence().stream().map(e -> e.type() + ":" + e.answerId()).toList());
+        // Each answer keeps its own author so Explore can name who wrote it.
+        var authors = r.evidence().stream()
+                .filter(e -> "1001".equals(e.questionId()) && "answer".equals(e.type()))
+                .map(Evidence::author)
+                .toList();
+        assertTrue(authors.contains("dana") && authors.contains("li"), "expected distinct answer authors, got " + authors);
     }
 
     @Test

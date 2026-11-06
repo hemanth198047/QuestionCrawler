@@ -74,6 +74,8 @@ class ApiShapeTest {
         assertEquals("alice", ApiJson.owner(json("{\"owner\":{\"display_name\":\"alice\"}}")));
         assertEquals("alice", ApiJson.owner(json("{\"owner\":{\"name\":\"alice\"}}")));
         assertEquals("alice", ApiJson.owner(json("{\"author\":{\"displayName\":\"alice\"}}")));
+        assertEquals("alice", ApiJson.owner(json("{\"display_name\":\"alice\"}")));
+        assertNull(ApiJson.owner(json("{\"owner\":{\"display_name\":\"\"}}")));
         assertEquals(3, ApiJson.integer(json("{\"votes\":3}"), "score", "votes"));
         assertTrue(ApiJson.bool(json("{\"isAccepted\":true}"), "is_accepted", "isAccepted"));
     }

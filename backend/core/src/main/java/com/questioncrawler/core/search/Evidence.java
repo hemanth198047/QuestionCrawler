@@ -21,6 +21,7 @@ public record Evidence(
         List<String> tags,
         boolean accepted,
         Integer votes,
+        String author,
         String createdAt,
         String questionCreatedAt,
         String sourceModifiedAt,

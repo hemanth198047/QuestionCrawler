@@ -111,7 +111,8 @@ public final class SearchService {
                         emptyToNull(doc.get(SearchIndex.F_AID)), title, passage,
                         emptyToNull(doc.get(SearchIndex.S_URL)), emptyToNull(doc.get(SearchIndex.S_QURL)),
                         cats, cats.stream().map(taxonomy::displayName).toList(), split(doc.get(SearchIndex.S_TAGS)),
-                        accepted, votes, emptyToNull(doc.get(SearchIndex.S_CREATED)), emptyToNull(doc.get(SearchIndex.S_QCREATED)),
+                        accepted, votes, emptyToNull(doc.get(SearchIndex.S_AUTHOR)),
+                        emptyToNull(doc.get(SearchIndex.S_CREATED)), emptyToNull(doc.get(SearchIndex.S_QCREATED)),
                         emptyToNull(doc.get(SearchIndex.S_MODIFIED)), emptyToNull(doc.get(SearchIndex.S_SYNCED)),
                         round(adjusted), round(coverage), doc.get(SearchIndex.S_STATUS), flags, true));
             }
@@ -271,7 +272,7 @@ public final class SearchService {
 
     private static Evidence withRank(Evidence e, int rank) {
         return new Evidence(rank, e.type(), e.questionId(), e.answerId(), e.title(), e.passage(), e.sourceUrl(), e.questionUrl(),
-                e.categories(), e.categoryNames(), e.tags(), e.accepted(), e.votes(), e.createdAt(), e.questionCreatedAt(),
+                e.categories(), e.categoryNames(), e.tags(), e.accepted(), e.votes(), e.author(), e.createdAt(), e.questionCreatedAt(),
                 e.sourceModifiedAt(), e.lastSyncedAt(),
                 e.score(), e.termCoverage(), e.threadStatus(), e.flags(), e.untrusted());
     }

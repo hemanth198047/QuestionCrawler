@@ -1,4 +1,4 @@
-import { CheckCircle2, ExternalLink, HelpCircle, MessageSquareText, ShieldAlert, ThumbsUp } from 'lucide-react'
+import { CheckCircle2, ExternalLink, HelpCircle, MessageSquareText, ShieldAlert, ThumbsUp, User } from 'lucide-react'
 import { safeUrl } from '../lib/url'
 import { dateOnly, timeAgo } from '../lib/format'
 import type { Evidence } from '../types/api'
@@ -17,6 +17,7 @@ export function EvidenceCard({ e, onCategory }: { e: Evidence; onCategory?: (id:
           <Badge tone={isAnswer ? 'info' : 'neutral'}>{isAnswer ? 'Answer' : 'Question'}</Badge>
           {e.accepted && <Badge tone="ok" icon={<CheckCircle2 size={12} />}>Accepted</Badge>}
           <Badge tone="neutral" icon={<ThumbsUp size={12} />}>{e.votes ?? '?'} votes</Badge>
+          <span className="ev-age muted"><User size={12} style={{ verticalAlign: -1 }} /> {e.author ?? 'unknown'}</span>
           <span className="ev-age" title={dateOnly(e.createdAt)}>{isAnswer ? 'answered' : 'asked'} {timeAgo(e.createdAt)}</span>
           {isAnswer && <span className="ev-age muted">· question asked {timeAgo(e.questionCreatedAt)}</span>}
           {e.threadStatus !== 'ACTIVE' && <Badge tone="warn">{e.threadStatus.toLowerCase().replace('_', ' ')}</Badge>}

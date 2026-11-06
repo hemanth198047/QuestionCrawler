@@ -87,7 +87,11 @@ class KnowledgeApiTest {
                 .andExpect(jsonPath("$.evidence[0].questionId").value("1001"))
                 .andExpect(jsonPath("$.evidence[0].sourceUrl").value("https://qa.example.internal/questions/1001"))
                 .andExpect(jsonPath("$.evidence[0].createdAt").exists())
+                .andExpect(jsonPath("$.evidence[0].author").exists())
                 .andExpect(jsonPath("$.evidence[0].untrusted").value(true));
+        mvc.perform(get("/api/search").param("q", "raise the client timeout orbit.yaml"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.evidence[?(@.answerId=='2001')].author").value(org.hamcrest.Matchers.hasItem("dana")));
         mvc.perform(get("/api/search").param("q", "kubernetes pod eviction policy"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.resultCount").value(0))
@@ -117,6 +121,9 @@ class KnowledgeApiTest {
         mvc.perform(get("/api/questions/1001"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.thread.question.answers.length()").value(3))
+                .andExpect(jsonPath("$.thread.question.answers[0].author").value("dana"))
+                .andExpect(jsonPath("$.thread.question.answers[1].author").value("li"))
+                .andExpect(jsonPath("$.thread.question.answers[2].author").value("omar"))
                 .andExpect(jsonPath("$.untrusted").value(true));
         mvc.perform(get("/api/questions/999999")).andExpect(status().isNotFound());
         mvc.perform(get("/api/categories")).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(12));

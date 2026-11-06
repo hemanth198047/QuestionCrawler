@@ -187,19 +187,20 @@ public final class ApiJson {
         return new ArrayList<>(out);
     }
 
-    /** The author's display name from owner / author / user objects. */
+    /** The author's display name from owner / author / user objects, or a top-level display_name. */
     public static String owner(JsonNode n) {
         for (String holder : new String[] {"owner", "author", "user", "createdBy", "created_by"}) {
             JsonNode o = n.path(holder);
             if (o.isObject()) {
                 String name = text(o, "display_name", "displayName", "name", "fullName", "userName", "username");
-                if (name != null) {
+                if (name != null && !name.isBlank()) {
                     return name;
                 }
             } else if (o.isTextual() && !o.asText().isBlank()) {
                 return o.asText();
             }
         }
-        return null;
+        String direct = text(n, "display_name", "displayName", "authorName", "author_name");
+        return direct != null && !direct.isBlank() ? direct : null;
     }
 }

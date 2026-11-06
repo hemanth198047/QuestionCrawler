@@ -61,6 +61,7 @@ public final class SearchIndex implements AutoCloseable {
     static final String S_TAGS = "s_tags";
     static final String S_CATS = "s_cats";
     static final String S_STATUS = "s_status";
+    static final String S_AUTHOR = "s_author";
 
     private final Path dir;
     private Directory directory;
@@ -181,6 +182,8 @@ public final class SearchIndex implements AutoCloseable {
         d.add(new StoredField(S_TAGS, String.join("\u001f", q.tags())));
         d.add(new StoredField(S_CATS, String.join("\u001f", categoryIds)));
         d.add(new StoredField(S_STATUS, thread.status().name()));
+        String author = isAnswer ? answer.author() : q.author();
+        d.add(new StoredField(S_AUTHOR, author == null ? "" : author));
         return d;
     }
 
