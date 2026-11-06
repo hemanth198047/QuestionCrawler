@@ -1,6 +1,6 @@
-import { FileText, FolderOpen, Plug, RefreshCw, RotateCcw, Save, Tags, Trash2 } from 'lucide-react'
+import { FileText, FolderOpen, Layers, Plug, RefreshCw, RotateCcw, Save, Tags, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { deleteByTag, getConfig, saveConfig, validateConfig } from '../api'
+import { deleteByTag, getConfig, reindex, saveConfig, validateConfig } from '../api'
 import { IssueList, SettingField } from '../components/Fields'
 import { PageHeader } from '../components/PageHeader'
 import { useOverview } from '../components/OverviewContext'
@@ -12,7 +12,7 @@ const ICONS: Record<string, React.ReactNode> = { plug: <Plug size={19} />, tags:
 
 export default function SettingsPage({ section }: { section: string | null }) {
   const toast = useToast()
-  const { reload } = useOverview()
+  const { overview, reload } = useOverview()
   const cfg = useRemote((s) => getConfig(s), [])
   const [draft, setDraft] = useState<Record<string, string> | null>(null)
   const [saved, setSaved] = useState<Record<string, string> | null>(null)
@@ -23,6 +23,8 @@ export default function SettingsPage({ section }: { section: string | null }) {
   const [deleteTag, setDeleteTag] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [confirmReindex, setConfirmReindex] = useState(false)
+  const [reindexing, setReindexing] = useState(false)
 
   useEffect(() => { if (cfg.kind === 'ok' && !draft) { setDraft(cfg.data.values); setSaved(cfg.data.values); setIssues(cfg.data.issues); setPreview(cfg.data.preview) } }, [cfg, draft])
   const dirty = useMemo(() => !!draft && !!saved && JSON.stringify(draft) !== JSON.stringify(saved), [draft, saved])
@@ -53,7 +55,7 @@ export default function SettingsPage({ section }: { section: string | null }) {
   }
   const runDeleteByTag = async () => {
     const tag = deleteTag.trim()
-    if (!tag) { toast('bad', 'Type a tag to delete'); return }
+    if (!tag) { toast('bad', 'Type a tag to delete'; return }
     setDeleting(true)
     try {
       const r = await deleteByTag(tag)
@@ -65,6 +67,19 @@ export default function SettingsPage({ section }: { section: string | null }) {
       reload()
     } catch (e) { toast('bad', e instanceof Error ? e.message : 'Could not delete') } finally { setDeleting(false) }
   }
+  const runReindex = async () => {
+    setReindexing(true)
+    try {
+      const r = await reindex()
+      setConfirmReindex(false)
+      toast('ok', r.threads === 0
+        ? 'Nothing to rebuild yet — collect some content first'
+        : `Rebuilt search for ${r.threads} item${r.threads === 1 ? '' : 's'} (${r.indexedDocuments} index document${r.indexedDocuments === 1 ? '' : 's'})`)
+      reload()
+    } catch (e) { toast('bad', e instanceof Error ? e.message : 'Could not rebuild the search index') } finally { setReindexing(false) }
+  }
+  const storedCount = overview?.totals.questions ?? 0
+  const isWiki = source === 'confluence' || source === 'jive'
 
   return (
     <div className="stack" style={{ gap: 26 }}>
@@ -99,30 +114,61 @@ export default function SettingsPage({ section }: { section: string | null }) {
             </Card>
           )}
           {current === 'storage' && (
-            <Card>
-              <div className="spread" style={{ marginBottom: 6 }}>
-                <div>
-                  <h3>Remove questions by tag</h3>
-                  <p className="card-sub">Permanently deletes matching questions and answers from this computer’s knowledge folder (JSON files and the search index). The remote site is not contacted. The special tag “all” is refused.</p>
+            <>
+              <Card>
+                <div className="spread" style={{ marginBottom: 6 }}>
+                  <div>
+                    <h3>Rebuild search index</h3>
+                    <p className="card-sub">
+                      Re-reads every locally stored {isWiki ? 'page' : 'question'} and rebuilds classification, Markdown exports, and the search index.
+                      Use this after a search upgrade (for example when Explore says the index is an older version), or if search results look stale.
+                      The remote site is not contacted — nothing is downloaded again.
+                    </p>
+                  </div>
                 </div>
-              </div>
-              <hr className="divider" />
-              <div className="field">
-                <div className="field-label">Tag to remove</div>
-                <input className="input" value={deleteTag} onChange={(e) => { setDeleteTag(e.target.value); setConfirmDelete(false) }} placeholder="for example timeout" aria-label="Tag to delete from the local store" />
-              </div>
-              <div className="row" style={{ marginTop: 16, gap: 10 }}>
-                {confirmDelete ? (
-                  <>
-                    <span className="small muted">Delete every locally stored question tagged “{deleteTag.trim()}”?</span>
-                    <Button size="sm" variant="danger" icon={<Trash2 size={14} />} busy={deleting} onClick={runDeleteByTag}>Yes, delete</Button>
-                    <Button size="sm" variant="ghost" disabled={deleting} onClick={() => setConfirmDelete(false)}>Cancel</Button>
-                  </>
-                ) : (
-                  <Button size="sm" variant="danger" icon={<Trash2 size={14} />} disabled={!deleteTag.trim()} onClick={() => setConfirmDelete(true)}>Delete by tag…</Button>
-                )}
-              </div>
-            </Card>
+                <hr className="divider" />
+                <p className="muted small" style={{ marginBottom: 14 }}>
+                  {storedCount > 0
+                    ? `${storedCount} stored ${isWiki ? 'page' : 'question'}${storedCount === 1 ? '' : 's'} on this computer.`
+                    : 'No stored content yet — collect first, then rebuild if needed.'}
+                </p>
+                <div className="row" style={{ gap: 10 }}>
+                  {confirmReindex ? (
+                    <>
+                      <span className="small muted">Rebuild classification and search for everything already saved here?</span>
+                      <Button size="sm" variant="primary" icon={<Layers size={14} />} busy={reindexing} onClick={runReindex}>Yes, rebuild</Button>
+                      <Button size="sm" variant="ghost" disabled={reindexing} onClick={() => setConfirmReindex(false)}>Cancel</Button>
+                    </>
+                  ) : (
+                    <Button size="sm" variant="primary" icon={<Layers size={14} />} disabled={storedCount === 0} onClick={() => setConfirmReindex(true)}>Rebuild search index…</Button>
+                  )}
+                </div>
+              </Card>
+              <Card>
+                <div className="spread" style={{ marginBottom: 6 }}>
+                  <div>
+                    <h3>Remove {isWiki ? 'pages' : 'questions'} by tag</h3>
+                    <p className="card-sub">Permanently deletes matching {isWiki ? 'pages' : 'questions and answers'} from this computer’s knowledge folder (JSON files and the search index). The remote site is not contacted. The special tag “all” is refused.</p>
+                  </div>
+                </div>
+                <hr className="divider" />
+                <div className="field">
+                  <div className="field-label">{isWiki ? 'Label / tag to remove' : 'Tag to remove'}</div>
+                  <input className="input" value={deleteTag} onChange={(e) => { setDeleteTag(e.target.value); setConfirmDelete(false) }} placeholder="for example timeout" aria-label="Tag to delete from the local store" />
+                </div>
+                <div className="row" style={{ marginTop: 16, gap: 10 }}>
+                  {confirmDelete ? (
+                    <>
+                      <span className="small muted">Delete every locally stored {isWiki ? 'page' : 'question'} tagged “{deleteTag.trim()}”?</span>
+                      <Button size="sm" variant="danger" icon={<Trash2 size={14} />} busy={deleting} onClick={runDeleteByTag}>Yes, delete</Button>
+                      <Button size="sm" variant="ghost" disabled={deleting} onClick={() => setConfirmDelete(false)}>Cancel</Button>
+                    </>
+                  ) : (
+                    <Button size="sm" variant="danger" icon={<Trash2 size={14} />} disabled={!deleteTag.trim()} onClick={() => setConfirmDelete(true)}>Delete by tag…</Button>
+                  )}
+                </div>
+              </Card>
+            </>
           )}
           {issues.some((i) => !sections.flatMap((s) => s.fields).some((f) => f.key === i.key)) && <IssueList issues={issues.filter((i) => !sections.flatMap((s) => s.fields).some((f) => f.key === i.key))} />}
         </div>

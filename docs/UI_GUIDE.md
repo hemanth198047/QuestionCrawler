@@ -10,7 +10,7 @@ Run `npm start` and open http://localhost:5173. The left bar always shows how ma
 | **Explore** | Ask your knowledge | One search box; filters for topic, tag and **age of question / age of answer** (sliders); match strength; evidence cards with age, votes, accepted badge and source link; copy a prompt for Copilot |
 | **Question** | The full thread | Accepted answer pinned and highlighted; ages everywhere; topic chips you can change; "why these topics?" |
 | **Organize** | Topics and their rules | Browse topics by size; edit rules visually; *Try it* shows which topics a sample question gets and which rules matched; re-sort existing questions |
-| **Settings** | Every setting | Four sections, plain explanations, problems shown beside the field with a fix, *Show advanced*, and a live preview of the settings file |
+| **Settings** | Every setting | Four sections, plain explanations, problems shown beside the field with a fix, *Show advanced*, a live preview of the settings file, plus **Rebuild search index** and delete-by-tag under storage |
 | **Help** | Concepts | Plain-word glossary and common questions; `(i)` hints appear across the app |
 
 ## The Connect screen's six stages
@@ -39,7 +39,7 @@ All under `/api`. The Spring controllers and the test-scope dev server (`DevApiS
 | `POST /sync`, `GET /sync/status`, `GET /sync/reports` | Collect |
 | `GET /search`, `GET /questions/{id}`, `PUT/DELETE /questions/{id}/categories` | Explore, Question |
 | `GET /categories`, `GET /categories/{id}` | Organize, Explore |
-| `GET/PUT /taxonomy`, `POST /taxonomy/try`, `POST /taxonomy/reset`, `POST /reindex` | Organize |
+| `GET/PUT /taxonomy`, `POST /taxonomy/try`, `POST /taxonomy/reset`, `POST /reindex` | Organize; Settings → Where is everything saved? (Rebuild search index) |
 | `POST /store/delete-by-tag` (`{ "tag", "confirm": true }`) | Settings → Where is everything saved? |
 
 ## Developing the UI without the backend

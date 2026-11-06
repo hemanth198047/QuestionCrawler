@@ -15,6 +15,7 @@ const FAQ = [
   ['The site needs a login. Can you just use mine?', 'We never type passwords, bypass multi-factor sign-in or solve CAPTCHAs. Ask the site owners for a read-only token or service account, store it in an environment variable, and run the check again.'],
   ['Why is a Stack Overflow search finding nothing?', 'A 30-day window of a small tag may hold only a handful of questions. Widen the time window on the Collect page and run a Full check. Search matches words, so try the exact words used in the questions.'],
   ['What does “out of date” mean?', 'The last successful download is older than your limit (Settings → How should collecting behave). Run a Quick update.'],
+  ['Search says the index is an older version — what now?', 'Open Settings → Where is everything saved? and use Rebuild search index. That re-reads content already on this computer and rebuilds Explore search. Nothing is downloaded again from the remote site.'],
   ['Is it safe to read what other people wrote?', 'Yes: it is shown as plain reading material and never acted on. If a passage looks like it is trying to instruct an AI, it is flagged in red.'],
   ['Can I use this with GitHub Copilot?', 'Yes. After collecting, open VS Code Copilot Chat in Agent mode and ask it to search your internal Q&A. It uses the same knowledge and cites the original links.'],
 ] as const

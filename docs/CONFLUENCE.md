@@ -59,7 +59,7 @@ After sync (or `reindex`), every collected page is in the same Lucene index as o
 - Page titles boosted; page comments indexed when collected
 - Still local lexical search — not an AI model and not semantic embeddings
 
-If search says the index is an older version, run `questioncrawler reindex` once.
+If search says the index is an older version, rebuild once: Settings → Where is everything saved? → **Rebuild search index**, or CLI `questioncrawler reindex`.
 
 ## UI
 
