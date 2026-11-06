@@ -625,7 +625,8 @@ public final class StackExchangeAdapter implements SourceAdapter {
             boolean login = response.location() != null && java.util.regex.Pattern.compile("(?i)login|signin|sign-in|sso|saml|oauth|authorize|adfs|okta").matcher(response.location()).find();
             throw new SourceException(login ? SourceException.Kind.AUTH_FAILED : SourceException.Kind.FATAL,
                     "The site redirected the request (HTTP " + response.status() + ") to " + ResponseInspector.withoutQuery(String.valueOf(response.location())) + " but it was not followed: " + response.redirectStop() + ". "
-                            + (login ? "The redirect leads to a sign-in page, so the API wants credentials that were not accepted. " : "")
+                            + (login ? "The redirect leads to a sign-in page, so the API wants credentials that were not accepted. "
+                                    + SignInSystem.identify(response.location()).map(x -> x.sentence() + " ").orElse("") : "")
                             + (response.redirects().isEmpty() ? "" : "Followed before that: " + String.join("; ", response.redirects()) + ". ")
                             + "(On the Connect screen, 'See what the API really answers' shows the whole chain.)");
         }
@@ -647,6 +648,9 @@ public final class StackExchangeAdapter implements SourceAdapter {
         String said = !inspection.kind().startsWith("HTML") && !inspection.preview().isBlank() && inspection.preview().length() <= 200
                 ? " The site said: \"" + inspection.preview().strip() + "\"." : "";
         String via = response.redirects().isEmpty() ? "" : " (after redirects: " + String.join(", ", response.redirects()) + ")";
+        if (inspection.kind().equals("HTML_LOGIN")) {
+            via += SignInSystem.identify(response.finalUrl(), response.location()).map(x -> " " + x.sentence()).orElse("");
+        }
         throw new SourceException(kind, "The API did not answer with JSON. " + inspection.summary() + via + said + hint
                 + " (On the Connect screen, 'See what the API really answers' shows the full answer.)");
     }

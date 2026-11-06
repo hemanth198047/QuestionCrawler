@@ -51,6 +51,27 @@ and what to check. Your key is never shown (it appears as `•••`). **Copy t
 
 Responses with a byte-order mark or a security prefix such as `)]}',` are cleaned automatically and are not an error.
 
+## "The site sends visitors to a sign-in page" (single sign-on)
+A program cannot complete a browser sign-in (redirects, an SSO page, MFA), and this app deliberately does not try to get around one. The sign-in step and the raw-answer card
+name the system they end at (Microsoft Entra ID / Azure AD, AD FS, Okta, Keycloak, Auth0, Ping, SAML, ... ) and say what a program needs from it.
+
+**First, which case is it?**
+- **Only the website redirects, the API does not.** Many sites put the *web pages* behind SSO while the REST API accepts an access key. If the real test call with your key succeeds
+  (Check access, step "Way to get the data": *Test call succeeded*), the Sign-in step now reports **PASS** and you need nothing more.
+- **The API calls themselves end at the sign-in page** (the raw-answer card shows the redirect chain and a sign-in page). The API will not talk to your program without a credential it accepts.
+
+**What you need (ask the site owners or your IT identity team; read-only is enough):**
+1. A **personal access token** from your profile on the site (look under "API tokens" or "Personal access tokens"; the name varies), **or a service account** with a token. This is the simplest and what the app supports today (*Bearer token sign-in*).
+2. The **address of the API** that accepts it. It is often not the web address people use: an API gateway, or an `/api` path.
+3. Whether the **API access key** is also needed (then both are sent), and how the token is sent (usually `Authorization: Bearer <token>`).
+4. If your company uses **OAuth client credentials** (an app registration / service app): the client ID, client secret, token address and scope. The app does not request such tokens by itself yet; if this is what you get, say so and it can be added.
+
+**How to get it:** the card on the Connect screen has **Copy message for IT** with the redirect chain and exactly what to ask for. Send it to the site owners or your identity team.
+
+**Then:** set the token in an environment variable in the terminal that starts the app, choose *Bearer token sign-in* and name the variable (see "A Bearer token" below), and run *Check access* again.
+
+**Not supported on purpose:** copying a browser session or cookie, typing a password into a form, bypassing MFA. They break within hours, and bypassing a company's sign-in is not what a data collection tool should do.
+
 ## Redirects (HTTP 301 / 302 / 307 / 308)
 Internal sites and API gateways redirect routinely (http to https, a trailing slash, a gateway path, another host). QuestionCrawler **follows redirects by default**, in the
 connection check (the *Sign-in* step), in the raw-answer card and in the real collection. What you get:

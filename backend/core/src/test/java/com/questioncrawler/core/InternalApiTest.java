@@ -66,7 +66,8 @@ class InternalApiTest {
     volatile boolean specPageEnum = false; // the Swagger document lists the allowed page sizes
     volatile boolean rejectTagged = false;
     final java.util.concurrent.atomic.AtomicInteger rejected = new java.util.concurrent.atomic.AtomicInteger();
-    volatile String redirectMode = "off"; // off | same-host | no-query | cross-host | loop | login
+    volatile String redirectMode = "off"; // off | same-host | no-query | cross-host | loop | login | login-keycloak
+    volatile boolean redirectRootOnly = false; // only the bare API address redirects (like a website behind SSO whose API is open)
     volatile String needBearer = "off"; // off | text | json: the API also wants "Authorization: Bearer API-TOKEN"
     final List<String> authSeen = Collections.synchronizedList(new ArrayList<>());
     volatile String docsAuth = "none"; // none | bearer | key: what the documentation itself demands
@@ -102,13 +103,18 @@ class InternalApiTest {
             send(ex, 200, "text/html", "<html><head><title>Sign in</title></head><body><form><input type=\"password\"></form></body></html>".getBytes(StandardCharsets.UTF_8), false, true);
             return;
         }
-        if (!viaGateway && !redirectMode.equals("off") && (path.startsWith("/api/2.3") || path.equals("/start"))) {
+        if (path.startsWith("/auth/realms/")) {
+            send(ex, 200, "text/html", "<html><head><title>Sign in to acme</title></head><body><form><input type=\"password\"></form></body></html>".getBytes(StandardCharsets.UTF_8), false, true);
+            return;
+        }
+        if (!viaGateway && !redirectMode.equals("off") && ((redirectRootOnly ? path.equals("/api/2.3") : path.startsWith("/api/2.3")) || path.equals("/start"))) {
             String suffix = rawQuery == null ? "" : "?" + rawQuery;
             String target = switch (redirectMode) {
                 case "no-query" -> "/gw" + path;
                 case "cross-host" -> "http://127.0.0.2:" + server.getAddress().getPort() + "/gw" + path + suffix;
                 case "loop" -> path + suffix;
                 case "login" -> "/sso/login?returnUrl=%2Fstart";
+                case "login-keycloak" -> "/auth/realms/acme/protocol/openid-connect/auth?client_id=web&response_type=code";
                 default -> path.equals("/start") ? "/landing" : "/gw" + path + suffix;
             };
             ex.getResponseHeaders().add("Location", target);
@@ -1041,5 +1047,68 @@ class InternalApiTest {
         SourceException e = assertThrows(SourceException.class, () -> config("").createAdapter(env()).ping());
         assertTrue(e.getMessage().contains("redirected the request (302 to https://sso.example.com/login)") && e.getMessage().contains("could not be used"), e.getMessage());
         assertFalse(e.getMessage().contains(KEY));
+    }
+
+    // ------------------------------------------------------------------ which sign-in system, and what to ask for
+    @Test
+    void theSignInSystemIsRecognisedFromWhereTheRedirectLeads() {
+        var id = (java.util.function.Function<String, String>) u -> com.questioncrawler.core.source.SignInSystem.identify(u).map(x -> x.name()).orElse("?");
+        assertEquals("Microsoft Entra ID (Azure AD)", id.apply("https://login.microsoftonline.com/tenant/oauth2/v2.0/authorize?client_id=x"));
+        assertEquals("Okta", id.apply("https://acme.okta.com/oauth2/v1/authorize?x=1"));
+        assertEquals("Keycloak", id.apply("https://sso.acme.com/auth/realms/acme/protocol/openid-connect/auth"));
+        assertEquals("Active Directory Federation Services (AD FS)", id.apply("https://fs.acme.com/adfs/ls/?wa=wsignin1.0"));
+        assertEquals("SAML single sign-on", id.apply("https://idp.acme.com/sso?SAMLRequest=abc"));
+        assertEquals("The site's own sign-in page", id.apply("https://so.acme.com/users/login?returnurl=%2f"));
+        assertEquals("?", id.apply("https://so.acme.com/api/2.3/questions"));
+        var entra = com.questioncrawler.core.source.SignInSystem.identify("https://login.microsoftonline.com/t/oauth2/v2.0/authorize").orElseThrow();
+        assertTrue(entra.forPrograms().contains("client-credentials") && entra.ask().get(0).contains("client ID"));
+        assertTrue(entra.sentence().contains("cannot complete a browser sign-in"));
+    }
+
+    @Test
+    void theRawAnswerNamesTheSignInSystemAndSaysWhatToAskFor() throws Exception {
+        redirectMode = "login-keycloak";
+        var r = workspace("si1", env()).probeApi(draft(), "/info");
+        assertEquals("HTML_LOGIN", r.kind());
+        assertEquals("Keycloak", r.signInSystem());
+        assertEquals(2, r.redirects().size() + 1, "one redirect to the identity provider");
+        assertTrue(r.hints().get(0).contains("looks like Keycloak") && r.hints().get(0).contains("cannot complete a browser sign-in"), r.hints().toString());
+        assertTrue(r.hints().get(1).startsWith("Ask your IT identity team or the site owners for:") && r.hints().get(1).contains("service account"), r.hints().toString());
+        assertFalse(Json.write(r).contains(KEY));
+    }
+
+    @Test
+    void anApiCallThatEndsAtASignInPageNamesTheSystemInTheError() throws Exception {
+        redirectMode = "login-keycloak";
+        SourceException e = assertThrows(SourceException.class, () -> config("").createAdapter(env()).ping());
+        assertEquals(SourceException.Kind.AUTH_FAILED, e.kind());
+        assertTrue(e.getMessage().contains("Keycloak") && e.getMessage().contains("cannot complete a browser sign-in"), e.getMessage());
+    }
+
+    @Test
+    void theSignInStepNamesTheSystemAndTheExactAsk() throws Exception {
+        redirectMode = "login-keycloak";
+        var access = workspace("si2", env()).checkConnection(Map.of("source.type", "live", "source.baseUrl", origin + "/start", "source.allowInsecureHttp", "true", "source.timeoutSeconds", "5"))
+                .stages().stream().filter(x -> x.id().equals("access")).findFirst().orElseThrow();
+        assertEquals("WARN", access.status());
+        assertTrue(access.facts().stream().anyMatch(f -> f.label().equals("Sign-in system") && f.value().equals("Keycloak")), access.facts().toString());
+        assertTrue(access.needs().stream().anyMatch(n -> n.what().contains("A way for a program to sign in to Keycloak") && n.who().contains("IT identity team")), access.needs().toString());
+        assertTrue(access.needs().stream().anyMatch(n -> n.what().contains("address of the API that accepts a token")));
+        assertTrue(access.needs().stream().anyMatch(n -> n.what().contains("What to ask for") && n.why().contains("ID and secret")), access.needs().toString());
+    }
+
+    @Test
+    void aWebsiteBehindSsoDoesNotRaiseAFalseAlarmWhenTheRestApiAcceptsOurKey() throws Exception {
+        redirectMode = "login-keycloak";
+        redirectRootOnly = true; // the bare address goes to SSO, the API endpoints answer
+        var report = workspace("si3", env()).checkConnection(Map.of("source.type", "live", "api.swaggerUrl", origin + "/swagger/index.html", "source.baseUrl", origin + "/api/2.3",
+                "api.keyEnv", "INTERNAL_KEY", "source.allowInsecureHttp", "true", "source.timeoutSeconds", "5"));
+        var data = report.stages().stream().filter(x -> x.id().equals("data")).findFirst().orElseThrow();
+        var access = report.stages().stream().filter(x -> x.id().equals("access")).findFirst().orElseThrow();
+        assertEquals("PASS", data.status(), data.summary());
+        assertEquals("PASS", access.status(), access.summary());
+        assertTrue(access.summary().contains("REST API accepts our access key"), access.summary());
+        assertTrue(access.facts().stream().anyMatch(f -> f.label().equals("Sign-in system") && f.value().equals("Keycloak")), "what the website uses is still shown");
+        assertEquals("REST_API", report.route().kind());
     }
 }

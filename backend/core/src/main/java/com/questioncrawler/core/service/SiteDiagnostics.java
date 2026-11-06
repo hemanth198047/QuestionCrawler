@@ -14,6 +14,7 @@ import com.questioncrawler.core.source.ApiOptions;
 import com.questioncrawler.core.source.HttpSourceClient;
 import com.questioncrawler.core.source.ProxyConfig;
 import com.questioncrawler.core.source.Redirects;
+import com.questioncrawler.core.source.SignInSystem;
 import com.questioncrawler.core.source.SourceException;
 import com.questioncrawler.core.source.SourceSettings;
 import com.questioncrawler.core.source.StackExchangeAdapter;
@@ -146,6 +147,14 @@ public final class SiteDiagnostics {
         DataFindings data = new DataFindings();
         Stage dataStage = secureOk ? dataStage(in, uri, home, data) : skipped("data", "Way to get the data", "Is there a proper way to get the data?", "Skipped until the site can be reached.");
         stages.add(dataStage);
+        if (in.liveApi() && data.restApiReady && !access.status().equals("PASS")) {
+            // The website may send visitors to single sign-on while the REST API accepts a key / token directly: the real test call decides.
+            List<Fact> facts = new ArrayList<>(access.facts());
+            facts.add(new Fact("Note", "The web address leads to a sign-in page, but a real API call with your key" + (in.tokenEnv() != null && "token".equals(in.authMethod()) ? " and token" : "") + " succeeded."));
+            stages.set(2, stage("access", "Sign-in", "Do we need to sign in?", "PASS",
+                    "No browser sign-in is needed: the REST API accepts our access key" + (in.tokenEnv() != null && "token".equals(in.authMethod()) ? " and token" : "") + " directly, even though the website itself leads to a sign-in page.",
+                    facts, List.of(), System.nanoTime()));
+        }
         stages.add(secureOk ? limitsStage(in, home, data) : skipped("limits", "Limits and protection", "Are there limits or bot protection?", "Skipped until the site can be reached."));
         stages.add(scopeStage(in, secureOk, data));
 
@@ -428,6 +437,22 @@ public final class SiteDiagnostics {
 
     // ================================================================== stage 3: sign-in / permission
 
+    /** Facts and needs for "the site sends programs to a sign-in page": names the system and what to ask for. */
+    private static void signInFindings(Probe home, List<Fact> facts, List<Need> needs) {
+        var system = SignInSystem.identify(home.url(), home.header("location"));
+        system.ifPresent(sys -> facts.add(new Fact("Sign-in system", sys.name())));
+        needs.add(new Need("A way for a program to sign in" + system.map(sys -> " to " + sys.name()).orElse(""),
+                system.map(sys -> "A browser sign-in cannot be done by this app. " + capital(sys.forPrograms()) + ".").orElse("A browser sign-in (redirects, SSO pages, MFA) cannot be done by a program: it needs a token or a service account."),
+                "The site owners / your IT identity team"));
+        needs.add(new Need("The address of the API that accepts a token", "The web address sends everyone to the sign-in page. API clients usually use a different address (a gateway or an /api path) that accepts a token or key instead.",
+                "The site owners"));
+        system.ifPresent(sys -> needs.add(new Need("What to ask for, exactly", String.join(" ", sys.ask()), "You, in a message to IT (a ready-made one is under 'Request template')")));
+    }
+
+    private static String capital(String s) {
+        return s == null || s.isEmpty() ? s : Character.toUpperCase(s.charAt(0)) + s.substring(1);
+    }
+
     private Stage accessStage(Input in, Probe home) {
         long t0 = System.nanoTime();
         String title = "Sign-in";
@@ -444,9 +469,9 @@ public final class SiteDiagnostics {
             facts.add(new Fact("Final address", hostAndPath(home.url())));
         }
         if (redirected && LOGIN_WORDS.matcher(home.url()).find()) {
-            return stage("access", title, q, "WARN", "The site sends visitors to a sign-in page (through " + home.chain().size() + " redirect" + (home.chain().size() == 1 ? "" : "s") + "). Reading content requires an approved login.", facts,
-                    List.of(new Need("An access token or service account approved for reading Q&A", "The redirect chain ends at a sign-in page: anonymous access is not allowed. We will not bypass it.", "The site owners / platform team"),
-                            new Need("To know which sign-in system is used (for example SSO)", "It decides which kind of token you should request.", "The site owners")), t0);
+            List<Need> needs = new ArrayList<>();
+            signInFindings(home, facts, needs);
+            return stage("access", title, q, "WARN", "The site sends visitors to a sign-in page (through " + home.chain().size() + " redirect" + (home.chain().size() == 1 ? "" : "s") + "). Reading content requires an approved login.", facts, needs, t0);
         }
         boolean tokenConfigured = in.authMethod() != null && in.authMethod().equals("token");
         if (tokenConfigured) {
@@ -468,9 +493,9 @@ public final class SiteDiagnostics {
             String loc = home.header("location");
             facts.add(new Fact("Redirects to", loc == null ? "unknown" : hostAndPath(loc)));
             if (loc != null && LOGIN_WORDS.matcher(loc).find()) {
-                return stage("access", title, q, "WARN", "The site sends visitors to a sign-in page. Reading content requires an approved login.", facts,
-                        List.of(new Need("An access token or service account approved for reading Q&A", "The redirect means anonymous access is not allowed. We will not bypass it.", "The site owners / platform team"),
-                                new Need("To know which sign-in system is used (for example SSO)", "It decides which kind of token you should request.", "The site owners")), t0);
+                List<Need> needs = new ArrayList<>();
+                signInFindings(home, facts, needs);
+                return stage("access", title, q, "WARN", "The site sends visitors to a sign-in page. Reading content requires an approved login.", facts, needs, t0);
             }
             return stage("access", title, q, "INFO", "The address redirects elsewhere and the redirect was not followed: " + (home.stop() == null ? "unknown reason" : home.stop()) + ".", facts,
                     List.of(new Need("The final address of the API or site", "Use the address after the redirect in Settings, or change 'Follow redirects'.", "You or the site owners")), t0);
@@ -717,7 +742,10 @@ public final class SiteDiagnostics {
             } catch (SourceException e) {
                 status = e.kind() == SourceException.Kind.AUTH_FAILED || e.kind() == SourceException.Kind.FORBIDDEN ? "FAIL" : "WARN";
                 summary = "The test call failed: " + friendly(e);
-                if (e.getMessage() != null && e.getMessage().toLowerCase().contains("bearer")) {
+                if (e.getMessage() != null && e.getMessage().toLowerCase().contains("sign-in page") && !e.getMessage().toLowerCase().contains("bearer token:")) {
+                    needs.add(new Need("A credential the API accepts without a browser", "The call was sent to a single sign-on page instead of being answered. Check the API access key (and token) first; if both are set and it still happens, the API needs a token or service account.", "The site owners / your IT identity team"));
+                    needs.add(new Need("The address of the API that accepts a key or token", "The web address and the API often differ: the API may live on a gateway or under /api.", "The site owners"));
+                } else if (e.getMessage() != null && e.getMessage().toLowerCase().contains("bearer")) {
                     needs.add(new Need("A Bearer token for the API", "The API wants a token in an 'Authorization: Bearer' header in addition to the key. Set 'Bearer token sign-in' to 'Bearer token' and name the environment variable that holds it.",
                             "You (profile settings: API / personal access tokens) or the site owners"));
                 } else {

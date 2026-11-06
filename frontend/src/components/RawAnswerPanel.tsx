@@ -1,4 +1,4 @@
-import { CornerDownRight, Eye, KeyRound, Lightbulb, Send } from 'lucide-react'
+import { CornerDownRight, Eye, KeyRound, Lightbulb, LogIn, Send } from 'lucide-react'
 import { useState } from 'react'
 import { probeApi } from '../api'
 import type { ApiProbe } from '../types/api'
@@ -9,6 +9,17 @@ const QUICK = ['/info', '/questions?pagesize=15', '/tags?pagesize=15']
 function tone(r: ApiProbe): 'ok' | 'warn' | 'bad' {
   if (r.kind === 'JSON') return r.status < 400 ? 'ok' : 'warn'
   return 'bad'
+}
+
+function itMessage(r: ApiProbe): string {
+  return [`Hello,`, ``, `I am connecting an internal tool (QuestionCrawler) to our Stack Overflow site through its REST API, to collect questions and answers (read-only).`,
+    `When the tool calls the API it is sent to a ${r.signInSystem ?? 'single sign-on'} sign-in page, which a program cannot complete.`,
+    ...(r.redirects.length ? [``, `The redirects it follows:`, ...r.redirects.map((x) => `  ${x}`)] : []), ``,
+    `Could you please provide ONE of these (read-only access is enough):`,
+    `  1. A personal access token or a service account for the site's API, and how to send it (usually "Authorization: Bearer <token>").`,
+    `  2. If you use OAuth client credentials: the client ID, client secret, token address and scope for this API.`,
+    `  3. The address of the API or gateway that accepts a token or an API key (it may differ from the web address people use).`,
+    ``, `Also: is the API access key enough on that address, or is a token needed as well?`, ``, `Thank you!`].join('\n')
 }
 
 function reportText(r: ApiProbe, path: string): string {
@@ -60,6 +71,15 @@ export function RawAnswerPanel({ values, onUse }: { values: Record<string, strin
               <ol>{result.redirects.map((r) => <li key={r}><code>{r}</code></li>)}</ol></div>)}
           <Banner tone={tone(result) === 'ok' ? 'ok' : tone(result) === 'warn' ? 'warn' : 'bad'} title={result.summary ?? ''}>{result.kind === 'JSON' && result.status < 400 ? 'This is what a working API looks like.' : 'Here is the beginning of what the site sent:'}</Banner>
           <pre className="raw-preview">{result.preview || '(empty)'}</pre>
+          {result.signInSystem && (
+            <div className="signin-card recommended">
+              <div className="row"><LogIn size={19} /><strong>Your site sends programs to {result.signInSystem} sign-in</strong></div>
+              <p className="small muted">A browser sign-in (redirects, single sign-on, MFA) cannot be done by a program, and this app will not try to get around it. What works is a credential the site accepts <b>without a browser</b>:</p>
+              <ol className="small"><li>A <b>personal access token</b> from your profile on the site (look for “API tokens” / “Personal access tokens”), or a <b>service account</b> from the owners.</li>
+                <li>The <b>address of the API</b> that accepts it. It is often not the web address: an API gateway or an <code>/api</code> path.</li>
+                <li>Then set the token as an environment variable and choose <b>Bearer token sign-in</b> (above). The API access key goes on top if it asks for one.</li></ol>
+              <div><CopyButton text={itMessage(result)} label="Copy message for IT" /></div>
+            </div>)}
           {result.suggestedPath && (
             <div className="signin-card recommended">
               <div className="row"><Lightbulb size={19} /><strong>The page size is not accepted</strong></div>
