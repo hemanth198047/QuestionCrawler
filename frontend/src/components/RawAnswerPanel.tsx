@@ -4,7 +4,7 @@ import { probeApi } from '../api'
 import type { ApiProbe } from '../types/api'
 import { Badge, Banner, Button, Card, CopyButton } from './ui'
 
-const QUICK = ['/info', '/questions?pagesize=1', '/tags?pagesize=1']
+const QUICK = ['/info', '/questions?pagesize=15', '/tags?pagesize=15']
 
 function tone(r: ApiProbe): 'ok' | 'warn' | 'bad' {
   if (r.kind === 'JSON') return r.status < 400 ? 'ok' : 'warn'
@@ -57,6 +57,12 @@ export function RawAnswerPanel({ values, onUse }: { values: Record<string, strin
           <p className="muted small">Asked: <code>{result.url}</code></p>
           <Banner tone={tone(result) === 'ok' ? 'ok' : tone(result) === 'warn' ? 'warn' : 'bad'} title={result.summary ?? ''}>{result.kind === 'JSON' && result.status < 400 ? 'This is what a working API looks like.' : 'Here is the beginning of what the site sent:'}</Banner>
           <pre className="raw-preview">{result.preview || '(empty)'}</pre>
+          {result.suggestedPath && (
+            <div className="signin-card recommended">
+              <div className="row"><Lightbulb size={19} /><strong>The page size is not accepted</strong></div>
+              <p className="small muted">This API only accepts certain page sizes. Collecting adapts to that by itself; only your test request needs the change.</p>
+              <div><Button variant="primary" busy={busy} onClick={() => { setPath(result.suggestedPath ?? path); void run(result.suggestedPath ?? path) }}>Try <code>{result.suggestedPath}</code></Button></div>
+            </div>)}
           {result.authNeeded === 'bearer' && (
             <div className="signin-card recommended">
               <div className="row"><KeyRound size={19} /><strong>This API wants a Bearer token</strong></div>

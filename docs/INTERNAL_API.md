@@ -82,7 +82,7 @@ Other endpoints (users, search, ...) are listed in the explorer but not used. If
 - **API key on every request**: sent the way the documentation says (`key` in the address, or a header), read from your environment variable.
 - **Wrapper object** (`items`, `has_more`, `quota_remaining`, `backoff`): paging follows `has_more`; the API's `backoff` is obeyed; an exhausted allowance stops the run cleanly.
 - **Compressed responses**: decoded even when a proxy strips the `Content-Encoding` header (the gzip signature is detected).
-- **Page size 100 and up to 100 ids per call**: answers and comments are fetched in batches of 100.
+- **Page size and up to 100 ids per call**: ids are sent in batches of up to 100. The page size is 100 unless the API only allows certain sizes: it is taken from the Swagger document when that lists them, otherwise learned from the API's own error (for example `Invalid page size, use 15, 30, 50 or 100`) and remembered for the rest of the run, with no setting to change.
 - **Dates are Unix epoch seconds**: used for the time window (`fromdate`) and quick updates (`min`).
 - **Custom filters**: the standard `withbody` filter is tried first; if the API does not know it, or returns no text, a filter is created with `/filters/create`.
 - **Missing features**: if `tagged` or `fromdate` is not documented, tags/dates are applied after download (slower, but correct).

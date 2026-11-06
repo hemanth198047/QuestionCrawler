@@ -45,7 +45,9 @@ import java.util.regex.Pattern;
  */
 public final class StackExchangeAdapter implements SourceAdapter {
 
-    private static final int PAGE_SIZE = 100;
+    private static final int IDS_PER_CALL = 100; // documented cap on {ids} parameters
+    private volatile int pageSize = 100;
+    private volatile boolean pageSizeFromDocs;
     private static final int MAX_PAGES_PER_BATCH = 50;
     private static final int MAX_TAGS_ALL = 5;
     private static final Pattern WAIT_SECONDS = Pattern.compile("(\\d+)\\s*seconds");
@@ -130,6 +132,18 @@ public final class StackExchangeAdapter implements SourceAdapter {
         return caps;
     }
 
+    /** Page size to ask for: what the documentation allows (largest, up to 100), else 100 — corrected from the API's own error if needed. */
+    private int pageSize() {
+        if (!pageSizeFromDocs) {
+            ApiCapabilities c = capabilities();
+            pageSizeFromDocs = true;
+            if (c != null && !c.pageSizes().isEmpty()) {
+                pageSize = c.pageSizes().stream().filter(x -> x <= 100).max(Integer::compare).orElse(c.pageSizes().get(0));
+            }
+        }
+        return pageSize;
+    }
+
     private boolean taggedSupported() { ApiCapabilities c = capabilities(); return c == null || c.taggedFilter(); }
 
     private boolean fromDateSupported() { ApiCapabilities c = capabilities(); return c == null || c.fromDate(); }
@@ -174,7 +188,7 @@ public final class StackExchangeAdapter implements SourceAdapter {
         params.put("sort", "activity");
         params.put("order", "asc");
         params.put("filter", bodyFilter);
-        params.put("pagesize", String.valueOf(PAGE_SIZE));
+        params.put("pagesize", String.valueOf(pageSize()));
         params.put("page", String.valueOf(page));
         if (minSupported()) {
             Times.parse(modifiedSince).ifPresent(i -> params.put("min", String.valueOf(i.getEpochSecond())));
@@ -243,7 +257,7 @@ public final class StackExchangeAdapter implements SourceAdapter {
             params.put("filter", bodyFilter);
             params.put("sort", "creation");
             params.put("order", "asc");
-            params.put("pagesize", String.valueOf(PAGE_SIZE));
+            params.put("pagesize", String.valueOf(pageSize()));
             String path = "/questions/" + String.join(";", idsWithAnswers) + "/answers";
             for (int page = 1; page <= MAX_PAGES_PER_BATCH; page++) {
                 params.put("page", String.valueOf(page));
@@ -293,13 +307,13 @@ public final class StackExchangeAdapter implements SourceAdapter {
 
     private Map<String, List<Comment>> fetchComments(String pathTemplate, List<String> ids) throws SourceException {
         Map<String, List<Comment>> out = new LinkedHashMap<>();
-        for (int from = 0; from < ids.size(); from += PAGE_SIZE) {
-            List<String> batch = ids.subList(from, Math.min(ids.size(), from + PAGE_SIZE));
+        for (int from = 0; from < ids.size(); from += IDS_PER_CALL) {
+            List<String> batch = ids.subList(from, Math.min(ids.size(), from + IDS_PER_CALL));
             Map<String, String> params = new LinkedHashMap<>();
             params.put("filter", bodyFilter);
             params.put("sort", "creation");
             params.put("order", "asc");
-            params.put("pagesize", String.valueOf(PAGE_SIZE));
+            params.put("pagesize", String.valueOf(pageSize()));
             for (int page = 1; page <= MAX_PAGES_PER_BATCH; page++) {
                 params.put("page", String.valueOf(page));
                 JsonNode root;
@@ -412,7 +426,7 @@ public final class StackExchangeAdapter implements SourceAdapter {
         params.put("filter", bodyFilter);
         params.put("sort", "creation");
         params.put("order", "asc");
-        params.put("pagesize", String.valueOf(PAGE_SIZE));
+        params.put("pagesize", String.valueOf(pageSize()));
         params.put("page", String.valueOf(page));
         JsonNode root = call("/questions/" + encodeId(questionId) + "/answers", params);
         List<Answer> answers = new ArrayList<>();
@@ -439,7 +453,7 @@ public final class StackExchangeAdapter implements SourceAdapter {
             size = root.path("items").path(0).path("total_questions").asText("?");
         } else {
             Map<String, String> probe = new LinkedHashMap<>();
-            probe.put("pagesize", "1");
+            probe.put("pagesize", String.valueOf(pageSize()));
             probe.put("filter", "total");
             root = call("/questions", probe);
             size = root.has("total") ? root.get("total").asText() : "?";
@@ -455,6 +469,26 @@ public final class StackExchangeAdapter implements SourceAdapter {
     // ================================================================== HTTP + error handling
 
     private JsonNode call(String path, Map<String, String> params) throws SourceException {
+        try {
+            return callOnce(path, params);
+        } catch (SourceException e) {
+            // "Invalid page size, use 15, 30, 50 or 100": adopt the largest allowed size and try once more.
+            List<Integer> allowed = e.kind() == SourceException.Kind.FATAL ? ResponseInspector.allowedPageSizes(e.getMessage()) : List.of();
+            String asked = params.get("pagesize");
+            if (!allowed.isEmpty() && asked != null) {
+                int better = allowed.stream().filter(x -> x <= 100).max(Integer::compare).orElse(allowed.get(0));
+                if (!String.valueOf(better).equals(asked)) {
+                    pageSize = better;
+                    pageSizeFromDocs = true;
+                    params.put("pagesize", String.valueOf(better));
+                    return callOnce(path, params);
+                }
+            }
+            throw e;
+        }
+    }
+
+    private JsonNode callOnce(String path, Map<String, String> params) throws SourceException {
         awaitBackoff();
         StringBuilder url = new StringBuilder(apiBase).append(path);
         char sep = '?';
@@ -512,12 +546,7 @@ public final class StackExchangeAdapter implements SourceAdapter {
         int errorId = root.path("error_id").asInt(-1);
         String message = root.path("error_message").asText("");
         if (message.isBlank()) {
-            for (String field : new String[] {"message", "error", "detail", "title"}) {
-                if (root.path(field).isTextual() && !root.path(field).asText().isBlank()) {
-                    message = root.path(field).asText();
-                    break;
-                }
-            }
+            message = ResponseInspector.errorSummary(response.body());
         }
         if (errorId == 502) { // throttle violation or quota exhausted
             Matcher m = WAIT_SECONDS.matcher(message);
@@ -548,6 +577,10 @@ public final class StackExchangeAdapter implements SourceAdapter {
         if (authKind != null) {
             return new SourceException(SourceException.Kind.AUTH_FAILED, "HTTP " + response.status() + ": the API refused the request"
                     + (message.isBlank() ? "" : " (" + message + ")") + ". " + ResponseInspector.authHints(authKind).get(0));
+        }
+        // A refusal with a readable reason (for example validation errors) is shown as it is.
+        if (!message.isBlank() && response.status() >= 400 && response.status() < 500 && response.status() != 404 && response.status() != 429) {
+            return new SourceException(SourceException.Kind.FATAL, "The API rejected the request (HTTP " + response.status() + "): " + message);
         }
         // No JSON error body: fall back to generic HTTP status mapping (never includes the query string).
         return client.mapStatus(response.status(), response.retryAfter(), java.net.URI.create(ResponseInspector.withoutQuery(url)));

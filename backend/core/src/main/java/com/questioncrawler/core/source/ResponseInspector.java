@@ -68,6 +68,62 @@ public final class ResponseInspector {
         return q < 0 ? url : url.substring(0, q);
     }
 
+    /**
+     * The meaning of a JSON error answer, in one line: validation errors ("PageSize: Invalid page size, use 15, 30, 50 or 100."),
+     * otherwise the message / detail / title. Empty if nothing readable is there. (Works for ASP.NET "problem details" and similar.)
+     */
+    public static String errorSummary(String body) {
+        try {
+            com.fasterxml.jackson.databind.JsonNode root = com.questioncrawler.core.util.Json.MAPPER.readTree(stripNoise(body));
+            if (!root.isObject()) {
+                return "";
+            }
+            List<String> parts = new ArrayList<>();
+            com.fasterxml.jackson.databind.JsonNode errors = root.path("errors");
+            if (errors.isObject()) {
+                errors.fields().forEachRemaining(e -> {
+                    if (e.getValue().isArray()) {
+                        e.getValue().forEach(m -> parts.add(e.getKey() + ": " + m.asText()));
+                    } else {
+                        parts.add(e.getKey() + ": " + e.getValue().asText());
+                    }
+                });
+            } else if (errors.isArray()) {
+                errors.forEach(m -> parts.add(m.isTextual() ? m.asText() : m.path("message").asText(m.toString())));
+            }
+            if (parts.isEmpty()) {
+                for (String field : new String[] {"error_message", "message", "detail", "error", "title"}) {
+                    if (root.path(field).isTextual() && !root.path(field).asText().isBlank()) {
+                        parts.add(root.path(field).asText());
+                        break;
+                    }
+                }
+            }
+            return String.join("; ", parts);
+        } catch (java.io.IOException e) {
+            return "";
+        }
+    }
+
+    private static final Pattern PAGE_SIZE_WORDS = Pattern.compile("(?i)page[ _-]?size");
+
+    /** The page sizes an error message allows ("use 15, 30, 50 or 100"), ascending; empty if it does not talk about page sizes. */
+    public static List<Integer> allowedPageSizes(String message) {
+        List<Integer> sizes = new ArrayList<>();
+        if (message == null || !PAGE_SIZE_WORDS.matcher(message).find()) {
+            return sizes;
+        }
+        Matcher m = Pattern.compile("\\b(\\d{1,4})\\b").matcher(message);
+        while (m.find()) {
+            int v = Integer.parseInt(m.group(1));
+            if (v > 0 && !sizes.contains(v)) {
+                sizes.add(v);
+            }
+        }
+        java.util.Collections.sort(sizes);
+        return sizes.size() >= 2 ? sizes : new ArrayList<>();
+    }
+
     /** Which sign-in method an API asks for, read from the WWW-Authenticate header and the wording of the refusal; null if none is recognizable. */
     public static String authKind(int status, String wwwAuthenticate, String body) {
         if (status != 401 && status != 403) {

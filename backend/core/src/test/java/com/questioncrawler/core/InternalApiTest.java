@@ -62,6 +62,10 @@ class InternalApiTest {
     volatile boolean specHasTagged = true;
     volatile String swaggerIndex = "html-direct";
     volatile String infoMode = "json"; // json | html-login | redirect | docs-page | blocked | bom | empty | text
+    volatile List<Integer> allowedSizes = null; // when set, any other 'pagesize' is refused like ASP.NET validation does
+    volatile boolean specPageEnum = false; // the Swagger document lists the allowed page sizes
+    volatile boolean rejectTagged = false;
+    final java.util.concurrent.atomic.AtomicInteger rejected = new java.util.concurrent.atomic.AtomicInteger();
     volatile String needBearer = "off"; // off | text | json: the API also wants "Authorization: Bearer API-TOKEN"
     final List<String> authSeen = Collections.synchronizedList(new ArrayList<>());
     volatile String docsAuth = "none"; // none | bearer | key: what the documentation itself demands
@@ -133,6 +137,18 @@ class InternalApiTest {
             return;
         }
         String api = path.substring("/api/2.3".length());
+        if (allowedSizes != null && q.containsKey("pagesize") && !allowedSizes.contains(Integer.parseInt(q.get("pagesize")))) {
+            rejected.incrementAndGet();
+            List<String> words = allowedSizes.stream().map(String::valueOf).toList();
+            String list = String.join(", ", words.subList(0, words.size() - 1)) + " or " + words.get(words.size() - 1);
+            send(ex, 400, "application/problem+json", ("{\"errors\":{\"PageSize\":[\"Invalid page size, use " + list + ".\"]},\"type\":\"https://tools.ietf.org/html/rfc9110#section-15.5.1\","
+                    + "\"title\":\"One or more validation errors occured.\",\"status\":400,\"tradeId\":\"00-6aed988600000000cef75b58a0fe95c5\"}").getBytes(StandardCharsets.UTF_8), false, true);
+            return;
+        }
+        if (rejectTagged && q.containsKey("tagged")) {
+            send(ex, 400, "application/problem+json", "{\"errors\":{\"Tagged\":[\"Tag 'ai' does not exist.\"]},\"title\":\"One or more validation errors occured.\",\"status\":400}".getBytes(StandardCharsets.UTF_8), false, true);
+            return;
+        }
         String filter = q.getOrDefault("filter", "default");
         if (filter.equals("withbody")) {
             sendJson(ex, 400, Map.of("error_id", 400, "error_name", "bad_parameter", "error_message", "filter 'withbody' is not a known filter"), true);
@@ -250,7 +266,7 @@ class InternalApiTest {
                  "paths":{
                   "/questions":{"get":{"tags":["Questions"],"summary":"Questions","operationId":"listQuestions","parameters":[
                        %s {"name":"fromdate","in":"query","schema":{"type":"integer"}},{"name":"min","in":"query","schema":{"type":"integer"}},
-                       {"name":"filter","in":"query","schema":{"type":"string"}},{"$ref":"#/components/parameters/page"},{"name":"pagesize","in":"query","schema":{"type":"integer"}}],
+                       {"name":"filter","in":"query","schema":{"type":"string"}},{"$ref":"#/components/parameters/page"},{"name":"pagesize","in":"query","schema":{"type":"integer"%s}}],
                        "responses":{"200":{"description":"ok"},"400":{"description":"bad"}}}},
                   "/questions/{ids}":{"get":{"tags":["Questions"],"summary":"Questions by id","parameters":[{"name":"ids","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"ok"}}}},
                   "/questions/{ids}/answers":{"get":{"tags":["Answers"],"summary":"Answers of questions","parameters":[{"name":"ids","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"ok"}}}},
@@ -263,7 +279,7 @@ class InternalApiTest {
                   "/users/{ids}/questions":{"get":{"tags":["Users"],"summary":"Questions by users","parameters":[{"name":"ids","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"ok"}}}},
                   "/me/questions":{"get":{"tags":["Users"],"summary":"My questions","responses":{"200":{"description":"ok"}}}},
                   "/users":{"get":{"tags":["Users"],"summary":"Users","responses":{"200":{"description":"ok"}}}}
-                 }}""".formatted(taggedParam);
+                 }}""".formatted(taggedParam, specPageEnum ? ",\"enum\":[15,30]" : "");
     }
 
     // ------------------------------------------------------------------ http helpers
@@ -731,7 +747,8 @@ class InternalApiTest {
         var r = workspace("b2", env()).probeApi(draft(), "/info");
         assertEquals("JSON", r.kind());
         assertEquals("bearer", r.authNeeded());
-        assertTrue(r.hints().get(0).contains("Bearer token"), r.hints().toString());
+        assertEquals("The API says: Missing bearer token", r.hints().get(0), "the site's own words come first");
+        assertTrue(r.hints().stream().anyMatch(h -> h.contains("Bearer token") && h.contains("environment variable")), r.hints().toString());
         CoreConfig c = config("");
         SourceException e = assertThrows(SourceException.class, () -> c.createAdapter(env()).ping());
         assertEquals(SourceException.Kind.AUTH_FAILED, e.kind());
@@ -788,5 +805,69 @@ class InternalApiTest {
         var data = check.stages().stream().filter(x -> x.id().equals("data")).findFirst().orElseThrow();
         assertEquals("FAIL", data.status());
         assertTrue(data.needs().stream().anyMatch(n -> n.what().contains("Bearer token")), data.needs().toString());
+    }
+
+    // ------------------------------------------------------------------ page sizes and readable validation errors
+    @Test
+    void theErrorTextIsReadableAndTheAllowedPageSizesAreUnderstood() {
+        String problem = "{\"errors\":{\"PageSize\":[\"Invalid page size, use 15, 30, 50 or 100.\"]},\"type\":\"https://tools.ietf.org/html/rfc9110#section-15.5.1\","
+                + "\"title\":\"One or more validation errors occured.\",\"status\":400,\"tradeId\":\"00-6aed988600000000cef75b58a0fe95c5\"}";
+        assertEquals("PageSize: Invalid page size, use 15, 30, 50 or 100.", com.questioncrawler.core.source.ResponseInspector.errorSummary(problem));
+        assertEquals(List.of(15, 30, 50, 100), com.questioncrawler.core.source.ResponseInspector.allowedPageSizes("PageSize: Invalid page size, use 15, 30, 50 or 100."));
+        assertEquals(List.of(), com.questioncrawler.core.source.ResponseInspector.allowedPageSizes("Tag 'ai' does not exist."), "only page-size messages count");
+        assertEquals("Missing bearer token", com.questioncrawler.core.source.ResponseInspector.errorSummary("{\"message\":\"Missing bearer token\"}"));
+        assertEquals("", com.questioncrawler.core.source.ResponseInspector.errorSummary("<html>"));
+    }
+
+    @Test
+    void thePageSizeIsLearnedFromTheApisOwnErrorAndRemembered() throws Exception {
+        allowedSizes = List.of(15, 30);
+        CoreConfig c = config("");
+        KnowledgeBase kb = new KnowledgeBase(c, c.createAdapter(env()), null, Clock.systemUTC());
+        SyncReport r = kb.sync(options(c));
+        assertEquals(SyncReport.COMPLETE, r.outcome(), r.abortReason());
+        assertEquals(2, r.added());
+        assertEquals(1, rejected.get(), "refused once, then the largest allowed size (30) was used for everything");
+        var withSize = requests.stream().filter(x -> x.startsWith("/api/2.3/") && x.contains("pagesize=")).toList();
+        assertTrue(withSize.get(0).contains("pagesize=100"));
+        assertTrue(withSize.stream().skip(1).allMatch(x -> x.contains("pagesize=30")), withSize.toString());
+    }
+
+    @Test
+    void theAllowedPageSizesAreTakenFromTheDocumentationWhenItListsThem() throws Exception {
+        allowedSizes = List.of(15, 30);
+        specPageEnum = true;
+        var docs = discovery().discover(origin + "/swagger/index.html");
+        assertEquals(List.of(15, 30), docs.capabilities().pageSizes());
+        CoreConfig c = config("");
+        KnowledgeBase kb = new KnowledgeBase(c, c.createAdapter(env()), null, Clock.systemUTC());
+        SyncReport r = kb.sync(options(c));
+        assertEquals(SyncReport.COMPLETE, r.outcome(), r.abortReason());
+        assertEquals(0, rejected.get(), "no failing request at all");
+        assertTrue(requests.stream().filter(x -> x.startsWith("/api/2.3/") && x.contains("pagesize=")).allMatch(x -> x.contains("pagesize=30")));
+    }
+
+    @Test
+    void aRejectedPageSizeIsExplainedInWordsAndACorrectedRequestIsOffered() throws Exception {
+        allowedSizes = List.of(15, 30, 50, 100);
+        var r = workspace("ps1", env()).probeApi(draft(), "/questions?pagesize=1");
+        assertEquals(400, r.status());
+        assertEquals("JSON", r.kind());
+        assertEquals("The API says: PageSize: Invalid page size, use 15, 30, 50 or 100.", r.hints().get(0));
+        assertTrue(r.hints().get(1).contains("pagesize=15") && r.hints().get(1).contains("adapt"), r.hints().toString());
+        assertEquals("/questions?pagesize=15", r.suggestedPath());
+        var fixed = workspace("ps2", env()).probeApi(draft(), r.suggestedPath());
+        assertEquals(200, fixed.status());
+        assertEquals(null, fixed.suggestedPath());
+    }
+
+    @Test
+    void aValidationErrorThatCannotBeAdaptedToIsShownWithTheSitesOwnWords() throws Exception {
+        rejectTagged = true;
+        CoreConfig c = config("");
+        KnowledgeBase kb = new KnowledgeBase(c, c.createAdapter(env()), null, Clock.systemUTC());
+        SyncReport r = kb.sync(options(c));
+        assertEquals(SyncReport.FAILED, r.outcome());
+        assertTrue(r.abortReason().contains("The API rejected the request (HTTP 400): Tagged: Tag 'ai' does not exist."), r.abortReason());
     }
 }

@@ -11,7 +11,7 @@ import java.util.Optional;
  */
 public record ApiCapabilities(List<Capability> capabilities, boolean ready, List<String> problems,
                               boolean taggedFilter, boolean fromDate, boolean minActivity, boolean customFilter, boolean createFilter,
-                              int otherEndpoints) {
+                              int otherEndpoints, List<Integer> pageSizes) {
 
     /** id: stable key; found: the documentation lists a matching endpoint. */
     public record Capability(String id, String label, String purpose, boolean required, boolean found,
@@ -58,6 +58,17 @@ public record ApiCapabilities(List<Capability> capabilities, boolean ready, List
         }
         int others = (int) catalog.operations().stream().filter(o -> !used.contains(o.method() + " " + o.path())).count();
         boolean ready = caps.stream().filter(Capability::required).allMatch(Capability::found);
-        return new ApiCapabilities(caps, ready, problems, tagged, fromdate, min, filter, create, others);
+        List<Integer> sizes = new ArrayList<>();
+        questions.flatMap(o -> o.parameters().stream().filter(p -> p.name().replaceAll("[_-]", "").equalsIgnoreCase("pagesize")).findFirst()).ifPresent(p -> {
+            p.allowed().forEach(a -> { try { sizes.add(Integer.parseInt(a.strip())); } catch (NumberFormatException ignored) { /* not a number */ } });
+            if (sizes.isEmpty()) { // some documents only mention the sizes in the description
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\b(\\d{1,4})\\b").matcher(p.description() == null ? "" : p.description());
+                List<Integer> found = new ArrayList<>();
+                while (m.find()) { found.add(Integer.parseInt(m.group(1))); }
+                if (found.size() >= 3) { sizes.addAll(found); }
+            }
+        });
+        java.util.Collections.sort(sizes);
+        return new ApiCapabilities(caps, ready, problems, tagged, fromdate, min, filter, create, others, List.copyOf(sizes));
     }
 }

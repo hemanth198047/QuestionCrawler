@@ -213,7 +213,13 @@ public final class Workspace {
     /** The raw answer of one API call: what the site really sends back. The key and tokens are never included. */
     public record ApiProbe(boolean reached, String problem, String url, int status, String contentType, int characters, String kind,
                            String summary, String preview, List<String> hints, boolean keySent, String keyPlacement,
-                           String authNeeded, String wwwAuthenticate, boolean tokenSent) {}
+                           String authNeeded, String wwwAuthenticate, boolean tokenSent, String suggestedPath) {
+        public ApiProbe(boolean reached, String problem, String url, int status, String contentType, int characters, String kind,
+                        String summary, String preview, List<String> hints, boolean keySent, String keyPlacement,
+                        String authNeeded, String wwwAuthenticate, boolean tokenSent) {
+            this(reached, problem, url, status, contentType, characters, kind, summary, preview, hints, keySent, keyPlacement, authNeeded, wwwAuthenticate, tokenSent, null);
+        }
+    }
 
     /**
      * Makes one GET request to the API (default /info) exactly as a collection would, and shows the answer. Used to find out why
@@ -226,7 +232,7 @@ public final class Workspace {
         }
         String path = requestedPath == null || requestedPath.isBlank() ? "/info" : requestedPath.strip();
         if (!path.startsWith("/") || path.contains("://") || path.contains("..") || path.contains(" ")) {
-            return new ApiProbe(false, "Enter a path that starts with / (for example /info or /questions?pagesize=1).", null, 0, null, 0, null, null, null, List.of(), false, null, null, null, false);
+            return new ApiProbe(false, "Enter a path that starts with / (for example /info or /questions?pagesize=15).", null, 0, null, 0, null, null, null, List.of(), false, null, null, null, false);
         }
         var api = apiOptions(v);
         String base = v.getOrDefault("source.baseUrl", "").strip();
@@ -312,6 +318,19 @@ public final class Workspace {
             if (json && authNeeded != null) { // a JSON refusal that names the sign-in it wants
                 hints.addAll(0, com.questioncrawler.core.source.ResponseInspector.authHints(authNeeded));
             }
+            // A JSON refusal with a readable reason (validation errors, wrong parameter): say it in words.
+            String suggested = null;
+            String reason = json && response.status() >= 400 ? com.questioncrawler.core.source.ResponseInspector.errorSummary(response.body()) : "";
+            if (!reason.isBlank()) {
+                hints.add(0, "The API says: " + com.questioncrawler.core.source.ResponseInspector.redact(reason, secrets));
+                var sizes = com.questioncrawler.core.source.ResponseInspector.allowedPageSizes(reason);
+                if (!sizes.isEmpty()) {
+                    String fixed = path.replaceAll("(?i)(page[_-]?size=)\\d+", "$1" + sizes.get(0));
+                    suggested = fixed.equals(path) ? null : fixed;
+                    hints.add(1, "This API only accepts certain page sizes (" + sizes + "). Use one of them in the path, for example pagesize=" + sizes.get(0)
+                            + ". Collections adapt to this automatically, so you do not need to change any setting.");
+                }
+            }
             if (bearer != null && "bearer".equals(authNeeded)) {
                 hints.add(0, "A Bearer token WAS sent but was not accepted: it may be expired, for another site, or lack permission. Create a new token and try again.");
             }
@@ -320,7 +339,7 @@ public final class Workspace {
             }
             return new ApiProbe(true, null, shownUrl, response.status(), response.contentType(), response.body() == null ? 0 : response.body().length(),
                     inspection.kind(), inspection.summary(), inspection.preview(), hints, keySent, placement, authNeeded,
-                    com.questioncrawler.core.source.ResponseInspector.redact(response.wwwAuthenticate() == null ? "" : response.wwwAuthenticate(), secrets), bearer != null);
+                    com.questioncrawler.core.source.ResponseInspector.redact(response.wwwAuthenticate() == null ? "" : response.wwwAuthenticate(), secrets), bearer != null, suggested);
         } catch (com.questioncrawler.core.source.SourceException e) {
             return new ApiProbe(false, com.questioncrawler.core.source.ResponseInspector.redact(e.getMessage(), secrets), shownUrl, 0, null, 0, null, null, null,
                     List.of("The request did not get an answer at all: see the Check access result for the network steps (proxy, certificate)."), keySent, placement, null, null, bearer != null);
