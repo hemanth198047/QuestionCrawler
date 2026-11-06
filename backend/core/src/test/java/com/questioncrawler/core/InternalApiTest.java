@@ -1189,7 +1189,8 @@ class InternalApiTest {
         assertEquals("CASC", found.tags().get(0).name(), "the exact match first");
         assertEquals(7, found.tags().get(0).count());
         assertTrue(found.tags().stream().anyMatch(t -> t.name().equals("casc-prod")));
-        assertFalse(workspace("t2", env()).searchTags(draft(), "  ").ok());
+        var browse = workspace("t2", env()).searchTags(draft(), "  ");
+        assertTrue(browse.ok() && browse.allTags(), "an empty search lists all tags");
         assertFalse(workspace("t3", env()).searchTags(Map.of("source.type", "fixture"), "casc").ok());
         var none = workspace("t4", env()).searchTags(draft(), "zzzz");
         assertTrue(none.ok() && none.tags().isEmpty() && none.problem().contains("No tag on the site looks like"), none.toString());
@@ -1210,5 +1211,62 @@ class InternalApiTest {
         assertEquals("WARN", missing.status());
         assertTrue(missing.facts().stream().anyMatch(f -> f.label().equals("Similar tags on the site") && f.value().contains("CASC (7)")), missing.facts().toString());
         assertTrue(missing.needs().get(0).why().contains("Find tags on the site"));
+    }
+
+    // ------------------------------------------------------------------ the tag "all": every question on the site
+    @Test
+    void theTagAllCollectsEveryQuestionWithoutAnyTagFilter() throws Exception {
+        CoreConfig c = config("sync.tags=all\n");
+        KnowledgeBase kb = new KnowledgeBase(c, c.createAdapter(env()), null, Clock.systemUTC());
+        SyncReport r = kb.sync(options(c));
+        assertEquals(SyncReport.COMPLETE, r.outcome(), r.abortReason());
+        assertEquals(4, r.added(), "the ai, gpu, finance and CASC questions: tags do not matter");
+        assertTrue(requests.stream().filter(x -> x.startsWith("/api/2.3/questions?")).noneMatch(x -> x.contains("tagged=")), "no tag filter was sent: " + requests);
+        assertTrue(kb.store().loadThread("internal-qa", "104").isPresent());
+        assertTrue(kb.store().loadThread("internal-qa", "103").isPresent());
+        assertTrue(r.warnings().stream().noneMatch(w -> w.startsWith("No questions were returned")));
+    }
+
+    @Test
+    void theTagFinderListsEveryTagMostUsedFirstAndTheSiteSize() throws Exception {
+        for (String typed : new String[] {"", "all", "*", "  "}) {
+            var all = workspace("ta" + typed.length() + typed.hashCode(), env()).searchTags(draft(), typed);
+            assertTrue(all.ok() && all.allTags(), typed);
+            assertEquals(List.of("CASC", "casc-prod", "ai"), all.tags().stream().limit(3).map(t -> t.name()).toList(), "most used first");
+            assertEquals(7, all.tags().get(0).count());
+            assertEquals(6, all.tags().size());
+            assertEquals(3, all.siteQuestions(), "the number of questions the site reports");
+        }
+    }
+
+    @Test
+    void theConnectionCheckExplainsWhatAllTagsMeans() throws Exception {
+        Map<String, String> v = new LinkedHashMap<>(draft());
+        v.put("sync.tags", "all");
+        v.put("api.swaggerUrl", origin + "/swagger/index.html");
+        var scope = workspace("ta9", env()).checkConnection(v).stages().stream().filter(x -> x.id().equals("scope")).findFirst().orElseThrow();
+        assertEquals("PASS", scope.status(), scope.summary());
+        assertTrue(scope.summary().startsWith("Every question on the site will be collected (all tags)"), scope.summary());
+        assertTrue(scope.facts().stream().anyMatch(f -> f.label().equals("Questions on the site") && f.value().equals("3")), scope.facts().toString());
+    }
+
+    @Test
+    void aFailingSiteSizeLookupDoesNotHideTheTagList() throws Exception {
+        needBearer = "off";
+        infoMode = "html-login"; // /info answers a sign-in page: the size is unknown, the tag list is still fine
+        var all = workspace("tz", env()).searchTags(draft(), "all");
+        assertTrue(all.ok() && all.allTags(), all.problem());
+        assertEquals(6, all.tags().size());
+        assertEquals(-1, all.siteQuestions());
+    }
+
+    @Test
+    void aRealProblemIsShownInsteadOfAnEmptyTagList() throws Exception {
+        // plain http without allowing it: the request is refused, and the tag finder must say so
+        var refused = workspace("tr", env()).searchTags(Map.of("source.type", "live", "source.baseUrl", origin + "/api/2.3", "api.keyEnv", "INTERNAL_KEY"), "");
+        assertFalse(refused.ok(), "not an empty list: " + refused);
+        assertTrue(refused.problem().toLowerCase().contains("https") || refused.problem().toLowerCase().contains("unencrypted") || refused.problem().toLowerCase().contains("not allowed"), refused.problem());
+        var searched = workspace("tr2", env()).searchTags(Map.of("source.type", "live", "source.baseUrl", origin + "/api/2.3", "api.keyEnv", "INTERNAL_KEY"), "casc");
+        assertFalse(searched.ok(), searched.toString());
     }
 }

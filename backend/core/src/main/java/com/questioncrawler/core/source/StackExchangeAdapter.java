@@ -160,7 +160,7 @@ public final class StackExchangeAdapter implements SourceAdapter {
 
     @Override
     public Page<QuestionSummary> listQuestions(TagFilter filter, String modifiedSince, String cursor) throws SourceException {
-        if (filter.partial()) {
+        if (filter.partial() && !filter.isAll()) {
             throw new SourceException(SourceException.Kind.FATAL,
                     "Partial tag matching is not supported by the Stack Exchange API; use exact tags (partialTags=false).");
         }
@@ -169,11 +169,12 @@ public final class StackExchangeAdapter implements SourceAdapter {
             throw new SourceException(SourceException.Kind.FATAL, "At least one tag is required.");
         }
         boolean all = filter.mode() == TagMode.ALL;
-        if (all && tags.size() > MAX_TAGS_ALL) {
+        if (all && !filter.isAll() && tags.size() > MAX_TAGS_ALL) {
             throw new SourceException(SourceException.Kind.FATAL, "The Stack Exchange API accepts at most " + MAX_TAGS_ALL + " tags in ALL mode.");
         }
+        boolean wildcard = filter.isAll(); // every tag: ask for questions without any tag filter
         boolean serverTagFilter = taggedSupported();
-        int passes = all || !serverTagFilter ? 1 : tags.size();
+        int passes = wildcard || all || !serverTagFilter ? 1 : tags.size();
         int[] pos = parseCursor(cursor);
         int pass = pos[0];
         int page = pos[1];
@@ -184,7 +185,7 @@ public final class StackExchangeAdapter implements SourceAdapter {
         tagged = java.util.Arrays.stream(tagged.split(";")).map(t -> exactTags.getOrDefault(t, t)).collect(java.util.stream.Collectors.joining(";"));
 
         Map<String, String> params = new LinkedHashMap<>();
-        if (serverTagFilter) {
+        if (serverTagFilter && !wildcard) {
             params.put("tagged", tagged);
         }
         params.put("sort", "activity");
@@ -202,7 +203,7 @@ public final class StackExchangeAdapter implements SourceAdapter {
         java.time.Instant since = Times.parse(modifiedSince).orElse(null);
 
         JsonNode root = listWithBodyFilter("/questions", params);
-        if (serverTagFilter && (site == null || site.isBlank()) && page == 1 && root.path("items").isArray() && root.path("items").isEmpty() && tagResolutionTried.add(tagged)) {
+        if (serverTagFilter && !wildcard && (site == null || site.isBlank()) && page == 1 && root.path("items").isArray() && root.path("items").isEmpty() && tagResolutionTried.add(tagged)) {
             // Nothing found: an internal site may spell the tag differently (for example in capitals). Find its own spelling and ask again.
             // The lookup is a convenience: if it fails for any reason the collection simply goes on with the empty answer.
             try {
@@ -492,7 +493,9 @@ public final class StackExchangeAdapter implements SourceAdapter {
         String needle = squash(text);
         List<TagHit> hits = new ArrayList<>();
         Map<String, String> params = new LinkedHashMap<>();
-        params.put("inname", text.strip());
+        if (!needle.isEmpty()) {
+            params.put("inname", text.strip());
+        }
         params.put("pagesize", String.valueOf(pageSize()));
         for (int page = 1; page <= 5; page++) {
             params.put("page", String.valueOf(page));
@@ -508,6 +511,9 @@ public final class StackExchangeAdapter implements SourceAdapter {
                     page--;
                     continue;
                 }
+                if (hits.isEmpty()) {
+                    throw e; // a real problem (address, https, key ...) must be shown, not disguised as "no tags"
+                }
                 return hits;
             }
             for (JsonNode t : root.path("items")) {
@@ -522,6 +528,28 @@ public final class StackExchangeAdapter implements SourceAdapter {
         }
         hits.sort(java.util.Comparator.comparing((TagHit h) -> !squash(h.name()).equals(needle)).thenComparing(h -> -h.count()).thenComparing(TagHit::name));
         return hits.size() > limit ? new ArrayList<>(hits.subList(0, limit)) : hits;
+    }
+
+    /** How many questions the whole site holds, or -1 if it does not say. */
+    public long siteQuestionCount() throws SourceException {
+        try {
+            if (hasCapability("info")) {
+                long n = call("/info", new LinkedHashMap<>()).path("items").path(0).path("total_questions").asLong(-1);
+                if (n >= 0) {
+                    return n;
+                }
+            }
+            Map<String, String> p = new LinkedHashMap<>();
+            p.put("pagesize", String.valueOf(pageSize()));
+            p.put("filter", "total");
+            JsonNode root = call("/questions", p);
+            return root.has("total") ? root.get("total").asLong(-1) : -1;
+        } catch (SourceException e) {
+            if (e.kind() == SourceException.Kind.AUTH_FAILED || e.kind() == SourceException.Kind.QUOTA_EXHAUSTED) {
+                throw e;
+            }
+            return -1;
+        }
     }
 
     /**

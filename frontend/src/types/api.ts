@@ -98,4 +98,4 @@ export interface DiscoveredTopic { id: string; name: string; description: string
 export interface TopicProposal { topics: DiscoveredTopic[]; documents: number; unplaced: number; placedShare: number; method: string; notes: string[]; taxonomy: Taxonomy }
 export interface ApiProbe { reached: boolean; problem: string | null; url: string | null; status: number; contentType: string | null; characters: number; kind: string | null; summary: string | null; preview: string | null; hints: string[]; keySent: boolean; keyPlacement: string | null; authNeeded: string | null; wwwAuthenticate: string | null; tokenSent: boolean; suggestedPath: string | null; redirects: string[]; signInSystem: string | null }
 export interface TagHit { name: string; count: number }
-export interface TagSearch { ok: boolean; problem: string | null; tags: TagHit[]; exact: string | null; spellingDiffers: boolean }
+export interface TagSearch { ok: boolean; problem: string | null; tags: TagHit[]; exact: string | null; spellingDiffers: boolean; allTags: boolean; siteQuestions: number; truncated: boolean }

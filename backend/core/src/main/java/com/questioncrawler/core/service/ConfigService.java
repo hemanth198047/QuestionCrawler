@@ -137,7 +137,7 @@ public final class ConfigService {
                                 Type.SWITCH, "false", null, REMOTE, true, null))),
                 new Section("topic", "What should we collect?",
                         "Tags are the labels people put on questions. We collect every question that has your tags.", "tags", List.of(
-                        f("sync.tags", "Tags", "Press Enter after each tag. 'Artificial Intelligence' and 'artificial-intelligence' mean the same tag.",
+                        f("sync.tags", "Tags", "Press Enter after each tag. 'Artificial Intelligence' and 'artificial-intelligence' mean the same tag. Type all (or *) to collect every question on the site, whatever its tags.",
                                 Type.TAGS, "", "artificial-intelligence", ALL, false, null),
                         f("sync.tagMode", "A question must have", "With several tags: any of them, or all of them.", Type.SELECT, "ANY", null, ALL, false, null,
                                 new Option("ANY", "Any of the tags", "Wider: questions matching at least one tag"),
@@ -310,6 +310,13 @@ public final class ConfigService {
         String tags = v.getOrDefault("sync.tags", "").strip();
         if (tags.isEmpty()) {
             issues.add(new Issue("sync.tags", "warning", "No tags yet, so there is nothing to collect.", "Add at least one tag, for example artificial-intelligence."));
+        } else if (com.questioncrawler.core.source.TagFilter.asksForAll(java.util.Arrays.asList(tags.split(",")))) {
+            if (tags.split(",").length > 1) {
+                issues.add(new Issue("sync.tags", "warning", "'all' already collects every question, so the other tags are not needed.", "Remove the other tags, or remove 'all' to collect only those."));
+            }
+            if (type.equals("stackexchange")) {
+                issues.add(new Issue("sync.maxQuestionAge", "warning", "Every tag on a public Stack Exchange site is millions of questions.", "Choose a short time window on the Collect page (for example 7 days); collecting is refused without one."));
+            }
         } else if ("ALL".equals(v.get("sync.tagMode")) && type.equals("stackexchange") && tags.split(",").length > 5) {
             issues.add(new Issue("sync.tagMode", "error", "Stack Exchange accepts at most 5 tags when all must match.", "Remove some tags or choose 'Any of the tags'."));
         }

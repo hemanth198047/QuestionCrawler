@@ -1,6 +1,6 @@
 /** Plain-language explanations shown by the little (i) helpers across the app. */
 export const GLOSSARY: Record<string, { title: string; text: string }> = {
-  tag: { title: 'Tag', text: 'A label that people put on a question, such as "python" or "artificial-intelligence". We collect every question that carries your tags.' },
+  tag: { title: 'Tag', text: 'A label that people put on a question, such as "python" or "artificial-intelligence". We collect every question that carries your tags. Type "all" to collect every question on the site, whatever its tags.' },
   window: { title: 'Time window', text: 'Only questions asked within this period are downloaded. A small window is quick and keeps you inside request limits; you can widen it later.' },
   quick: { title: 'Quick update', text: 'Downloads only what is new or changed since the last time. Fast, but it cannot notice questions that were deleted or hidden.' },
   full: { title: 'Full check', text: 'Looks at everything in your window again and confirms each question still exists. Slower, but it keeps your knowledge honest.' },

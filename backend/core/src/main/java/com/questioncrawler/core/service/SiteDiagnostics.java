@@ -14,6 +14,7 @@ import com.questioncrawler.core.source.ApiOptions;
 import com.questioncrawler.core.source.HttpSourceClient;
 import com.questioncrawler.core.source.ProxyConfig;
 import com.questioncrawler.core.source.Redirects;
+import com.questioncrawler.core.source.TagFilter;
 import com.questioncrawler.core.source.SignInSystem;
 import com.questioncrawler.core.source.SourceException;
 import com.questioncrawler.core.source.SourceSettings;
@@ -538,6 +539,8 @@ public final class SiteDiagnostics {
         long tagQuestions = Long.MIN_VALUE;
         boolean tagChecked;
         StackExchangeAdapter.TagCheck tagCheck;
+        boolean allTags;
+        long siteQuestions = -1;
         String tagError;
         List<String> candidateEndpoints = new ArrayList<>();
     }
@@ -561,9 +564,18 @@ public final class SiteDiagnostics {
                 }
                 if (!in.tags().isEmpty()) {
                     try {
-                        d.tagChecked = true;
-                        d.tagCheck = adapter.checkTag(in.tags().get(0));
-                        d.tagQuestions = d.tagCheck.exists() ? d.tagCheck.count() : -1;
+                        if (TagFilter.asksForAll(in.tags())) {
+                            d.allTags = true;
+                            try {
+                                d.siteQuestions = adapter.siteQuestionCount();
+                            } catch (SourceException ignored) {
+                                d.siteQuestions = -1; // the size is nice to have; the test call above already covers credentials
+                            }
+                        } else {
+                            d.tagChecked = true;
+                            d.tagCheck = adapter.checkTag(in.tags().get(0));
+                            d.tagQuestions = d.tagCheck.exists() ? d.tagCheck.count() : -1;
+                        }
                     } catch (SourceException e) {
                         d.tagError = e.getMessage();
                     }
@@ -735,9 +747,18 @@ public final class SiteDiagnostics {
                 }
                 if (!in.tags().isEmpty()) {
                     try {
-                        d.tagChecked = true;
-                        d.tagCheck = adapter.checkTag(in.tags().get(0));
-                        d.tagQuestions = d.tagCheck.exists() ? d.tagCheck.count() : -1;
+                        if (TagFilter.asksForAll(in.tags())) {
+                            d.allTags = true;
+                            try {
+                                d.siteQuestions = adapter.siteQuestionCount();
+                            } catch (SourceException ignored) {
+                                d.siteQuestions = -1; // the size is nice to have; the test call above already covers credentials
+                            }
+                        } else {
+                            d.tagChecked = true;
+                            d.tagCheck = adapter.checkTag(in.tags().get(0));
+                            d.tagQuestions = d.tagCheck.exists() ? d.tagCheck.count() : -1;
+                        }
                     } catch (SourceException e) {
                         d.tagError = e.getMessage();
                     }
@@ -859,6 +880,19 @@ public final class SiteDiagnostics {
                     List.of(new Need("One or more tags", "Tags are the labels that group questions, such as artificial-intelligence.", "You (Settings, or the wizard)")), t0);
         }
         List<Fact> facts = List.of(new Fact("Tags", String.join(", ", in.tags())));
+        if (TagFilter.asksForAll(in.tags()) && reachable) {
+            boolean publicSite = in.sourceType().equals("stackexchange");
+            List<Fact> all = new ArrayList<>();
+            all.add(new Fact("Tags", "all (every question, whatever its tags)"));
+            all.add(new Fact("Questions on the site", d.siteQuestions >= 0 ? String.format("%,d", d.siteQuestions) : "the site does not say"));
+            if (publicSite) {
+                return stage("scope", title, q, "WARN", "'all' on a public Stack Exchange site means millions of questions. Choose a time window (for example 7 days) on the Collect page, or name the tags you want.", all,
+                        List.of(new Need("A short time window, or specific tags", "Collecting every tag of a public site is refused without a time window: it would use up the request allowance.", "You")), t0);
+            }
+            boolean large = d.siteQuestions > 20_000;
+            return stage("scope", title, q, "PASS", "Every question on the site will be collected (all tags)" + (d.siteQuestions >= 0 ? ": about " + String.format("%,d", d.siteQuestions) + " question(s)." : ".")
+                    + (large ? " That is a lot: start with a time window (for example 1 year) to try it out." : ""), all, List.of(), t0);
+        }
         if (!reachable) {
             return skipped("scope", title, q, "Will be checked once the site can be reached.");
         }

@@ -92,6 +92,10 @@ public final class KnowledgeBase {
 
     /** Same as {@link #sync(SyncOptions)} but reports live progress (used by the web UI). */
     public SyncReport sync(SyncOptions options, java.util.function.Consumer<com.questioncrawler.core.sync.SyncProgress> progress) {
+        if (com.questioncrawler.core.source.TagFilter.asksForAll(options.tags()) && config.sourceType().equals("stackexchange") && options.maxQuestionAge() == null) {
+            throw new IllegalArgumentException("Collecting every tag ('all') from a public Stack Exchange site means millions of questions and would use up the "
+                    + "request allowance. Choose a time window (for example 7 days) on the Collect page, or name the tags you want.");
+        }
         store.init();
         SourceAdapter adapter = adapterOverride != null ? adapterOverride : config.createAdapter();
         Pipeline pipeline = new Pipeline();

@@ -380,4 +380,16 @@ class StackExchangeAdapterTest {
         assertTrue(requests.get(0).params().containsKey("min"), "incremental sync sends min=<last activity>");
         assertEquals(String.valueOf(Instant.ofEpochSecond(created + 5000).minus(Duration.ofMinutes(60)).getEpochSecond()), requests.get(0).params().get("min"));
     }
+
+    @Test
+    void everyTagAsksForQuestionsWithoutAnyTagFilter() throws Exception {
+        handler = r -> Resp.ok(page(List.of(), false));
+        var all = new TagFilter(List.of("python", "all"), TagMode.ALL, false);
+        adapter().listQuestions(all, null, null);
+        assertEquals(1, requests.size(), "one pass, whatever other tags were typed");
+        assertFalse(requests.get(0).params().containsKey("tagged"), requests.get(0).params().toString());
+        requests.clear();
+        adapter().listQuestions(new TagFilter(List.of("python"), TagMode.ANY, false), null, null);
+        assertEquals("python", requests.get(0).params().get("tagged"), "an ordinary tag is still sent");
+    }
 }

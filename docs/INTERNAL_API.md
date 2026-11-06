@@ -51,6 +51,16 @@ and what to check. Your key is never shown (it appears as `•••`). **Copy t
 
 Responses with a byte-order mark or a security prefix such as `)]}',` are cleaned automatically and are not an error.
 
+## Collecting every tag ("all")
+Type the tag **`all`** (or `*`) to collect **every question on the site, whatever its tags**. It works in the settings, on the Connect screen (**Collect every tag**) and on the command line (`--tag all`).
+
+- It is **not** done tag by tag: the site is asked for questions *without* a tag filter. That is faster, uses far fewer requests, and downloads each question once, even though a question has several tags.
+- If you type `all` together with other tags, `all` wins (the other tags would add nothing).
+- **Find tags on the site → Show all tags** lists the site's tags, most used first, with their question counts and (when the site says) how many questions it holds in total.
+- *Check access* ("Your topic") says how many questions the whole site holds, and advises a time window when that is large (over 20,000). **Start with a time window** such as 1 year, then widen it.
+- On a **public Stack Exchange site** (for example stackoverflow.com) `all` is refused unless you choose a time window: it would be millions of questions and would use up the request allowance.
+- A real tag literally named "all" cannot be requested by that name (it means every tag); use the site's tag finder to see if one exists.
+
 ## "The site has no tag named ..." (finding the exact tag name)
 The tag you typed may exist on the site under a slightly different name (capitals such as `CASC`, hyphens, another spelling), or the site's tag-info endpoint may answer differently from the standard one.
 The check no longer relies on one lookup. It tries, in order: the tag's own info (as typed and in other spellings), the site's **tag list** (searching by a few letters), and finally a real

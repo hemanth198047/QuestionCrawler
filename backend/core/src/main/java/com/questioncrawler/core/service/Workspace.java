@@ -357,13 +357,16 @@ public final class Workspace {
         }
     }
 
-    public record TagSearch(boolean ok, String problem, List<com.questioncrawler.core.source.StackExchangeAdapter.TagHit> tags, String exact, boolean spellingDiffers) {}
+    public record TagSearch(boolean ok, String problem, List<com.questioncrawler.core.source.StackExchangeAdapter.TagHit> tags, String exact, boolean spellingDiffers,
+                            boolean allTags, long siteQuestions, boolean truncated) {
+        public TagSearch(boolean ok, String problem, List<com.questioncrawler.core.source.StackExchangeAdapter.TagHit> tags, String exact, boolean spellingDiffers) {
+            this(ok, problem, tags, exact, spellingDiffers, false, -1, false);
+        }
+    }
 
     /** Looks up tags on the site by a few letters, with the site's own spelling and counts. Uses what is currently typed on the Connect screen. */
     public TagSearch searchTags(Map<String, String> draft, String text) {
-        if (text == null || text.isBlank()) {
-            return new TagSearch(false, "Type a few letters of the tag you are looking for.", List.of(), null, false);
-        }
+        boolean browse = text == null || text.isBlank() || com.questioncrawler.core.source.TagFilter.asksForAll(List.of(text));
         Map<String, String> v = configService.read(configFile);
         if (draft != null) {
             v.putAll(draft);
@@ -377,6 +380,17 @@ public final class Workspace {
             var adapter = config.createAdapter(env);
             if (!(adapter instanceof com.questioncrawler.core.source.StackExchangeAdapter api)) {
                 return new TagSearch(false, "Tags can be looked up on a real site only.", List.of(), null, false);
+            }
+            if (browse) { // every tag of the site, most used first, and how many questions the whole site holds
+                var all = api.findTags("", 100);
+                long size = -1;
+                try {
+                    size = api.siteQuestionCount(); // nice to have: the tag list is the result, so a failure here must not hide it
+                } catch (com.questioncrawler.core.source.SourceException ignored) {
+                    // the size is simply not shown
+                }
+                return new TagSearch(true, all.isEmpty() ? "The site did not list any tags. You can still collect everything with the tag 'all'." : null, all, null, false,
+                        true, size, all.size() >= 100);
             }
             var check = api.checkTag(text);
             List<com.questioncrawler.core.source.StackExchangeAdapter.TagHit> hits = new ArrayList<>(api.findTags(text, 20));

@@ -136,6 +136,7 @@ export default function CollectPage() {
 
   if (!o) return <div className="stack"><Skeleton h={80} /><Skeleton h={300} r={18} /></div>
   const noTags = o.tags.length === 0
+  const allTags = o.tags.some((t) => ['all', '*'].includes(t.toLowerCase()))
   const isSE = o.sourceType === 'stackexchange'
   const start = async () => {
     setStarting(true); setStartError(null)
@@ -159,10 +160,11 @@ export default function CollectPage() {
         <div className="row" style={{ marginBottom: 18 }}><FolderSync size={20} color="var(--brand)" /><h3>What will be collected</h3></div>
         <div className="scope">
           <div><span className="muted small">Source</span><strong>{o.sourceLabel}</strong></div>
-          <div><span className="muted small">Tags <InfoTip term="tag" /></span><div className="row" style={{ gap: 6 }}>{o.tags.length ? o.tags.map((t) => <Chip key={t}>{t}</Chip>) : <span className="muted">none yet</span>}</div></div>
+          <div><span className="muted small">Tags <InfoTip term="tag" /></span><div className="row" style={{ gap: 6 }}>{o.tags.length ? o.tags.map((t) => <Chip key={t} active={['all', '*'].includes(t.toLowerCase())}>{['all', '*'].includes(t.toLowerCase()) ? 'All tags (every question)' : t}</Chip>) : <span className="muted">none yet</span>}</div></div>
           <div><span className="muted small">Questions from <InfoTip term="window" /></span>
             <Segmented label="Time window" value={WINDOWS.some((w) => w.value === (win ?? '')) ? (win ?? '') : '__custom'} onChange={(v) => setWin(v)} options={WINDOWS} /></div>
         </div>
+        {allTags && (win ?? '') === '' && !isSE && <div style={{ marginTop: 14 }}><Banner tone="info" title="Every question, from all time">That can be a lot. To try it out first, choose a shorter time window (for example 1 year); you can widen it later.</Banner></div>}
         {isSE && (win ?? '') === '' && <div style={{ marginTop: 14 }}><Banner tone="warn" title="Everything could be a lot">Popular tags can hold many thousands of questions, and anonymous use is limited to about 300 requests a day. A shorter window is a good first step.</Banner></div>}
 
         <hr className="divider" />
@@ -181,7 +183,7 @@ export default function CollectPage() {
           <Button variant="primary" size="lg" icon={<Play size={18} />} busy={starting || running} disabled={noTags} onClick={start}>{running ? 'Running…' : mode === 'full' ? 'Start full check' : 'Start quick update'}</Button>
           {o.freshness.lastSuccessfulSyncAt && <span className="muted small">Last successful update {timeAgo(o.freshness.lastSuccessfulSyncAt)}</span>}
         </div>
-        <p className="muted small" style={{ marginTop: 12 }}>This will collect questions tagged <b>{o.tags.join(', ') || '…'}</b> from <b>{(win ?? '') === '' ? 'all time' : `the last ${win}`}</b> as a <b>{mode === 'full' ? 'full check' : 'quick update'}</b>.</p>
+        <p className="muted small" style={{ marginTop: 12 }}>This will collect {allTags ? <b>every question on the site (all tags)</b> : <>questions tagged <b>{o.tags.join(', ') || '…'}</b></>} from <b>{(win ?? '') === '' ? 'all time' : `the last ${win}`}</b> as a <b>{mode === 'full' ? 'full check' : 'quick update'}</b>.</p>
         {startError && <div style={{ marginTop: 12 }}><Banner tone="bad" title="The run could not be started">{startError}</Banner></div>}
       </Card>
 
