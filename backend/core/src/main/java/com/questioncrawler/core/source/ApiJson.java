@@ -20,23 +20,38 @@ public final class ApiJson {
 
     // Only names that are wrappers. "tags", "answers" and "comments" are NOT here: a single question has such arrays of its own.
     private static final String[] LISTS = {"items", "data", "results", "content", "value", "records", "questions"};
+    /** Wrappers used by the answers endpoint (and by question objects that embed their answers). */
+    private static final String[] ANSWER_LISTS = {"items", "data", "results", "content", "value", "records", "answers"};
 
     private ApiJson() {}
 
     /** The list in a wrapper: "items" or another usual name, or the answer itself when it is a list. */
     public static JsonNode items(JsonNode root) {
+        return listIn(root, LISTS);
+    }
+
+    /**
+     * The list of answers in an answers-endpoint response (or an embedded {@code answers} array on a question).
+     * Unlike {@link #items}, this accepts an {@code answers} wrapper — that name must not be used for question
+     * listings, because a single question object often carries its own {@code answers} array.
+     */
+    public static JsonNode answerItems(JsonNode root) {
+        return listIn(root, ANSWER_LISTS);
+    }
+
+    private static JsonNode listIn(JsonNode root, String[] names) {
         if (root == null) {
             return com.questioncrawler.core.util.Json.MAPPER.missingNode();
         }
         if (root.isArray()) {
             return root;
         }
-        for (String name : LISTS) {
+        for (String name : names) {
             if (root.path(name).isArray()) {
                 return root.get(name);
             }
         }
-        return root.path("items");
+        return root.path(names[0]);
     }
 
     /** Names of the fields on an object (for explaining what an unexpected answer looks like). */

@@ -43,7 +43,8 @@ public final class SearchService {
     private static final float TITLE_PHRASE_BOOST = 6f;
     private static final float BODY_PHRASE_BOOST = 4f;
     static final double MIN_COVERAGE = 0.34;
-    private static final int MAX_PER_THREAD = 2;
+    /** At most one question passage per thread; every matching answer for that thread may appear (until topK). */
+    private static final int MAX_QUESTION_HITS_PER_THREAD = 1;
 
     private final Path indexDir;
     private final Taxonomy taxonomy;
@@ -239,7 +240,7 @@ public final class SearchService {
     // ------------------------------------------------------------------ assembling the response
 
     private SearchResponse assemble(SearchRequest request, List<Evidence> ranked) {
-        Map<String, Integer> perThread = new HashMap<>();
+        Map<String, Integer> questionHits = new HashMap<>();
         List<Evidence> chosen = new ArrayList<>();
         int budget = 0;
         int omitted = 0;
@@ -248,9 +249,12 @@ public final class SearchService {
             if (chosen.size() >= request.topK()) {
                 break;
             }
-            int used = perThread.merge(e.questionId(), 1, Integer::sum);
-            if (used > MAX_PER_THREAD) {
-                continue;
+            // Keep every matching answer for a question; only collapse repeated question passages.
+            if ("question".equals(e.type())) {
+                int used = questionHits.merge(e.questionId(), 1, Integer::sum);
+                if (used > MAX_QUESTION_HITS_PER_THREAD) {
+                    continue;
+                }
             }
             int cost = e.passage().length();
             if (!chosen.isEmpty() && budget + cost > request.maxTotalChars()) {

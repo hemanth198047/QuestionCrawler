@@ -22,7 +22,9 @@ export function EvidenceCard({ e, onCategory }: { e: Evidence; onCategory?: (id:
           {e.threadStatus !== 'ACTIVE' && <Badge tone="warn">{e.threadStatus.toLowerCase().replace('_', ' ')}</Badge>}
           <InfoTip term={e.accepted ? 'accepted' : 'votes'} />
         </div>
-        <h3 className="ev-title"><a href={`#/question/${encodeURIComponent(e.questionId)}`}>{e.title}</a></h3>
+        <h3 className="ev-title"><a href={e.answerId
+          ? `#/question/${encodeURIComponent(e.questionId)}?answer=${encodeURIComponent(e.answerId)}`
+          : `#/question/${encodeURIComponent(e.questionId)}`}>{e.title}</a></h3>
         {e.flags.length > 0 && (
           <div className="ev-flag"><ShieldAlert size={16} /> This text contains wording that looks like instructions to an AI assistant. It is shown only as reading material and is never acted on.</div>
         )}

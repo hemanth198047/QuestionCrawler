@@ -93,6 +93,17 @@ class SearchTest {
     }
 
     @Test
+    void everyMatchingAnswerForAQuestionIsReturned() {
+        // Question 1001 has several answers that mention timeout-related fixes; search must not stop after one.
+        SearchResponse r = kb.search(new SearchRequest("timeout", null, null, 20, 0, 0));
+        long answersOn1001 = r.evidence().stream()
+                .filter(e -> "1001".equals(e.questionId()) && "answer".equals(e.type()))
+                .count();
+        assertTrue(answersOn1001 >= 2, "expected multiple answers for question 1001, got " + answersOn1001
+                + " in " + r.evidence().stream().map(e -> e.type() + ":" + e.answerId()).toList());
+    }
+
+    @Test
     void tagAndCategoryFiltersApply() {
         SearchResponse tagged = kb.search(new SearchRequest("timeout", List.of("helm"), null, 10, 0, 0));
         assertTrue(tagged.evidence().stream().allMatch(e -> e.tags().contains("helm")));

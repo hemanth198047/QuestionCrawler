@@ -1,5 +1,5 @@
 import { ArrowLeft, Award, CalendarDays, ExternalLink, Pencil, RotateCcw, ShieldAlert, ThumbsUp, User } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { clearOverride, getCategories, getQuestion, setOverride } from '../api'
 import { Markdown } from '../components/Markdown'
 import { Badge, Banner, Button, Card, Chip, EmptyState, InfoTip, Skeleton, useToast } from '../components/ui'
@@ -10,18 +10,31 @@ import type { Answer, ThreadView } from '../types/api'
 
 function AnswerCard({ a }: { a: Answer }) {
   const href = safeUrl(a.url)
+  const comments = a.comments ?? []
   return (
-    <Card className={`answer rise ${a.accepted ? 'is-accepted' : ''}`} id={`answer-${a.id}`}>
+    <Card className={`answer rise ${a.accepted ? 'is-accepted' : ''}`} id={a.id ? `answer-${a.id}` : undefined}>
       {a.accepted && <div className="ribbon"><Award size={14} /> Accepted answer <InfoTip term="accepted" /></div>}
       <div className="spread">
         <div className="row" style={{ gap: 10 }}><Badge tone="neutral" icon={<ThumbsUp size={12} />}>{a.score ?? '?'} votes</Badge>
           <span className="muted small"><User size={13} style={{ verticalAlign: -2 }} /> {a.author ?? 'unknown'} · <CalendarDays size={13} style={{ verticalAlign: -2 }} /> answered {timeAgo(a.createdAt)} ({dateOnly(a.createdAt)})</span></div>
         {href && <a className="small" href={href} target="_blank" rel="noreferrer noopener">Original <ExternalLink size={12} style={{ verticalAlign: -1 }} /></a>}
       </div>
-      <div style={{ marginTop: 14 }}><Markdown text={a.body} /></div>
-      {a.comments.length > 0 && <div className="comments"><h4>Comments</h4>{a.comments.map((c, i) => <p key={i} className="small"><b>{c.author ?? 'unknown'}:</b> {c.body}</p>)}</div>}
+      <div style={{ marginTop: 14 }}><Markdown text={a.body ?? ''} /></div>
+      {comments.length > 0 && <div className="comments"><h4>Comments</h4>{comments.map((c, i) => <p key={i} className="small"><b>{c.author ?? 'unknown'}:</b> {c.body}</p>)}</div>}
     </Card>
   )
+}
+
+/** Scroll to a linked answer once the thread has loaded (hash routing cannot use #answer-… fragments). */
+function FocusAnswer({ answerId, ready }: { answerId?: string | null; ready: boolean }) {
+  useEffect(() => {
+    if (!ready || !answerId) return
+    const t = window.setTimeout(() => {
+      document.getElementById(`answer-${answerId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 50)
+    return () => window.clearTimeout(t)
+  }, [answerId, ready])
+  return null
 }
 
 function CategoryEditor({ view, onDone }: { view: ThreadView; onDone: () => void }) {
@@ -44,7 +57,7 @@ function CategoryEditor({ view, onDone }: { view: ThreadView; onDone: () => void
   )
 }
 
-export default function QuestionPage({ id }: { id: string }) {
+export default function QuestionPage({ id, focusAnswerId }: { id: string; focusAnswerId?: string | null }) {
   const r = useRemote((s) => getQuestion(id, s), [id])
   const [editing, setEditing] = useState(false)
   if (r.kind === 'loading') return <div className="stack"><Skeleton h={50} w={420} /><Skeleton h={220} r={18} /><Skeleton h={160} r={18} /></div>
@@ -53,15 +66,16 @@ export default function QuestionPage({ id }: { id: string }) {
   const q = v.thread.question
   if (!q) return <EmptyState icon={<ShieldAlert size={30} />} title="This question was removed">Its content was erased after the retention period because the site deleted or hid it.</EmptyState>
   const href = safeUrl(q.url)
-  const answers = [...q.answers].sort((a, b) => Number(b.accepted) - Number(a.accepted) || (b.score ?? 0) - (a.score ?? 0))
+  const answers = [...(q.answers ?? [])].sort((a, b) => Number(b.accepted) - Number(a.accepted) || (b.score ?? 0) - (a.score ?? 0))
   return (
     <div className="stack" style={{ gap: 24 }}>
+      <FocusAnswer answerId={focusAnswerId} ready={r.kind === 'ok'} />
       <div><Button variant="ghost" size="sm" icon={<ArrowLeft size={16} />} onClick={() => history.back()}>Back</Button></div>
       <header className="rise">
         <div className="row" style={{ marginBottom: 12 }}>{v.thread.status !== 'ACTIVE' && <Badge tone="warn">{v.thread.status.toLowerCase().replace('_', ' ')}</Badge>}
           {v.categoryNames.map((n) => <Badge key={n} tone="brand">{n}</Badge>)}</div>
         <h1 style={{ fontSize: 30 }}>{q.title}</h1>
-        <p className="muted" style={{ marginTop: 12 }}>Asked {timeAgo(q.createdAt)} ({dateOnly(q.createdAt)}) by {q.author ?? 'unknown'} · {q.score ?? '?'} votes · {q.answers.length} answer{q.answers.length === 1 ? '' : 's'}</p>
+        <p className="muted" style={{ marginTop: 12 }}>Asked {timeAgo(q.createdAt)} ({dateOnly(q.createdAt)}) by {q.author ?? 'unknown'} · {q.score ?? '?'} votes · {answers.length} answer{answers.length === 1 ? '' : 's'}</p>
       </header>
       {v.thread.statusReason && <Banner tone="warn" title="Status">{v.thread.statusReason}</Banner>}
       <div className="qlayout">
@@ -71,9 +85,9 @@ export default function QuestionPage({ id }: { id: string }) {
             <Markdown text={q.body} />
             <div className="row" style={{ marginTop: 18, gap: 6 }}>{q.tags.map((t) => <Chip key={t} onClick={() => go(`/explore?q=${encodeURIComponent(q.title)}&tag=${encodeURIComponent(t)}`)}>{t}</Chip>)}</div>
           </Card>
-          <h2>{q.answers.length === 0 ? 'No answers yet' : `${q.answers.length} answer${q.answers.length === 1 ? '' : 's'}`}</h2>
-          {q.answers.length === 0 && <Banner tone="info">Nobody had answered this when it was last collected.</Banner>}
-          {answers.map((a) => <AnswerCard key={a.id} a={a} />)}
+          <h2 id="answers">{answers.length === 0 ? 'No answers yet' : `${answers.length} answer${answers.length === 1 ? '' : 's'}`}</h2>
+          {answers.length === 0 && <Banner tone="info">Nobody had answered this when it was last collected.</Banner>}
+          {answers.map((a, i) => <AnswerCard key={a.id ?? `answer-${i}`} a={a} />)}
         </div>
         <aside className="stack-sm qside">
           <Card>

@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -384,7 +385,8 @@ public final class StackExchangeAdapter implements SourceAdapter {
         for (int page = 1; page <= MAX_PAGES_PER_BATCH; page++) {
             params.put(pm().page(), String.valueOf(page));
             JsonNode root = call(path, params);
-            for (JsonNode a : ApiJson.items(root)) {
+            JsonNode listed = ApiJson.answerItems(root);
+            for (JsonNode a : listed) {
                 String qid = singleQuestionId != null ? singleQuestionId : ApiJson.id(a, "question_id", "questionId", "parentId", "parent_id");
                 if (qid != null && answerCache.containsKey(qid)) {
                     answerCache.get(qid).add(toAnswer(a, qid));
@@ -394,7 +396,7 @@ public final class StackExchangeAdapter implements SourceAdapter {
                     }
                 }
             }
-            if (!ApiJson.hasMore(root, page, pageSize(), ApiJson.items(root).size())) {
+            if (!ApiJson.hasMore(root, page, pageSize(), listed.size())) {
                 break;
             }
         }
@@ -599,10 +601,11 @@ public final class StackExchangeAdapter implements SourceAdapter {
         params.put(pm().page(), String.valueOf(page));
         JsonNode root = call("/questions/" + encodeId(questionId) + "/answers", params);
         List<Answer> answers = new ArrayList<>();
-        for (JsonNode a : ApiJson.items(root)) {
+        JsonNode listed = ApiJson.answerItems(root);
+        for (JsonNode a : listed) {
             answers.add(toAnswer(a, questionId));
         }
-        return new Page<>(answers, ApiJson.hasMore(root, page, pageSize(), ApiJson.items(root).size()) ? "p:" + (page + 1) : null);
+        return new Page<>(answers, ApiJson.hasMore(root, page, pageSize(), listed.size()) ? "p:" + (page + 1) : null);
     }
 
     public record TagHit(String name, long count) {}
@@ -1121,23 +1124,53 @@ public final class StackExchangeAdapter implements SourceAdapter {
         String bodyMarkdown = ApiJson.text(n, "bodyMarkdown", "body_markdown", "markdown");
         boolean markdown = bodyHtml == null && bodyMarkdown != null;
         Integer score = ApiJson.integer(n, "score", "votes", "voteCount", "vote_count");
+        // Some APIs embed answers on the question. Keep them as a fallback when the answers endpoint is empty
+        // or shaped differently; SyncService still prefers a dedicated answers listing when it returns items.
+        List<Answer> embedded = embeddedAnswers(n, id);
         return new Question(id, ApiJson.text(n, "title", "name", "subject") == null ? "" : ApiJson.text(n, "title", "name", "subject"),
                 markdown ? bodyMarkdown : bodyHtml == null ? "" : bodyHtml, markdown ? BodyFormat.MARKDOWN : BodyFormat.HTML,
                 link != null ? link : id == null ? null : "https://" + siteHost + "/questions/" + id,
                 tags, ApiJson.owner(n), score, ApiJson.instant(n, "creation_date", "creationDate", "createdAt", "created_at", "created", "createdDate", "dateCreated"),
                 ApiJson.instant(n, "last_activity_date", "lastActivityDate", "last_activity", "lastActivity", "lastEditDate", "last_edit_date", "modifiedAt", "updatedAt", "updated_at", "lastModified"),
-                List.<Comment>of(), List.of());
+                List.<Comment>of(), embedded);
+    }
+
+    private List<Answer> embeddedAnswers(JsonNode question, String questionId) {
+        JsonNode raw = question.get("answers");
+        if (raw == null || !raw.isArray() || raw.isEmpty()) {
+            return List.of();
+        }
+        List<Answer> out = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        int i = 0;
+        for (JsonNode a : raw) {
+            Answer answer = toAnswer(a, questionId, i++);
+            String key = answer.id() != null ? answer.id() : "body:" + answer.body().hashCode();
+            if (seen.add(key)) {
+                out.add(answer);
+            }
+        }
+        return out;
     }
 
     private Answer toAnswer(JsonNode n, String questionId) {
-        String id = ApiJson.id(n, "answer_id", "answerId", "id", "postId", "post_id");
+        return toAnswer(n, questionId, -1);
+    }
+
+    private Answer toAnswer(JsonNode n, String questionId, int fallbackIndex) {
+        String id = ApiJson.id(n, "answer_id", "answerId", "id", "postId", "post_id", "uuid", "guid");
         String link = ApiJson.text(n, "link", "url", "webUrl", "web_url", "permalink");
         String bodyHtml = ApiJson.text(n, "body", "bodyHtml", "body_html", "text", "content");
         String bodyMarkdown = ApiJson.text(n, "bodyMarkdown", "body_markdown", "markdown");
         boolean markdown = bodyHtml == null && bodyMarkdown != null;
+        String body = markdown ? bodyMarkdown : bodyHtml == null ? "" : bodyHtml;
         String created = ApiJson.instant(n, "creation_date", "creationDate", "createdAt", "created_at", "created", "createdDate");
         String modified = ApiJson.instant(n, "last_activity_date", "lastActivityDate", "last_activity", "lastEditDate", "last_edit_date", "modifiedAt", "updatedAt", "updated_at");
-        return new Answer(id, markdown ? bodyMarkdown : bodyHtml == null ? "" : bodyHtml, markdown ? BodyFormat.MARKDOWN : BodyFormat.HTML,
+        // Missing ids must not collapse every answer into one during SyncService dedupe (seen.add(null)).
+        if (id == null || id.isBlank()) {
+            id = "a-" + questionId + "-" + (fallbackIndex >= 0 ? fallbackIndex : Integer.toUnsignedString(body.hashCode()));
+        }
+        return new Answer(id, body, markdown ? BodyFormat.MARKDOWN : BodyFormat.HTML,
                 link != null ? link : "https://" + siteHost + "/questions/" + questionId + "#" + id,
                 ApiJson.bool(n, "is_accepted", "isAccepted", "accepted", "isAcceptedAnswer", "acceptedAnswer"),
                 ApiJson.integer(n, "score", "votes", "voteCount", "vote_count"), ApiJson.owner(n), created, modified, List.of());

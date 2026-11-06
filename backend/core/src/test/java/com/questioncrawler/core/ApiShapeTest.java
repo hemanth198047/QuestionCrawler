@@ -29,6 +29,10 @@ class ApiShapeTest {
         assertFalse(ApiJson.items(json("{\"message\":\"x\"}")).isArray(), "no list at all is detectable");
         assertFalse(ApiJson.items(json("{\"id\":1,\"title\":\"q\",\"tags\":[{\"name\":\"a\"}],\"answers\":[{\"id\":2}]}")).isArray(),
                 "a single question has tags and answers of its own: they are not a list of questions");
+        assertEquals(2, ApiJson.answerItems(json("{\"answers\":[{\"id\":1},{\"id\":2}]}")).size(),
+                "the answers endpoint may wrap the list as 'answers'");
+        assertEquals(2, ApiJson.answerItems(json("{\"items\":[{\"id\":1},{\"id\":2}]}")).size(),
+                "Stack Exchange style answers still use items");
     }
 
     @Test

@@ -71,7 +71,7 @@ function Routes() {
   if (path.startsWith('/connect')) return <ConnectPage />
   if (path.startsWith('/collect')) return <CollectPage />
   if (path.startsWith('/explore')) return <ExplorePage params={params} key={params.toString()} />
-  if (path.startsWith('/question/')) return <QuestionPage id={decodeURIComponent(path.slice('/question/'.length))} key={path} />
+  if (path.startsWith('/question/')) return <QuestionPage id={decodeURIComponent(path.slice('/question/'.length))} focusAnswerId={params.get('answer')} key={path + '?' + params.toString()} />
   if (path.startsWith('/organize')) return <OrganizePage tab={path.startsWith('/organize/rules') ? 'rules' : path.startsWith('/organize/discover') ? 'discover' : 'browse'} selected={path.startsWith('/organize/browse/') ? decodeURIComponent(path.slice('/organize/browse/'.length)) : null} />
   if (path.startsWith('/settings')) return <SettingsPage section={path.split('/')[2] ?? null} />
   if (path.startsWith('/help')) return <HelpPage />

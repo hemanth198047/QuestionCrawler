@@ -321,7 +321,9 @@ public final class SyncService {
                 final String c = cursor;
                 Page<Answer> page = retrier.call(() -> adapter.listAnswers(id, c));
                 for (Answer a : page.items()) {
-                    if (seen.add(a.id())) {
+                    // Deduplicate by id when present; answers without an id stay (each is distinct content).
+                    String key = a.id() == null || a.id().isBlank() ? "body:" + a.body().hashCode() + ":" + answers.size() : a.id();
+                    if (seen.add(key)) {
                         answers.add(a);
                     }
                 }
@@ -331,6 +333,10 @@ public final class SyncService {
                 }
                 cursor = next;
             } while (cursor != null);
+            // Prefer the answers endpoint; if it returned nothing, keep any answers the question payload embedded.
+            if (answers.isEmpty() && !q.answers().isEmpty()) {
+                answers = new ArrayList<>(q.answers());
+            }
             return q.withAnswers(answers);
         }
 
