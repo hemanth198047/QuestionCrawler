@@ -21,6 +21,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.function.Function;
 
 /** Typed view of the .properties configuration. No secrets live here: only the NAME of the token variable. */
 public record CoreConfig(
@@ -41,7 +42,8 @@ public record CoreConfig(
         boolean schedulerEnabled,
         Duration schedulerInterval,
         int staleAfterHours,
-        String maxQuestionAge) {
+        String maxQuestionAge,
+        boolean explicitKeyName) {
 
     public static Path defaultStorageRoot() {
         return Path.of(System.getProperty("user.home"), ".questioncrawler", "data");
@@ -88,7 +90,10 @@ public record CoreConfig(
         Path taxonomyFile = taxonomy.isEmpty() ? null : resolve(base, taxonomy);
         String type = p.getProperty("source.type", "fixture").strip().toLowerCase();
         String site = p.getProperty("source.stackexchange.site", "").strip();
-        if (site.isEmpty()) {
+        if (type.equals("live")) {
+            site = p.getProperty("api.site", "").strip();
+        }
+        if (site.isEmpty() && !type.equals("live")) {
             site = siteFromUrl(p.getProperty("source.siteUrl", "https://stackoverflow.com/").strip());
         }
         boolean stackExchange = type.equals("stackexchange");
@@ -97,6 +102,23 @@ public record CoreConfig(
         String prefixes = p.getProperty("source.allowedPathPrefixes", "/");
         String systemId = p.getProperty("source.systemId", "").strip();
         String baseUrl = p.getProperty("source.baseUrl", "").strip();
+        boolean liveApi = type.equals("live");
+        String swagger = p.getProperty("api.swaggerUrl", "").strip();
+        if (liveApi) {
+            // The API address and the documentation address may be on different hosts: allow both, nothing else.
+            java.util.LinkedHashSet<String> allowed = new java.util.LinkedHashSet<>(csv(hosts));
+            for (String url : new String[] {baseUrl, swagger}) {
+                try {
+                    String h = url.isBlank() ? null : java.net.URI.create(url).getHost();
+                    if (h != null) {
+                        allowed.add(h);
+                    }
+                } catch (IllegalArgumentException ignored) {
+                    // validation reports it
+                }
+            }
+            hosts = String.join(",", allowed);
+        }
         if (stackExchange) {
             baseUrl = apiBase;
             if (hosts.isBlank()) {
@@ -126,9 +148,12 @@ public record CoreConfig(
                 Duration.ofSeconds(intValue(p, "source.timeoutSeconds", 30)),
                 Boolean.parseBoolean(p.getProperty("source.allowInsecureHttp", "false").strip()),
                 site,
-                p.getProperty("source.stackexchange.keyEnv", "STACKEXCHANGE_KEY").strip(),
+                liveApi ? p.getProperty("api.keyEnv", "").strip() : p.getProperty("source.stackexchange.keyEnv", "STACKEXCHANGE_KEY").strip(),
                 com.questioncrawler.core.source.ProxyConfig.parse(p.getProperty("network.proxyHost", ""), p.getProperty("network.proxyPort", ""),
-                        p.getProperty("network.noProxy", ""), p.getProperty("network.proxyUserEnv", ""), p.getProperty("network.proxyPasswordEnv", "")));
+                        p.getProperty("network.noProxy", ""), p.getProperty("network.proxyUserEnv", ""), p.getProperty("network.proxyPasswordEnv", "")),
+                new com.questioncrawler.core.source.ApiOptions(p.getProperty("api.keyName", ""), p.getProperty("api.keyIn", "query"),
+                        p.getProperty("api.accessTokenEnv", ""), p.getProperty("api.bodyFilter", ""),
+                        Boolean.parseBoolean(p.getProperty("api.collectComments", "false").strip()), swagger));
 
         List<Path> fixtureDirs = csv(p.getProperty("source.fixture.dirs", "")).stream().map(s -> resolve(base, s)).toList();
         return new CoreConfig(file, storage, taxonomyFile, type, settings, fixtureDirs,
@@ -143,7 +168,8 @@ public record CoreConfig(
                 Boolean.parseBoolean(p.getProperty("sync.scheduler.enabled", "false").strip()),
                 Duration.ofMinutes(intValue(p, "sync.scheduler.intervalMinutes", 360)),
                 intValue(p, "status.staleAfterHours", 168),
-                p.getProperty("sync.maxQuestionAge", "").strip().isEmpty() ? null : p.getProperty("sync.maxQuestionAge").strip());
+                p.getProperty("sync.maxQuestionAge", "").strip().isEmpty() ? null : p.getProperty("sync.maxQuestionAge").strip(),
+                !p.getProperty("api.keyName", "").isBlank());
     }
 
     public static CoreConfig forStorage(Path storageRoot) {
@@ -180,9 +206,9 @@ public record CoreConfig(
             problems.add("sync.tags is empty: at least one target tag is required to run 'sync'");
         }
         if (sourceType.equals("live")) {
-            if (source.baseUrl().isBlank()) {
-                problems.add("source.baseUrl is required for source.type=live");
-            } else {
+            if (source.baseUrl().isBlank() && source.api().swaggerUrl() == null) {
+                problems.add("Give the API address (source.baseUrl) or the API documentation address (api.swaggerUrl) for source.type=live");
+            } else if (!source.baseUrl().isBlank()) {
                 try {
                     java.net.URI uri = java.net.URI.create(source.baseUrl());
                     if (uri.getHost() == null) {
@@ -218,8 +244,12 @@ public record CoreConfig(
     }
 
     public SourceAdapter createAdapter() {
+        return createAdapter(System::getenv);
+    }
+
+    public SourceAdapter createAdapter(Function<String, String> env) {
         if (sourceType.equals("live")) {
-            return new LiveSourceAdapter(source, new HttpSourceClient(source));
+            return createInternalApiAdapter(env);
         }
         if (sourceType.equals("stackexchange")) {
             return new com.questioncrawler.core.source.StackExchangeAdapter(source, new HttpSourceClient(source));
@@ -228,6 +258,45 @@ public record CoreConfig(
             return FixtureSourceAdapter.fromClasspath(fixturePageSize, fixturePageSize, "fixtures/demo-site");
         }
         return FixtureSourceAdapter.fromDirectories(fixturePageSize, fixturePageSize, fixtureDirs.toArray(Path[]::new));
+    }
+
+    /**
+     * The internal site's REST API (Stack Exchange 2.3 style). If a Swagger address is configured, the API's own documentation
+     * supplies what is not set here: the API address, how the access key is sent, and which optional features exist.
+     */
+    private SourceAdapter createInternalApiAdapter(Function<String, String> env) {
+        com.questioncrawler.core.source.SourceSettings working = source;
+        com.questioncrawler.core.api.ApiCapabilities[] learned = new com.questioncrawler.core.api.ApiCapabilities[1];
+        java.util.function.Supplier<com.questioncrawler.core.api.ApiCapabilities> provider = null;
+        String swagger = source.api().swaggerUrl();
+        if (swagger != null) {
+            HttpSourceClient docsClient = new HttpSourceClient(working, env);
+            try {
+                var discovery = new com.questioncrawler.core.api.SwaggerDiscovery(url -> docsClient.get(url).body()).discover(swagger);
+                learned[0] = discovery.capabilities();
+                String base = working.baseUrl();
+                if (base.isBlank() && discovery.catalog().suggestedBaseUrl() != null) {
+                    base = java.net.URI.create(swagger).resolve(discovery.catalog().suggestedBaseUrl()).toString();
+                }
+                var api = working.api();
+                var keyScheme = discovery.catalog().security().stream().filter(x -> "apiKey".equals(x.type()) && x.name() != null).findFirst();
+                if (keyScheme.isPresent() && source.api().keyName().equals("key") && !explicitKeyName) {
+                    api = new com.questioncrawler.core.source.ApiOptions(keyScheme.get().name(), keyScheme.get().in(), api.accessTokenEnv(),
+                            api.bodyFilter(), api.collectComments(), api.swaggerUrl());
+                }
+                working = working.withBase(base, api);
+            } catch (com.questioncrawler.core.source.SourceException e) {
+                // The documentation could not be read now; the standard feature set is assumed and the API address must be set.
+                learned[0] = null;
+            }
+            provider = () -> learned[0];
+        }
+        if (working.baseUrl().isBlank()) {
+            throw new IllegalStateException("The API address is not known. Enter it in the settings, or make the API documentation address readable "
+                    + "(run 'Check access' on the Connect screen to see why it cannot be read).");
+        }
+        return new com.questioncrawler.core.source.StackExchangeAdapter(working, new HttpSourceClient(working, env), env,
+                com.questioncrawler.core.util.Sleeper.REAL, provider);
     }
 
     public SyncOptions syncOptions(List<String> tagOverride, TagMode modeOverride, Boolean partialOverride, SyncMode mode) {

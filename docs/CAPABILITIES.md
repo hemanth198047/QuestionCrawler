@@ -4,7 +4,7 @@
 
 Environment used: JDK 21 on Linux, **Lucene 9.10, Jackson 2.14, JUnit 5.10 from Ubuntu packages** (the sandbox could not reach Maven Central).
 
-- `backend/core` compiled with `javac`; **135 automated tests passed**, 0 failed (stable over repeated runs): question/answer pagination, accepted and unaccepted
+- `backend/core` compiled with `javac`; **172 automated tests passed**, 0 failed (stable over repeated runs): question/answer pagination, accepted and unaccepted
   answers, unanswered questions, code-block/link/table preservation, duplicate IDs, incremental updates, interrupted-sync resume,
   rate limits (Retry-After, exponential backoff) and auth failures, per-item failures and checkpoint behaviour, deleted /
   inaccessible / no-longer-matching handling, retention, concurrency lock, classification + explanations + persistent overrides,
@@ -24,6 +24,10 @@ Environment used: JDK 21 on Linux, **Lucene 9.10, Jackson 2.14, JUnit 5.10 from 
 - The **UI** was built and rendered in headless Firefox against real data (Overview, Connect with a blocked route map, Collect, Explore with
   age sliders, Question, Organize with the rule tester, Settings, Help, and the first-run state); the 32 expectations of the new Spring API
   tests were replayed against the same logic and all held.
+- The **internal REST API route** was tested against a mock site (Swashbuckle-style Swagger page, key on every request, unknown `withbody` filter, gzip without the header,
+  comments, no `site` parameter, missing `tagged`): documentation found (page, initializer script, usual locations), 17 endpoints listed, endpoints matched to purposes,
+  key placement detected, collection with comments, wrong/missing key reported as an authentication problem.
+- **Topic discovery** recovers four known subjects from synthetic questions by their words alone (purity at least 85%), is deterministic, and refuses to invent topics from too little data.
 - The offline demo (`demo`) runs end to end.
 - `frontend` installs, type-checks, builds (Vite) and lints with no warnings.
 
@@ -33,6 +37,7 @@ Environment used: JDK 21 on Linux, **Lucene 9.10, Jackson 2.14, JUnit 5.10 from 
   service; request shapes follow the official API documentation and a mock. See STACKOVERFLOW.md.
 - **Gradle build** (multi-module, wrapper properties): not run; no Gradle/Maven access in the sandbox. Versions (Spring Boot 3.3.1 after a company mirror only offered that; the Spring Boot and dependency-management Gradle *plugins* were removed because company mirrors lack plugin markers (`bootRun` is defined by hand, and `bootJar` is no longer available),
   Lucene 9.11.1) live in `backend/gradle.properties`; the build files were checked to resolve those versions with a real Gradle (9.3.1) that had no network, so downloading and compiling remain unverified. The wrapper jar must be generated (`gradle wrapper`).
+- **Your real internal site:** never reached from here. The Swagger reader, endpoint matching and API calls follow your description and the Stack Exchange 2.3 conventions; real-world differences are possible.
 - **Spring Boot app** (`backend/app`) and its MockMvc tests: the controllers were only **type-checked against stand-ins for the Spring annotations**, never compiled or run with real Spring, and the MockMvc tests have not been run. This is the riskiest part of a first `npm start`. Lucene 9.12 (vs 9.10 tested) and Jackson 2.19 (vs 2.14) are expected to be API-compatible but unconfirmed.
 - **Web UI against the real Spring backend** (it was exercised against an equivalent test-scope server, in Firefox only; no Chrome/Safari/Edge).
 - **The launcher on Windows and macOS** (run on Linux only), and the Gradle bootRun and static-UI packaging steps.

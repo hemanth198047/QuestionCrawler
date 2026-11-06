@@ -1,6 +1,7 @@
 package com.questioncrawler.core.source;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.questioncrawler.core.api.ApiCapabilities;
 import com.questioncrawler.core.model.Answer;
 import com.questioncrawler.core.model.BodyFormat;
 import com.questioncrawler.core.model.Comment;
@@ -21,6 +22,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -56,6 +58,12 @@ public final class StackExchangeAdapter implements SourceAdapter {
     private final String apiBase;
     private final String site;
     private final String siteHost;
+    private final ApiOptions api;
+    private final Supplier<ApiCapabilities> capabilityProvider;
+    private volatile ApiCapabilities caps;
+    private volatile boolean capsLoaded;
+    private volatile String bodyFilter;
+    private volatile boolean filterCreationTried;
 
     private final Map<String, Question> questionCache = new ConcurrentHashMap<>();
     private final Map<String, List<Answer>> answerCache = new ConcurrentHashMap<>();
@@ -68,14 +76,25 @@ public final class StackExchangeAdapter implements SourceAdapter {
     }
 
     public StackExchangeAdapter(SourceSettings settings, HttpSourceClient client, Function<String, String> env, Sleeper sleeper) {
+        this(settings, client, env, sleeper, null);
+    }
+
+    /**
+     * @param capabilityProvider learns what the API supports from its Swagger documentation (called once, lazily); may be null,
+     *                           in which case the standard Stack Exchange 2.3 feature set is assumed.
+     */
+    public StackExchangeAdapter(SourceSettings settings, HttpSourceClient client, Function<String, String> env, Sleeper sleeper,
+                                Supplier<ApiCapabilities> capabilityProvider) {
+        this.capabilityProvider = capabilityProvider;
+        this.api = settings.api();
+        this.bodyFilter = settings.api().bodyFilter();
         this.settings = settings;
         this.client = client;
         this.env = env;
         this.sleeper = sleeper;
         this.apiBase = settings.baseUrl().endsWith("/") ? settings.baseUrl().substring(0, settings.baseUrl().length() - 1) : settings.baseUrl();
         this.site = settings.site();
-        String host = site + ".com";
-        this.siteHost = host;
+        this.siteHost = site == null || site.isBlank() ? java.net.URI.create(apiBase).getHost() : site + ".com";
     }
 
     @Override
@@ -91,6 +110,35 @@ public final class StackExchangeAdapter implements SourceAdapter {
     /** Remaining request quota reported by the last response, or -1 when unknown. */
     public int quotaRemaining() {
         return quotaRemaining.get();
+    }
+
+    // ================================================================== what this API supports
+
+    private ApiCapabilities capabilities() {
+        if (!capsLoaded) {
+            synchronized (this) {
+                if (!capsLoaded) {
+                    try {
+                        caps = capabilityProvider == null ? null : capabilityProvider.get();
+                    } catch (RuntimeException e) {
+                        caps = null; // documentation unavailable: assume the standard feature set
+                    }
+                    capsLoaded = true;
+                }
+            }
+        }
+        return caps;
+    }
+
+    private boolean taggedSupported() { ApiCapabilities c = capabilities(); return c == null || c.taggedFilter(); }
+
+    private boolean fromDateSupported() { ApiCapabilities c = capabilities(); return c == null || c.fromDate(); }
+
+    private boolean minSupported() { ApiCapabilities c = capabilities(); return c == null || c.minActivity(); }
+
+    private boolean hasCapability(String id) {
+        ApiCapabilities c = capabilities();
+        return c == null || c.capabilities().stream().anyMatch(x -> x.id().equals(id) && x.found());
     }
 
     // ================================================================== listing
@@ -109,7 +157,8 @@ public final class StackExchangeAdapter implements SourceAdapter {
         if (all && tags.size() > MAX_TAGS_ALL) {
             throw new SourceException(SourceException.Kind.FATAL, "The Stack Exchange API accepts at most " + MAX_TAGS_ALL + " tags in ALL mode.");
         }
-        int passes = all ? 1 : tags.size();
+        boolean serverTagFilter = taggedSupported();
+        int passes = all || !serverTagFilter ? 1 : tags.size();
         int[] pos = parseCursor(cursor);
         int pass = pos[0];
         int page = pos[1];
@@ -119,22 +168,44 @@ public final class StackExchangeAdapter implements SourceAdapter {
         String tagged = all ? String.join(";", tags) : tags.get(pass);
 
         Map<String, String> params = new LinkedHashMap<>();
-        params.put("tagged", tagged);
+        if (serverTagFilter) {
+            params.put("tagged", tagged);
+        }
         params.put("sort", "activity");
         params.put("order", "asc");
-        params.put("filter", "withbody");
+        params.put("filter", bodyFilter);
         params.put("pagesize", String.valueOf(PAGE_SIZE));
         params.put("page", String.valueOf(page));
-        Times.parse(modifiedSince).ifPresent(i -> params.put("min", String.valueOf(i.getEpochSecond())));
-        Times.parse(filter.createdAfter()).ifPresent(i -> params.put("fromdate", String.valueOf(i.getEpochSecond())));
+        if (minSupported()) {
+            Times.parse(modifiedSince).ifPresent(i -> params.put("min", String.valueOf(i.getEpochSecond())));
+        }
+        if (fromDateSupported()) {
+            Times.parse(filter.createdAfter()).ifPresent(i -> params.put("fromdate", String.valueOf(i.getEpochSecond())));
+        }
+        java.time.Instant createdAfter = Times.parse(filter.createdAfter()).orElse(null);
+        java.time.Instant since = Times.parse(modifiedSince).orElse(null);
 
-        JsonNode root = call("/questions", params);
+        JsonNode root = listWithBodyFilter("/questions", params);
         List<QuestionSummary> items = new ArrayList<>();
         List<String> ids = new ArrayList<>();
+        List<String> commentedQuestions = new ArrayList<>();
         for (JsonNode item : root.path("items")) {
             Question q = toQuestion(item);
             if (q.id() == null) {
                 continue;
+            }
+            // Features the API's documentation does not offer are applied here instead.
+            if (!serverTagFilter && !filter.matches(q.tags())) {
+                continue;
+            }
+            if (!fromDateSupported() && createdAfter != null && Times.parse(q.createdAt()).map(c -> c.isBefore(createdAfter)).orElse(false)) {
+                continue;
+            }
+            if (!minSupported() && since != null && Times.parse(q.modifiedAt()).map(m -> m.isBefore(since)).orElse(false)) {
+                continue;
+            }
+            if (item.path("comment_count").asInt(0) > 0) {
+                commentedQuestions.add(q.id());
             }
             if (questionCache.size() > CACHE_LIMIT) {
                 questionCache.clear();
@@ -148,7 +219,7 @@ public final class StackExchangeAdapter implements SourceAdapter {
             }
             answersPrefetched.remove(q.id());
         }
-        prefetchAnswers(items, ids);
+        prefetchAnswers(items, ids, commentedQuestions);
 
         String next;
         if (root.path("has_more").asBoolean(false)) {
@@ -162,13 +233,14 @@ public final class StackExchangeAdapter implements SourceAdapter {
     }
 
     /** One batched call per listing page (up to 100 ids) instead of one call per question. */
-    private void prefetchAnswers(List<QuestionSummary> items, List<String> idsWithAnswers) throws SourceException {
+    private void prefetchAnswers(List<QuestionSummary> items, List<String> idsWithAnswers, List<String> commentedQuestions) throws SourceException {
+        List<String> commentedAnswers = new ArrayList<>();
         for (QuestionSummary s : items) {
             answerCache.put(s.id(), new ArrayList<>());
         }
         if (!idsWithAnswers.isEmpty()) {
             Map<String, String> params = new LinkedHashMap<>();
-            params.put("filter", "withbody");
+            params.put("filter", bodyFilter);
             params.put("sort", "creation");
             params.put("order", "asc");
             params.put("pagesize", String.valueOf(PAGE_SIZE));
@@ -180,6 +252,9 @@ public final class StackExchangeAdapter implements SourceAdapter {
                     String qid = a.path("question_id").asText(null);
                     if (qid != null && answerCache.containsKey(qid)) {
                         answerCache.get(qid).add(toAnswer(a, qid));
+                        if (a.path("comment_count").asInt(0) > 0) {
+                            commentedAnswers.add(a.path("answer_id").asText());
+                        }
                     }
                 }
                 if (!root.path("has_more").asBoolean(false)) {
@@ -187,9 +262,114 @@ public final class StackExchangeAdapter implements SourceAdapter {
                 }
             }
         }
+        attachComments(items, commentedQuestions, commentedAnswers);
         for (QuestionSummary s : items) {
             answersPrefetched.add(s.id());
         }
+    }
+
+    /** Optional: comments under questions and answers, fetched in batches of up to 100 posts. */
+    private void attachComments(List<QuestionSummary> items, List<String> questionIds, List<String> answerIds) throws SourceException {
+        if (!api.collectComments()) {
+            return;
+        }
+        Map<String, List<Comment>> onQuestions = hasCapability("questionComments") ? fetchComments("/questions/%s/comments", questionIds) : Map.of();
+        Map<String, List<Comment>> onAnswers = hasCapability("answerComments") ? fetchComments("/answers/%s/comments", answerIds) : Map.of();
+        for (QuestionSummary s : items) {
+            Question q = questionCache.get(s.id());
+            List<Answer> answers = answerCache.getOrDefault(s.id(), List.of());
+            List<Answer> withComments = new ArrayList<>();
+            for (Answer a : answers) {
+                withComments.add(onAnswers.containsKey(a.id()) ? a.withBody(a.body(), a.bodyFormat(), onAnswers.get(a.id())) : a);
+            }
+            if (answerCache.containsKey(s.id())) {
+                answerCache.put(s.id(), withComments);
+            }
+            if (q != null && onQuestions.containsKey(s.id())) {
+                questionCache.put(s.id(), q.withContent(q.body(), q.bodyFormat(), onQuestions.get(s.id()), q.answers()));
+            }
+        }
+    }
+
+    private Map<String, List<Comment>> fetchComments(String pathTemplate, List<String> ids) throws SourceException {
+        Map<String, List<Comment>> out = new LinkedHashMap<>();
+        for (int from = 0; from < ids.size(); from += PAGE_SIZE) {
+            List<String> batch = ids.subList(from, Math.min(ids.size(), from + PAGE_SIZE));
+            Map<String, String> params = new LinkedHashMap<>();
+            params.put("filter", bodyFilter);
+            params.put("sort", "creation");
+            params.put("order", "asc");
+            params.put("pagesize", String.valueOf(PAGE_SIZE));
+            for (int page = 1; page <= MAX_PAGES_PER_BATCH; page++) {
+                params.put("page", String.valueOf(page));
+                JsonNode root;
+                try {
+                    root = call(String.format(pathTemplate, String.join(";", batch)), params);
+                } catch (SourceException e) {
+                    if (e.kind() == SourceException.Kind.AUTH_FAILED || e.kind() == SourceException.Kind.QUOTA_EXHAUSTED) {
+                        throw e;
+                    }
+                    return out; // comments are optional context: never fail a collection because of them
+                }
+                for (JsonNode c : root.path("items")) {
+                    String post = c.path("post_id").asText(null);
+                    if (post != null) {
+                        out.computeIfAbsent(post, k -> new ArrayList<>()).add(new Comment(c.path("comment_id").asText(null), author(c),
+                                c.path("body").asText(""), epoch(c, "creation_date")));
+                    }
+                }
+                if (!root.path("has_more").asBoolean(false)) {
+                    break;
+                }
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Some APIs only include question and answer text with a custom filter. If the first page comes back without any text
+     * (or the API does not know the filter name), a suitable filter is created with the API's own /filters/create endpoint.
+     */
+    private JsonNode listWithBodyFilter(String path, Map<String, String> params) throws SourceException {
+        JsonNode root;
+        try {
+            root = call(path, params);
+        } catch (SourceException e) {
+            if (e.kind() == SourceException.Kind.FATAL && e.getMessage().toLowerCase().contains("filter") && createBodyFilter()) {
+                params.put("filter", bodyFilter);
+                return call(path, params);
+            }
+            throw e;
+        }
+        JsonNode items = root.path("items");
+        if (items.isArray() && !items.isEmpty() && !items.get(0).has("body") && createBodyFilter()) {
+            params.put("filter", bodyFilter);
+            return call(path, params);
+        }
+        return root;
+    }
+
+    private boolean createBodyFilter() throws SourceException {
+        if (filterCreationTried || !hasCapability("filterCreate")) {
+            return false;
+        }
+        filterCreationTried = true;
+        Map<String, String> fp = new LinkedHashMap<>();
+        fp.put("include", "question.body;answer.body;comment.body");
+        fp.put("base", "default");
+        fp.put("unsafe", "false");
+        try {
+            String created = call("/filters/create", fp).path("items").path(0).path("filter").asText("");
+            if (!created.isBlank()) {
+                bodyFilter = created;
+                return true;
+            }
+        } catch (SourceException e) {
+            if (e.kind() == SourceException.Kind.AUTH_FAILED) {
+                throw e;
+            }
+        }
+        return false;
     }
 
     // ================================================================== single question
@@ -201,7 +381,7 @@ public final class StackExchangeAdapter implements SourceAdapter {
             return cached;
         }
         Map<String, String> params = new LinkedHashMap<>();
-        params.put("filter", "withbody");
+        params.put("filter", bodyFilter);
         JsonNode root = call("/questions/" + encodeId(id), params);
         JsonNode items = root.path("items");
         if (!items.isArray() || items.isEmpty()) {
@@ -229,7 +409,7 @@ public final class StackExchangeAdapter implements SourceAdapter {
             page = Integer.parseInt(cursor.substring(2));
         }
         Map<String, String> params = new LinkedHashMap<>();
-        params.put("filter", "withbody");
+        params.put("filter", bodyFilter);
         params.put("sort", "creation");
         params.put("order", "asc");
         params.put("pagesize", String.valueOf(PAGE_SIZE));
@@ -251,24 +431,56 @@ public final class StackExchangeAdapter implements SourceAdapter {
 
     @Override
     public String ping() throws SourceException {
-        JsonNode root = call("/info", new LinkedHashMap<>());
-        JsonNode info = root.path("items").path(0);
-        return "Stack Exchange API reachable; site '" + site + "' has " + info.path("total_questions").asText("?") + " questions; "
-                + "request quota remaining: " + (quotaRemaining.get() < 0 ? "unknown" : quotaRemaining.get())
-                + (settings.apiKeyEnv() != null && env.apply(settings.apiKeyEnv()) != null ? " (application key in use)" : " (anonymous: small daily quota)");
+        String where = site == null || site.isBlank() ? "the internal API" : "site '" + site + "'";
+        JsonNode root;
+        String size;
+        if (hasCapability("info")) {
+            root = call("/info", new LinkedHashMap<>());
+            size = root.path("items").path(0).path("total_questions").asText("?");
+        } else {
+            Map<String, String> probe = new LinkedHashMap<>();
+            probe.put("pagesize", "1");
+            probe.put("filter", "total");
+            root = call("/questions", probe);
+            size = root.has("total") ? root.get("total").asText() : "?";
+        }
+        boolean keyed = settings.apiKeyEnv() != null && env.apply(settings.apiKeyEnv()) != null;
+        boolean publicSite = site != null && !site.isBlank();
+        String keyNote = keyed ? (publicSite ? " (application key in use)" : " (access key in use)")
+                : (publicSite ? " (anonymous: small daily quota)" : " (no access key set)");
+        return (publicSite ? "Stack Exchange API reachable; " : "API reachable; ") + where + " has " + size + " questions; request quota remaining: "
+                + (quotaRemaining.get() < 0 ? "unknown" : quotaRemaining.get()) + keyNote;
     }
 
     // ================================================================== HTTP + error handling
 
     private JsonNode call(String path, Map<String, String> params) throws SourceException {
         awaitBackoff();
-        StringBuilder url = new StringBuilder(apiBase).append(path).append("?site=").append(enc(site));
-        params.forEach((k, v) -> url.append('&').append(k).append('=').append(enc(v)));
+        StringBuilder url = new StringBuilder(apiBase).append(path);
+        char sep = '?';
+        if (site != null && !site.isBlank()) {
+            url.append(sep).append("site=").append(enc(site));
+            sep = '&';
+        }
+        for (Map.Entry<String, String> e : params.entrySet()) {
+            url.append(sep).append(e.getKey()).append('=').append(enc(e.getValue()));
+            sep = '&';
+        }
+        Map<String, String> headers = new LinkedHashMap<>();
         String key = settings.apiKeyEnv() == null || settings.apiKeyEnv().isBlank() ? null : env.apply(settings.apiKeyEnv());
         if (key != null && !key.isBlank()) {
-            url.append("&key=").append(enc(key));
+            if ("header".equals(api.keyIn())) {
+                headers.put(api.keyName(), key);
+            } else {
+                url.append(sep).append(enc(api.keyName())).append('=').append(enc(key));
+                sep = '&';
+            }
         }
-        HttpSourceClient.Response response = client.exchange(url.toString());
+        String token = api.accessTokenEnv() == null ? null : env.apply(api.accessTokenEnv());
+        if (token != null && !token.isBlank()) {
+            url.append(sep).append("access_token=").append(enc(token));
+        }
+        HttpSourceClient.Response response = client.exchange(url.toString(), headers);
         JsonNode root = parse(response.body());
         if (response.status() < 200 || response.status() >= 300) {
             throw mapError(response, root, url.toString());
@@ -310,8 +522,15 @@ public final class StackExchangeAdapter implements SourceAdapter {
             }
             return new SourceException(SourceException.Kind.RATE_LIMITED, "Stack Exchange throttle: " + message, Duration.ofSeconds(seconds), null);
         }
+        if (errorId == 401 || errorId == 402 || errorId == 405 || errorId == 406) {
+            return new SourceException(SourceException.Kind.AUTH_FAILED, "The API rejected our credentials (error " + errorId + (message.isBlank() ? "" : ": " + message)
+                    + "). Check the API access key (and access token, if used) and how it is sent.");
+        }
         if (errorId == 403) {
-            return new SourceException(SourceException.Kind.FORBIDDEN, "Stack Exchange API: access denied");
+            return new SourceException(SourceException.Kind.FORBIDDEN, "The API denied access (error 403): the key may lack permission for this content.");
+        }
+        if (errorId == 503) {
+            return new SourceException(SourceException.Kind.TRANSIENT, "The API is temporarily unavailable (error 503).");
         }
         if (errorId >= 0) {
             return new SourceException(SourceException.Kind.FATAL, "Stack Exchange API error " + errorId + ": " + message);

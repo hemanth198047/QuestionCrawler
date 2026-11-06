@@ -1,18 +1,19 @@
-import { ArrowRight, FolderTree, Layers, Plus, RotateCcw, Save, Sparkles, Trash2, Wand2 } from 'lucide-react'
+import { ArrowRight, FolderTree, Layers, Lightbulb, Plus, RotateCcw, Save, Sparkles, Trash2, Wand2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { getCategories, getCategory, getTaxonomy, reindex, resetTaxonomy, saveTaxonomy, tryTaxonomy } from '../api'
+import { discoverTopics, getCategories, getCategory, getTaxonomy, reindex, resetTaxonomy, saveTaxonomy, tryTaxonomy } from '../api'
 import { PageHeader } from '../components/PageHeader'
 import { Badge, Banner, Button, Card, Chip, EmptyState, InfoTip, PALETTE, Segmented, Skeleton, TagInput, useToast } from '../components/ui'
 import { AGE_STEPS, dateOnly, friendlyRule, timeAgo } from '../lib/format'
 import { go, useRemote } from '../lib/useRemote'
-import type { Category, Rule, Taxonomy, TryResult } from '../types/api'
+import type { Category, Rule, Taxonomy, TopicProposal, TryResult } from '../types/api'
 
 export default function OrganizePage({ tab, selected }: { tab: string; selected: string | null }) {
   return (
     <div className="stack" style={{ gap: 26 }}>
       <PageHeader eyebrow="Organize" title="Topics" subtitle="Every question is placed into one or more topics by simple rules that you can read, test and change. There is no hidden AI judging them."
-        actions={<Segmented<string> label="View" value={tab} onChange={(v) => go(v === 'rules' ? '/organize/rules' : '/organize')} options={[{ value: 'browse', label: 'Browse topics' }, { value: 'rules', label: 'Edit rules' }]} />} />
-      {tab === 'rules' ? <RulesEditor /> : <Browse selected={selected} />}
+        actions={<Segmented<string> label="View" value={tab} onChange={(v) => go(v === 'rules' ? '/organize/rules' : v === 'discover' ? '/organize/discover' : '/organize')}
+          options={[{ value: 'browse', label: 'Browse topics' }, { value: 'discover', label: 'Discover topics' }, { value: 'rules', label: 'Edit rules' }]} />} />
+      {tab === 'rules' ? <RulesEditor /> : tab === 'discover' ? <DiscoverTopics /> : <Browse selected={selected} />}
     </div>
   )
 }
@@ -211,5 +212,107 @@ function TryPanel({ draft }: { draft: Taxonomy }) {
         </div>
       </div>
     </Card>
+  )
+}
+
+
+// ------------------------------------------------------------------ discovering topics from the questions
+function DiscoverTopics() {
+  const toast = useToast()
+  const [k, setK] = useState(0)
+  const [busy, setBusy] = useState(false)
+  const [applying, setApplying] = useState(false)
+  const [proposal, setProposal] = useState<TopicProposal | null>(null)
+  const [names, setNames] = useState<Record<string, string>>({})
+  const [chosen, setChosen] = useState<Set<string>>(new Set())
+  const [mode, setMode] = useState<'replace' | 'add'>('replace')
+  const [error, setError] = useState<string | null>(null)
+
+  const run = async () => {
+    setBusy(true); setError(null)
+    try {
+      const p = await discoverTopics(k)
+      setProposal(p); setNames(Object.fromEntries(p.topics.map((t) => [t.id, t.name]))); setChosen(new Set(p.topics.map((t) => t.id)))
+    } catch (e) { setError(e instanceof Error ? e.message : 'Could not discover topics') } finally { setBusy(false) }
+  }
+  const apply = async () => {
+    if (!proposal) return
+    setApplying(true)
+    try {
+      const fallbackId = proposal.taxonomy.fallbackCategory
+      const picked: Category[] = proposal.taxonomy.categories.filter((c) => chosen.has(c.id)).map((c) => ({ ...c, name: (names[c.id] ?? c.name).trim() || c.name }))
+      let categories = picked
+      if (mode === 'add') {
+        const current = (await getTaxonomy()).taxonomy
+        const keep = current.categories.filter((c) => c.id !== current.fallbackCategory)
+        const used = new Set(keep.map((c) => c.id))
+        const renamed = picked.map((c) => { let id = c.id; let n = 2; while (used.has(id)) id = `${c.id}-${n++}`; used.add(id); return { ...c, id } })
+        categories = [...keep, ...renamed]
+      }
+      const fallback = proposal.taxonomy.categories.find((c) => c.id === fallbackId)!
+      const saved = await saveTaxonomy({ ...proposal.taxonomy, categories: [...categories, fallback] })
+      if (saved.problems.length) { setError(saved.problems.join('; ')); return }
+      const r = await reindex()
+      toast('ok', `${picked.length} topics saved and ${r.threads} questions sorted`)
+      go('/organize')
+    } catch (e) { setError(e instanceof Error ? e.message : 'Could not save') } finally { setApplying(false) }
+  }
+  const toggle = (id: string) => { const n = new Set(chosen); if (n.has(id)) n.delete(id); else n.add(id); setChosen(n) }
+
+  return (
+    <div className="stack" style={{ gap: 22 }}>
+      <Card className="discover-intro">
+        <div className="row" style={{ alignItems: 'flex-start', gap: 18 }}>
+          <span className="how-icon"><Lightbulb size={22} /></span>
+          <div style={{ flex: 1, minWidth: 260 }}>
+            <h3>Let your questions tell you the topics</h3>
+            <p className="muted" style={{ marginTop: 6 }}>We read the titles, tags, text and answers of everything you collected, group questions that are about the same thing, and name each group from the words
+              that set it apart. Then you review, rename and choose. It runs on this computer, with no AI service, and gives the same result every time.</p>
+            <ol className="discover-steps"><li><b>1</b> Find</li><li><b>2</b> Review and rename</li><li><b>3</b> Use them</li></ol>
+          </div>
+          <div className="stack-sm" style={{ minWidth: 220 }}>
+            <label className="field-label" htmlFor="k">How many topics?</label>
+            <select id="k" className="select" value={k} onChange={(e) => setK(Number(e.target.value))}>
+              <option value={0}>Let the app decide</option>{[3, 4, 5, 6, 7, 8, 10, 12].map((n) => <option key={n} value={n}>{n} topics</option>)}
+            </select>
+            <Button variant="primary" icon={<Sparkles size={16} />} busy={busy} onClick={run}>{proposal ? 'Find again' : 'Find topics'}</Button>
+          </div>
+        </div>
+      </Card>
+      {error && <Banner tone="bad" title="Something went wrong">{error}</Banner>}
+
+      {proposal && proposal.topics.length === 0 && <EmptyState icon={<Lightbulb size={30} />} title="Not enough to go on yet">{proposal.notes[0] ?? 'Collect more questions first.'}</EmptyState>}
+      {proposal && proposal.topics.length > 0 && (
+        <>
+          <div className="spread">
+            <h2>{proposal.topics.length} topics found in {proposal.documents} questions</h2>
+            <Badge tone={proposal.placedShare >= 0.8 ? 'ok' : 'warn'}>{Math.round(proposal.placedShare * 100)}% of questions would be placed</Badge>
+          </div>
+          {proposal.notes.map((n) => <Banner key={n} tone={n.startsWith('Only') ? 'warn' : 'info'}>{n}</Banner>)}
+          <div className="topic-grid">
+            {proposal.topics.map((t, i) => (
+              <Card key={t.id} className={`topic ${chosen.has(t.id) ? 'on' : 'off'}`}>
+                <div className="topic-head">
+                  <label className="switch"><input type="checkbox" checked={chosen.has(t.id)} onChange={() => toggle(t.id)} aria-label={`Use ${names[t.id]}`} /><span className="switch-track" /></label>
+                  <i className="topic-dot" style={{ background: PALETTE[i % PALETTE.length] }} />
+                  <input className="input topic-name" value={names[t.id] ?? t.name} onChange={(e) => setNames({ ...names, [t.id]: e.target.value })} aria-label="Topic name" />
+                </div>
+                <p className="muted small">{t.description}</p>
+                <div className="topic-stats"><b>{t.size}</b> grouped · <b>{t.matches}</b> placed by the rules</div>
+                <div className="row" style={{ gap: 6 }}>{t.topTerms.slice(0, 6).map((w) => <Chip key={w}>{w}</Chip>)}{t.topTags.map((g) => <Chip key={g} active>tag: {g}</Chip>)}</div>
+                <div className="topic-samples">{t.samples.map((sm) => <a key={sm.id} href={`#/question/${encodeURIComponent(sm.id)}`}>{sm.title}</a>)}</div>
+                <details className="small"><summary>Rules that will be used</summary>
+                  <ul className="plainlist">{t.rules.map((r, n) => <li key={n}>{r.type === 'tag' ? `tag “${r.pattern}”` : `the word “${r.pattern}”`} <span className="muted">({r.weight} pts)</span></li>)}</ul></details>
+              </Card>
+            ))}
+          </div>
+          <div className="savebar"><div className="savebar-inner">
+            <div className="row"><Segmented<'replace' | 'add'> label="How to use" value={mode} onChange={setMode} options={[{ value: 'replace', label: 'Replace my topics' }, { value: 'add', label: 'Add to my topics' }]} />
+              <span className="muted small">{chosen.size} of {proposal.topics.length} selected</span></div>
+            <Button variant="primary" icon={<Wand2 size={16} />} busy={applying} disabled={chosen.size === 0} onClick={apply}>Use these topics</Button>
+          </div></div>
+        </>
+      )}
+    </div>
   )
 }

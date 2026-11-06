@@ -82,3 +82,16 @@ export interface Category { id: string; name: string; description: string; rules
 export interface Taxonomy { version: number; minScore: number; fallbackCategory: string; categories: Category[] }
 export interface TaxonomyView { custom: boolean; file: string; hash: string; taxonomy: Taxonomy; problems: string[] }
 export interface TryResult { matches: { categoryId: string; name: string; score: number; matchedRules: string[] }[]; fallback: boolean; explanation: string }
+
+// ---- the site's API documentation (Swagger)
+export interface ApiParameter { name: string; in: string; required: boolean; type: string; description: string; allowed: string[] }
+export interface ApiOperation { method: string; path: string; operationId: string | null; summary: string; tags: string[]; parameters: ApiParameter[]; responseCodes: string[]; deprecated: boolean }
+export interface ApiSecurity { id: string; type: string; in: string | null; name: string | null; scheme: string | null; description: string }
+export interface ApiCatalog { title: string; version: string; specUrls: string[]; suggestedBaseUrl: string | null; security: ApiSecurity[]; operations: ApiOperation[]; warnings: string[] }
+export interface ApiCapability { id: string; label: string; purpose: string; required: boolean; found: boolean; method: string | null; path: string | null; parameters: string[] }
+export interface ApiCapabilities { capabilities: ApiCapability[]; ready: boolean; problems: string[]; taggedFilter: boolean; fromDate: boolean; minActivity: boolean; customFilter: boolean; createFilter: boolean; otherEndpoints: number }
+export interface ApiDocsResult { ok: boolean; problem: string | null; catalog: ApiCatalog | null; capabilities: ApiCapabilities | null; tried: string[]; suggestedBaseUrl: string | null; suggestedKeyName: string | null; suggestedKeyIn: string | null }
+
+// ---- topics discovered from the questions
+export interface DiscoveredTopic { id: string; name: string; description: string; size: number; matches: number; topTerms: string[]; topTags: string[]; samples: { id: string; title: string }[]; rules: Rule[] }
+export interface TopicProposal { topics: DiscoveredTopic[]; documents: number; unplaced: number; placedShare: number; method: string; notes: string[]; taxonomy: Taxonomy }

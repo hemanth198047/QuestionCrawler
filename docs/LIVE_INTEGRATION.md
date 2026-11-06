@@ -1,3 +1,6 @@
+> **Update:** an internal site with a documented REST API (Swagger) is now supported out of the box: see [INTERNAL_API.md](INTERNAL_API.md).
+> The text below describes the older, manual way of integrating a site and is kept for sites without such an API.
+
 # Connecting the real internal site
 
 > For **public** Stack Exchange sites (such as stackoverflow.com) use `source.type=stackexchange` instead: see [STACKOVERFLOW.md](STACKOVERFLOW.md). The rest of this page is about your private internal site.

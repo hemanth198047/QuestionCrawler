@@ -129,19 +129,24 @@ public final class Workspace {
         List<String> tags = Arrays.stream(v.getOrDefault("sync.tags", "").split(",")).map(TagFilter::normalize).filter(t -> !t.isEmpty()).toList();
         String target;
         String site = "";
+        String keyEnv = v.getOrDefault("source.stackexchange.keyEnv", "");
         if (type.equals("stackexchange")) {
             target = "https://api.stackexchange.com/2.3";
             site = CoreConfig.siteFromUrl(v.getOrDefault("source.siteUrl", "https://stackoverflow.com/"));
         } else {
             target = v.getOrDefault("source.baseUrl", "");
+            if (type.equals("live")) {
+                site = v.getOrDefault("api.site", "");
+                keyEnv = v.getOrDefault("api.keyEnv", "");
+            }
         }
+        com.questioncrawler.core.source.ApiOptions apiOptions = apiOptions(v);
         String ca = v.getOrDefault("source.caCertFile", "").strip();
         int timeout = parseInt(v.get("source.timeoutSeconds"), 15);
         SiteDiagnostics.Input input = new SiteDiagnostics.Input(type, target, site, tags, v.getOrDefault("source.auth.method", "none"),
-                v.getOrDefault("source.auth.tokenEnv", ""), v.getOrDefault("source.stackexchange.keyEnv", ""),
+                v.getOrDefault("source.auth.tokenEnv", ""), keyEnv,
                 ca.isEmpty() ? null : Path.of(ca), Boolean.parseBoolean(v.getOrDefault("source.allowInsecureHttp", "false")), Math.min(timeout, 30),
-                com.questioncrawler.core.source.ProxyConfig.parse(v.getOrDefault("network.proxyHost", ""), v.getOrDefault("network.proxyPort", ""),
-                        v.getOrDefault("network.noProxy", ""), v.getOrDefault("network.proxyUserEnv", ""), v.getOrDefault("network.proxyPasswordEnv", "")));
+                proxyOf(v), apiOptions);
         ConnectionReport report = new SiteDiagnostics(env, clock).run(input);
         try {
             knowledgeBase.store().init();
@@ -150,6 +155,50 @@ public final class Workspace {
             // the report is still returned even if it cannot be remembered
         }
         return report;
+    }
+
+    private static com.questioncrawler.core.source.ApiOptions apiOptions(Map<String, String> v) {
+        return new com.questioncrawler.core.source.ApiOptions(v.get("api.keyName"), v.get("api.keyIn"), v.get("api.accessTokenEnv"), v.get("api.bodyFilter"),
+                Boolean.parseBoolean(v.getOrDefault("api.collectComments", "false")), v.get("api.swaggerUrl"));
+    }
+
+    private static com.questioncrawler.core.source.ProxyConfig proxyOf(Map<String, String> v) {
+        return com.questioncrawler.core.source.ProxyConfig.parse(v.getOrDefault("network.proxyHost", ""), v.getOrDefault("network.proxyPort", ""),
+                v.getOrDefault("network.noProxy", ""), v.getOrDefault("network.proxyUserEnv", ""), v.getOrDefault("network.proxyPasswordEnv", ""));
+    }
+
+    /** What the Swagger reader found (or why it could not read the documentation). Safe to show: no secrets are included. */
+    public record ApiDocsResult(boolean ok, String problem, com.questioncrawler.core.api.ApiCatalog catalog,
+                                com.questioncrawler.core.api.ApiCapabilities capabilities, List<String> tried,
+                                String suggestedBaseUrl, String suggestedKeyName, String suggestedKeyIn) {}
+
+    /** Reads the API documentation at the (draft) Swagger address and lists every endpoint. Nothing is saved. */
+    public ApiDocsResult discoverApi(Map<String, String> draft) {
+        Map<String, String> v = configService.read(configFile);
+        if (draft != null) {
+            v.putAll(draft);
+        }
+        String swagger = v.getOrDefault("api.swaggerUrl", "").strip();
+        if (swagger.isEmpty()) {
+            return new ApiDocsResult(false, "Enter the API documentation (Swagger) address first.", null, null, List.of(), null, null, null);
+        }
+        try {
+            java.net.URI u = java.net.URI.create(swagger);
+            String ca = v.getOrDefault("source.caCertFile", "").strip();
+            var settings = new com.questioncrawler.core.source.SourceSettings("docs", swagger, List.of(u.getHost()), List.of("/"), "none", null, null, null,
+                    ca.isEmpty() ? null : Path.of(ca), java.time.Duration.ofSeconds(Math.min(parseInt(v.get("source.timeoutSeconds"), 30), 60)),
+                    Boolean.parseBoolean(v.getOrDefault("source.allowInsecureHttp", "false")), null, null, proxyOf(v), apiOptions(v));
+            var client = new com.questioncrawler.core.source.HttpSourceClient(settings, env);
+            var discovery = new com.questioncrawler.core.api.SwaggerDiscovery(url -> client.get(url).body()).discover(swagger);
+            var key = discovery.catalog().security().stream().filter(x -> "apiKey".equals(x.type()) && x.name() != null).findFirst();
+            String base = discovery.catalog().suggestedBaseUrl() == null ? null : u.resolve(discovery.catalog().suggestedBaseUrl()).toString();
+            return new ApiDocsResult(true, null, discovery.catalog(), discovery.capabilities(), discovery.tried(), base,
+                    key.map(com.questioncrawler.core.api.ApiCatalog.SecurityScheme::name).orElse(null), key.map(com.questioncrawler.core.api.ApiCatalog.SecurityScheme::in).orElse(null));
+        } catch (com.questioncrawler.core.source.SourceException e) {
+            return new ApiDocsResult(false, e.getMessage(), null, null, List.of(), null, null, null);
+        } catch (IllegalArgumentException e) {
+            return new ApiDocsResult(false, "That is not a valid web address.", null, null, List.of(), null, null, null);
+        }
     }
 
     public Optional<ConnectionReport> lastConnection() {
@@ -220,6 +269,11 @@ public final class Workspace {
         return new TryResult(matches, fallback, fallback
                 ? "No category reached the minimum score of " + taxonomy.minScore() + ", so it falls back to '" + taxonomy.displayName(taxonomy.fallbackCategory()) + "'."
                 : "A category is chosen when its matching rules add up to at least " + taxonomy.minScore() + " points.");
+    }
+
+    /** Proposes topics found in the collected questions (nothing is saved until the person applies them). */
+    public com.questioncrawler.core.classification.TopicDiscovery.Proposal discoverTopics(int k) {
+        return com.questioncrawler.core.classification.TopicDiscovery.discover(knowledgeBase.store().allThreads(), k);
     }
 
     // ================================================================== overview

@@ -125,7 +125,7 @@ class ConfigServiceTest {
             assertFalse(preset.description().isBlank());
             var values = new java.util.LinkedHashMap<>(ConfigService.defaults());
             values.putAll(preset.values());
-            assertFalse(service.validate(values).stream().anyMatch(i -> i.level().equals("error") && !i.key().equals("source.baseUrl")), preset.id());
+            assertFalse(service.validate(values).stream().anyMatch(i -> i.level().equals("error") && !i.key().equals("source.baseUrl") && !i.key().equals("api.swaggerUrl")), preset.id());
         }
     }
 

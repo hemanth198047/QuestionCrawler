@@ -195,4 +195,23 @@ class KnowledgeApiTest {
         mvc.perform(get("/api/sync/reports")).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1));
         mvc.perform(post("/api/reindex")).andExpect(status().isOk()).andExpect(jsonPath("$.threads").value(10));
     }
+
+    @Test
+    @Order(12)
+    void topicsCanBeDiscoveredFromTheCollectedQuestions() throws Exception {
+        mvc.perform(post("/api/topics/discover").contentType(JSON).content("{\"k\":3}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.documents").value(10))
+                .andExpect(jsonPath("$.topics.length()").value(org.hamcrest.Matchers.greaterThan(0)))
+                .andExpect(jsonPath("$.taxonomy.fallbackCategory").value("uncategorized"));
+    }
+
+    @Test
+    @Order(13)
+    void readingTheApiDocumentationNeedsAnAddressAndNeverFailsHard() throws Exception {
+        mvc.perform(post("/api/api-docs/discover").contentType(JSON).content("{\"values\":{}}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ok").value(false))
+                .andExpect(jsonPath("$.problem").value(org.hamcrest.Matchers.containsString("Swagger")));
+    }
 }

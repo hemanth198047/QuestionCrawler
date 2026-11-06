@@ -6,6 +6,10 @@ import com.questioncrawler.core.service.ConnectionReport.Need;
 import com.questioncrawler.core.service.ConnectionReport.Requirement;
 import com.questioncrawler.core.service.ConnectionReport.Route;
 import com.questioncrawler.core.service.ConnectionReport.Stage;
+import com.questioncrawler.core.api.ApiCapabilities;
+import com.questioncrawler.core.api.ApiCatalog;
+import com.questioncrawler.core.api.SwaggerDiscovery;
+import com.questioncrawler.core.source.ApiOptions;
 import com.questioncrawler.core.source.HttpSourceClient;
 import com.questioncrawler.core.source.ProxyConfig;
 import com.questioncrawler.core.source.SourceException;
@@ -58,10 +62,20 @@ public final class SiteDiagnostics {
     /** What to check. {@code target} is the API/base address to probe (for Stack Exchange: the API base). */
     public record Input(String sourceType, String target, String site, List<String> tags, String authMethod,
                         String tokenEnv, String keyEnv, Path caCertFile, boolean allowInsecureHttp, int timeoutSeconds,
-                        ProxyConfig proxy) {
+                        ProxyConfig proxy, ApiOptions api) {
+        public Input(String sourceType, String target, String site, List<String> tags, String authMethod,
+                     String tokenEnv, String keyEnv, Path caCertFile, boolean allowInsecureHttp, int timeoutSeconds, ProxyConfig proxy) {
+            this(sourceType, target, site, tags, authMethod, tokenEnv, keyEnv, caCertFile, allowInsecureHttp, timeoutSeconds, proxy, ApiOptions.DEFAULT);
+        }
+
         public Input(String sourceType, String target, String site, List<String> tags, String authMethod,
                      String tokenEnv, String keyEnv, Path caCertFile, boolean allowInsecureHttp, int timeoutSeconds) {
-            this(sourceType, target, site, tags, authMethod, tokenEnv, keyEnv, caCertFile, allowInsecureHttp, timeoutSeconds, ProxyConfig.NONE);
+            this(sourceType, target, site, tags, authMethod, tokenEnv, keyEnv, caCertFile, allowInsecureHttp, timeoutSeconds, ProxyConfig.NONE, ApiOptions.DEFAULT);
+        }
+
+        /** The internal site's REST API: a Swagger documentation address is configured. (Without one, the generic site probes run.) */
+        public boolean liveApi() {
+            return sourceType.equals("live") && api != null && api.swaggerUrl() != null;
         }
     }
 
@@ -93,7 +107,7 @@ public final class SiteDiagnostics {
             return offlineDemo(now);
         }
         List<Stage> stages = new ArrayList<>();
-        URI uri = parse(in.target());
+        URI uri = parse(in.liveApi() && (in.target() == null || in.target().isBlank()) ? in.api().swaggerUrl() : in.target());
         boolean https = uri != null && "https".equalsIgnoreCase(uri.getScheme());
 
         Stage network = networkStage(in, uri);
@@ -105,7 +119,7 @@ public final class SiteDiagnostics {
 
         Probe home = null;
         if (secureOk) {
-            home = get(in, in.sourceType().equals("stackexchange") ? infoUrl(in) : in.target(), in.tokenEnv() != null && in.authMethod().equals("token"));
+            home = get(in, in.sourceType().equals("stackexchange") ? infoUrl(in) : probeUrl(in), in.tokenEnv() != null && in.authMethod().equals("token"));
         }
         Stage access = secureOk ? accessStage(in, home) : skipped("access", "Sign-in", "Do we need to sign in?", "Skipped until the site can be reached over a trusted connection.");
         stages.add(access);
@@ -464,6 +478,8 @@ public final class SiteDiagnostics {
         boolean rateLimitSeen;
         boolean loginWall;
         String rateInfo;
+        boolean restApi;
+        boolean restApiReady;
         String quotaInfo;
         long tagQuestions = Long.MIN_VALUE;
         boolean tagChecked;
@@ -503,6 +519,10 @@ public final class SiteDiagnostics {
                                 ? List.of(new Need("A free Stack Exchange application key", "It raises the daily limit from about 300 to 10,000 requests.", "You (register at stackapps.com)"))
                                 : List.of(new Need("A reachable Stack Exchange API", "The documented API did not answer as expected.", "Try again later")), t0);
             }
+        }
+
+        if (in.liveApi()) {
+            return liveApiStage(in, d, t0);
         }
 
         // Generic site: look for a machine-readable description, robots rules and what the home page is made of.
@@ -570,6 +590,118 @@ public final class SiteDiagnostics {
                 new Need("Permission to collect from pages (if no API exists)", "Page layouts change; collecting without permission can break rules.", "The site owners")), t0);
     }
 
+    /** The internal site's REST API: read its Swagger documentation, check the access key, and make one real call. */
+    private Stage liveApiStage(Input in, DataFindings d, long t0) {
+        String title = "Way to get the data";
+        String q = "Is there a proper way to get the data?";
+        List<Fact> facts = new ArrayList<>();
+        List<Need> needs = new ArrayList<>();
+        d.restApi = true;
+        ApiOptions api = in.api() == null ? ApiOptions.DEFAULT : in.api();
+        String base = in.target() == null ? "" : in.target();
+        ApiCapabilities caps = null;
+        ApiCatalog catalog = null;
+        String status = "PASS";
+        String summary = "Yes: the site has a REST API that this app can use.";
+
+        if (api.swaggerUrl() != null) {
+            try {
+                var settings = apiSettings(in, base.isBlank() ? api.swaggerUrl() : base, api);
+                HttpSourceClient docs = new HttpSourceClient(settings, env);
+                var discovery = new SwaggerDiscovery(url -> docs.get(url).body()).discover(api.swaggerUrl());
+                catalog = discovery.catalog();
+                caps = discovery.capabilities();
+                facts.add(new Fact("API documentation", catalog.title() + (catalog.version().isBlank() ? "" : " " + catalog.version())));
+                facts.add(new Fact("Endpoints documented", String.valueOf(catalog.operations().size())));
+                if (base.isBlank() && catalog.suggestedBaseUrl() != null) {
+                    base = URI.create(api.swaggerUrl()).resolve(catalog.suggestedBaseUrl()).toString();
+                    facts.add(new Fact("API address (from the documentation)", base));
+                }
+                catalog.security().stream().filter(x -> "apiKey".equals(x.type())).findFirst().ifPresent(k ->
+                        facts.add(new Fact("Access key is sent", "as '" + k.name() + "' in the " + ("header".equals(k.in()) ? "request header" : "address (query)"))));
+                for (var c : caps.capabilities()) {
+                    facts.add(new Fact((c.found() ? "Will use: " : (c.required() ? "MISSING: " : "Not offered: ")) + c.label(),
+                            c.found() ? c.method() + " " + c.path() : "not listed in the documentation"));
+                }
+                if (!caps.ready()) {
+                    status = "FAIL";
+                    summary = "The API is documented, but endpoints this app needs are missing.";
+                    caps.problems().stream().filter(p -> p.startsWith("The documentation lists no")).forEach(p ->
+                            needs.add(new Need(p.replace("The documentation lists no ", "An endpoint like ").replaceAll("endpoint, which is needed to.*", "endpoint"), "Without it questions or answers cannot be downloaded.", "The site owners / API documentation")));
+                }
+                caps.problems().stream().filter(p -> !p.startsWith("The documentation lists no")).forEach(p -> facts.add(new Fact("Note", p)));
+            } catch (SourceException e) {
+                status = "WARN";
+                summary = "We could not read the API documentation: " + friendly(e);
+                needs.add(new Need("The correct documentation address, or the JSON document behind it", "Open the Swagger page in your browser and use the link under its title (often /swagger/v1/swagger.json).", "You or the site owners"));
+                if (e.kind() == SourceException.Kind.AUTH_FAILED) {
+                    needs.add(new Need("Permission to read the documentation", "The documentation page itself asks for a sign-in.", "The site owners"));
+                }
+            }
+        }
+        if (base.isBlank()) {
+            facts.add(new Fact("API address", "not known yet"));
+            needs.add(new Need("The API address", "Enter it in the settings, or provide a readable Swagger address so it can be found.", "You or the site owners"));
+            return stage("data", title, q, "WARN", "We do not know the API address yet.", facts, needs, t0);
+        }
+
+        // The access key: requests cannot succeed without it.
+        String keyVar = in.keyEnv();
+        boolean hasKey = keyVar != null && !keyVar.isBlank() && env.apply(keyVar) != null && !env.apply(keyVar).isBlank();
+        facts.add(new Fact("Access key variable " + (keyVar == null || keyVar.isBlank() ? "(not named)" : keyVar), hasKey ? "set (value not shown)" : "NOT set"));
+        if (!hasKey) {
+            if (status.equals("PASS")) {
+                status = "WARN";
+                summary = "The API is documented, but there is no access key to call it with.";
+            }
+            needs.add(new Need("An API access key", "Every request needs one. Ask the site owners, then set it in the environment variable named in the settings (never in a file).", "The site owners / platform team"));
+        } else {
+            try {
+                final String resolvedBase = base;
+                final ApiCapabilities learned = caps;
+                StackExchangeAdapter adapter = new StackExchangeAdapter(apiSettings(in, resolvedBase, api), new HttpSourceClient(apiSettings(in, resolvedBase, api), env), env, d2 -> { },
+                        learned == null ? null : () -> learned);
+                adapter.ping();
+                d.quotaInfo = adapter.quotaRemaining() >= 0 ? adapter.quotaRemaining() + " requests left" : null;
+                facts.add(new Fact("Test call", "succeeded"));
+                if (d.quotaInfo != null) {
+                    facts.add(new Fact("Requests left", String.valueOf(adapter.quotaRemaining())));
+                }
+                if (!in.tags().isEmpty()) {
+                    try {
+                        d.tagChecked = true;
+                        d.tagQuestions = adapter.tagCount(in.tags().get(0));
+                    } catch (SourceException e) {
+                        d.tagError = e.getMessage();
+                    }
+                }
+            } catch (SourceException e) {
+                status = e.kind() == SourceException.Kind.AUTH_FAILED || e.kind() == SourceException.Kind.FORBIDDEN ? "FAIL" : "WARN";
+                summary = "The test call failed: " + friendly(e);
+                needs.add(new Need(e.kind() == SourceException.Kind.AUTH_FAILED ? "A valid API access key and the right way to send it" : "A working API address", "The documented API did not accept our test call.", "The site owners"));
+            }
+        }
+        d.restApiReady = status.equals("PASS");
+        return stage("data", title, q, status, summary, facts, needs, t0);
+    }
+
+    private SourceSettings apiSettings(Input in, String base, ApiOptions api) {
+        URI u = URI.create(base);
+        List<String> hosts = new ArrayList<>(List.of(u.getHost()));
+        if (api.swaggerUrl() != null) {
+            try {
+                String h = URI.create(api.swaggerUrl()).getHost();
+                if (h != null && !hosts.contains(h)) {
+                    hosts.add(h);
+                }
+            } catch (IllegalArgumentException ignored) {
+                // reported elsewhere
+            }
+        }
+        return new SourceSettings(in.sourceType(), base, hosts, List.of("/"), "none", null, null, null, in.caCertFile(),
+                Duration.ofSeconds(Math.max(1, in.timeoutSeconds())), in.allowInsecureHttp(), in.site(), in.keyEnv(), in.proxy(), api);
+    }
+
     static boolean robotsDisallowsEverything(String robots) {
         boolean inAll = false;
         for (String raw : robots.split("\\R")) {
@@ -623,6 +755,9 @@ public final class SiteDiagnostics {
                 needs.add(new Need("A free application key (optional)", "Raises the limit to about 10,000 requests a day for bigger collections.", "You (stackapps.com)"));
             }
         }
+        if (d.restApi && d.quotaInfo != null) {
+            facts.add(new Fact("Request allowance", d.quotaInfo));
+        }
         if (d.rateLimitSeen && !in.sourceType().equals("stackexchange")) {
             status = "INFO";
             summary = "The site reports request limits. The app slows down and retries automatically.";
@@ -649,7 +784,7 @@ public final class SiteDiagnostics {
         if (!reachable) {
             return skipped("scope", title, q, "Will be checked once the site can be reached.");
         }
-        if (!in.sourceType().equals("stackexchange")) {
+        if (!in.sourceType().equals("stackexchange") && !d.restApi) {
             return stage("scope", title, q, "SKIPPED", "Checking that a tag exists needs the site's API, which is not connected yet.", facts, List.of(), t0);
         }
         if (d.tagChecked && d.tagQuestions >= 0) {
@@ -676,6 +811,14 @@ public final class SiteDiagnostics {
         if (in.sourceType().equals("stackexchange") && d.officialApi) {
             return new Route("OFFICIAL_API", "Official API (recommended)", "This site publishes a documented API. It is the proper, stable, permitted way to collect questions and answers.", true,
                     List.of("Save these settings.", "Open Collect and start with a small time window.", "Keep the source links: the content is licensed CC BY-SA and requires attribution."));
+        }
+        if (d.restApiReady) {
+            return new Route("REST_API", "Your site's REST API (recommended)", "The site documents its REST API with Swagger. Every endpoint this app needs is available, so questions and answers can be collected the proper, permitted way.", true,
+                    List.of("Save these settings.", "Open Collect and start with a small time window.", "Then use Organize to discover topics from the questions."));
+        }
+        if (d.restApi && !d.botProtection) {
+            return new Route("REST_API_INCOMPLETE", "A REST API exists, but something is missing", "The site has a REST API, but the documentation, the API address or the access key still needs attention before collecting can start.", false,
+                    List.of("Open the amber or red step 'Way to get the data' and follow what is needed.", "Run the check again afterwards."));
         }
         if (d.botProtection) {
             return new Route("DISCOURAGED", "Blocked by bot protection", "The site actively refuses automated traffic. Asking the owners for an approved route is the only appropriate way forward.", false,
@@ -820,6 +963,10 @@ public final class SiteDiagnostics {
                 "none", null, null, null, in.caCertFile(), Duration.ofSeconds(Math.max(1, in.timeoutSeconds())), in.allowInsecureHttp(), in.site(), in.keyEnv(),
                 in.proxy());
         return new StackExchangeAdapter(s, new HttpSourceClient(s, env), env, d -> { });
+    }
+
+    private static String probeUrl(Input in) {
+        return in.liveApi() && (in.target() == null || in.target().isBlank()) ? in.api().swaggerUrl() : in.target();
     }
 
     private String infoUrl(Input in) {

@@ -69,6 +69,7 @@ and press *Check access*.
 
 ## Documentation
 
+- [docs/INTERNAL_API.md](docs/INTERNAL_API.md): connecting to your internal site through its Swagger-documented REST API, and discovering topics
 - [docs/UI_GUIDE.md](docs/UI_GUIDE.md): each screen, and the API behind it
 - [docs/STACKOVERFLOW.md](docs/STACKOVERFLOW.md): trying a real public site
 - [docs/AGE_FILTERS.md](docs/AGE_FILTERS.md): filtering by age of questions and answers
@@ -79,6 +80,4 @@ and press *Check access*.
 
 ## Honest status
 
-Collecting from the public Stack Exchange API and from the built-in demo data works. **Collecting from your own internal
-site is not built yet**: its API is unknown, and nothing is guessed. The Connect screen checks what stands in the way and
-what to ask the site owners for. See [docs/CAPABILITIES.md](docs/CAPABILITIES.md).
+Collecting from the public Stack Exchange API, from the built-in demo data, and from an internal site's Swagger-documented REST API (tested against a mock of such a site, not yet against a real one) works. See [docs/CAPABILITIES.md](docs/CAPABILITIES.md).

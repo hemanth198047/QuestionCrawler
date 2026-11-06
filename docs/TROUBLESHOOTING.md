@@ -16,6 +16,9 @@ When asking for help, send the box and the first ~30 lines of `logs/backend.log`
 | `npm start` says Java/Node not found or too old | Install JDK 21 and Node 20+, open a NEW terminal, run `npm run check`. |
 | npm says `403 Forbidden` / `E401` / certificate or proxy errors while installing the frontend | Your company network controls npm. See [ORG_NPM.md](ORG_NPM.md): set the internal registry (`QC_NPM_REGISTRY` or `npm config set registry`), add your token to your user `.npmrc`, or ask for a blocked package to be allowed. |
 | *Check access* says the connection to the site was refused / `Network access ... is required` | Your company probably needs a **web proxy**. Enter its address and port on the Connect screen (or set `HTTPS_PROXY`). See [ORG_PROXY.md](ORG_PROXY.md). |
+| `AUTH_FAILED ... access key` / error 405 `key_required` | The API wants its access key: set the variable named under *API access key variable name* in the terminal, and check *Key parameter name* / *Send the key in* (Connect > Read the documentation fills them in). |
+| `We could not read the API documentation` | Paste the JSON address behind the Swagger page (the link under its title, often `/swagger/v1/swagger.json`). See [INTERNAL_API.md](INTERNAL_API.md). |
+| Discover topics says `collect more` | It needs at least 8 questions; collect more first. |
 | `Gradle was not found` / `Gradle is too old` | No wrapper is needed. Use your organization's Gradle (8.5+): put it on PATH or set `QC_GRADLE`. See [ORG_GRADLE.md](ORG_GRADLE.md). |
 | `Plugin ... was not found` (Gradle) | Fixed by design: the build no longer uses Gradle plugins. If you still see it, run `git pull` (you may have an older copy). |
 | The backend fails while resolving plugins or libraries | Your network blocks Maven Central / the plugin portal. Use an internal mirror: see [ORG_GRADLE.md](ORG_GRADLE.md). |

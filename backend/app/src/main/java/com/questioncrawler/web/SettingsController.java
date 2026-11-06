@@ -24,6 +24,8 @@ public class SettingsController {
         }
     }
 
+    public record TopicsRequest(Integer k) {}
+
     public record TryRequest(Taxonomy taxonomy, String title, String body, List<String> tags) {}
 
     private final Workspace workspace;
@@ -53,6 +55,12 @@ public class SettingsController {
         return workspace.saveConfig(request.safe());
     }
 
+    // ---- the site's API documentation (Swagger)
+    @PostMapping("/api-docs/discover")
+    public Workspace.ApiDocsResult discoverApi(@RequestBody(required = false) ValuesRequest request) {
+        return workspace.discoverApi(request == null ? Map.of() : request.safe());
+    }
+
     // ---- connection check
     @PostMapping("/connection/check")
     public ConnectionReport check(@RequestBody(required = false) ValuesRequest request) {
@@ -78,6 +86,12 @@ public class SettingsController {
     @PostMapping("/taxonomy/reset")
     public Workspace.TaxonomyView resetTaxonomy() {
         return workspace.resetTaxonomy();
+    }
+
+    /** Proposes topics found in the collected questions; apply them with PUT /taxonomy and POST /reindex. */
+    @PostMapping("/topics/discover")
+    public com.questioncrawler.core.classification.TopicDiscovery.Proposal discoverTopics(@RequestBody(required = false) TopicsRequest request) {
+        return workspace.discoverTopics(request == null || request.k() == null ? 0 : request.k());
     }
 
     @PostMapping("/taxonomy/try")

@@ -78,17 +78,35 @@ public final class ConfigService {
                                 Type.URL, "https://stackoverflow.com/", "https://stackoverflow.com/", SE, false, null),
                         f("source.stackexchange.keyEnv", "API key variable name", "Optional. Name of the environment variable that holds a free Stack Exchange application key. A key raises the daily request limit from about 300 to 10,000. The key itself is never stored here.",
                                 Type.ENV_NAME, "STACKEXCHANGE_KEY", "STACKEXCHANGE_KEY", SE, false, null),
-                        f("source.baseUrl", "Internal site address", "Where the internal site's API lives, starting with https://.",
-                                Type.URL, "", "https://qa.mycompany.com/api", LIVE, false, null),
-                        f("source.auth.method", "How do we sign in?", "Choose 'Access token' if the site needs one. We never bypass logins, MFA or permissions.",
-                                Type.SELECT, "none", null, LIVE, false, null,
-                                new Option("none", "No sign-in needed", "The site is readable without credentials"),
-                                new Option("token", "Access token", "A token you got from the site's owners")),
-                        f("source.auth.tokenEnv", "Token variable name", "Name of the environment variable that holds your token. The token itself is never saved in a file.",
-                                Type.ENV_NAME, "INTERNAL_QA_TOKEN", "INTERNAL_QA_TOKEN", LIVE, false, null),
-                        f("source.auth.headerName", "Token header name", "The HTTP header the site expects the token in.",
+                        f("api.swaggerUrl", "API documentation (Swagger) address", "The page that lists the site's REST API, for example https://so.mycompany.com/swagger/index.html. We read it to find every endpoint, the API address and how the access key is sent.",
+                                Type.URL, "", "https://so.mycompany.com/swagger/index.html", LIVE, false, null),
+                        f("source.baseUrl", "API address", "The address every API call starts with, for example https://so.mycompany.com/api/2.3. Leave it empty to take it from the Swagger documentation.",
+                                Type.URL, "", "https://so.mycompany.com/api/2.3", LIVE, false, null),
+                        f("api.keyEnv", "API access key variable name", "All API requests need an access key. Enter the NAME of the environment variable that holds your key (the key itself is never saved), then set that variable in your terminal.",
+                                Type.ENV_NAME, "INTERNAL_QA_API_KEY", "INTERNAL_QA_API_KEY", LIVE, false, null),
+                        f("api.collectComments", "Also collect comments", "Downloads the comments under questions and answers as extra context. Uses more API requests.",
+                                Type.SWITCH, "false", null, LIVE, false, null),
+                        f("api.keyName", "Key parameter name", "How the key is called in each request. Leave empty to use what the Swagger documentation says (usually 'key').",
+                                Type.TEXT, "", "key", LIVE, true, null),
+                        f("api.keyIn", "Send the key in", "Normally in the address (query). Choose 'header' if the documentation says so.",
+                                Type.SELECT, "query", null, LIVE, true, null,
+                                new Option("query", "The address (query)", "?key=..."),
+                                new Option("header", "A request header", "key: ...")),
+                        f("api.accessTokenEnv", "Access token variable name", "Only if the API also needs a signed-in user token. Name of the environment variable that holds it.",
+                                Type.ENV_NAME, "", "INTERNAL_QA_ACCESS_TOKEN", LIVE, true, null),
+                        f("api.site", "Site name", "Only if the API expects a 'site' parameter. Most internal APIs do not.",
+                                Type.TEXT, "", "", LIVE, true, null),
+                        f("api.bodyFilter", "Response filter with text", "The filter that makes the API include question and answer text. Leave empty for the standard one; if it does not exist, one is created for you.",
+                                Type.TEXT, "", "withbody", LIVE, true, null),
+                        f("source.auth.method", "Extra sign-in (rarely needed)", "Only if the site also requires a Bearer token in a header, on top of the API key.",
+                                Type.SELECT, "none", null, LIVE, true, null,
+                                new Option("none", "None", "No extra sign-in"),
+                                new Option("token", "Bearer token", "A token from the site's owners")),
+                        f("source.auth.tokenEnv", "Bearer token variable name", "Name of the environment variable that holds the Bearer token.",
+                                Type.ENV_NAME, "INTERNAL_QA_TOKEN", "INTERNAL_QA_TOKEN", LIVE, true, null),
+                        f("source.auth.headerName", "Bearer header name", "The HTTP header the site expects the Bearer token in.",
                                 Type.TEXT, "Authorization", "Authorization", LIVE, true, null),
-                        f("source.auth.scheme", "Token prefix", "Text placed before the token, for example Bearer. Leave empty for none.",
+                        f("source.auth.scheme", "Bearer prefix", "Text placed before the token, for example Bearer. Leave empty for none.",
                                 Type.TEXT, "Bearer", "Bearer", LIVE, true, null),
                         f("source.allowedHosts", "Allowed hosts", "The app only ever talks to these hosts. Filled in automatically from the address above.",
                                 Type.TAGS, "", "qa.mycompany.com", LIVE, true, null),
@@ -161,8 +179,8 @@ public final class ConfigService {
                         Map.of("source.type", "stackexchange", "source.siteUrl", "https://stackoverflow.com/", "sync.tags", "artificial-intelligence", "sync.tagMode", "ANY", "sync.maxQuestionAge", "1y")),
                 new Preset("stackexchange", "Another Stack Exchange site", "Server Fault, Super User, Ask Ubuntu or any public Stack Exchange community.", "layers",
                         Map.of("source.type", "stackexchange", "source.siteUrl", "https://serverfault.com/", "sync.tags", "", "sync.maxQuestionAge", "1y")),
-                new Preset("internal", "Our internal Q&A site", "Check what it takes to reach your company's site. The connector needs the site's API documentation.", "building",
-                        Map.of("source.type", "live", "source.baseUrl", "", "source.auth.method", "token", "sync.tags", "")));
+                new Preset("internal", "Our internal Q&A site", "Your company's Stack Overflow-style site, through its REST API. Paste the link to its Swagger page and we read every endpoint for you.", "building",
+                        Map.of("source.type", "live", "source.baseUrl", "", "api.swaggerUrl", "", "sync.tags", "")));
     }
 
     // ================================================================== reading / rendering
@@ -238,15 +256,25 @@ public final class ConfigService {
         }
         if (type.equals("live")) {
             String url = v.getOrDefault("source.baseUrl", "");
+            String swagger = v.getOrDefault("api.swaggerUrl", "");
             URI uri = parseUri(url);
+            URI docs = parseUri(swagger);
             boolean insecure = Boolean.parseBoolean(v.getOrDefault("source.allowInsecureHttp", "false"));
-            if (url.isBlank()) {
-                issues.add(new Issue("source.baseUrl", "error", "Enter the address of your internal site.", "Ask the site owners where its API lives, then paste it here."));
-            } else if (uri == null || uri.getHost() == null) {
+            if (url.isBlank() && swagger.isBlank()) {
+                issues.add(new Issue("api.swaggerUrl", "error", "Enter the API documentation (Swagger) address, or the API address.", "Ask the site owners for the link to their Swagger page; it usually ends in /swagger/index.html."));
+            }
+            if (!url.isBlank() && (uri == null || uri.getHost() == null)) {
                 issues.add(new Issue("source.baseUrl", "error", "That does not look like a web address.", "Start with https:// and include the full host name."));
-            } else if (!"https".equalsIgnoreCase(uri.getScheme()) && !insecure) {
+            } else if (!url.isBlank() && !"https".equalsIgnoreCase(uri.getScheme()) && !insecure) {
                 issues.add(new Issue("source.baseUrl", "error", "Unencrypted http is not allowed for a real site.", "Use an https:// address."));
             }
+            if (!swagger.isBlank() && (docs == null || docs.getHost() == null)) {
+                issues.add(new Issue("api.swaggerUrl", "error", "That does not look like a web address.", "Start with https:// and include the full host name."));
+            } else if (!swagger.isBlank() && !"https".equalsIgnoreCase(docs.getScheme()) && !insecure) {
+                issues.add(new Issue("api.swaggerUrl", "error", "Unencrypted http is not allowed for a real site.", "Use an https:// address."));
+            }
+            checkEnvName(issues, "api.keyEnv", v.get("api.keyEnv"), true);
+            checkEnvName(issues, "api.accessTokenEnv", v.get("api.accessTokenEnv"), false);
             if ("token".equals(v.get("source.auth.method"))) {
                 checkEnvName(issues, "source.auth.tokenEnv", v.get("source.auth.tokenEnv"), true);
             }
@@ -354,9 +382,15 @@ public final class ConfigService {
         // Friendliness: the host allow-list follows the address the user typed.
         String type = merged.getOrDefault("source.type", "fixture");
         if (type.equals("live") && merged.getOrDefault("source.allowedHosts", "").isBlank()) {
-            URI uri = parseUri(merged.get("source.baseUrl"));
-            if (uri != null && uri.getHost() != null) {
-                merged.put("source.allowedHosts", uri.getHost());
+            java.util.LinkedHashSet<String> hosts = new java.util.LinkedHashSet<>();
+            for (String key : new String[] {"source.baseUrl", "api.swaggerUrl"}) {
+                URI uri = parseUri(merged.get(key));
+                if (uri != null && uri.getHost() != null) {
+                    hosts.add(uri.getHost());
+                }
+            }
+            if (!hosts.isEmpty()) {
+                merged.put("source.allowedHosts", String.join(",", hosts));
             }
         }
         List<Issue> issues = validate(merged);

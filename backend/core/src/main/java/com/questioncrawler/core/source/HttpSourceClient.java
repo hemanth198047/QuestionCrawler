@@ -18,6 +18,7 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Collection;
 import java.util.Locale;
+import java.util.Map;
 import java.util.function.Function;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManagerFactory;
@@ -81,6 +82,11 @@ public final class HttpSourceClient {
      * for example Stack Exchange's JSON error_id). Network failures and guard violations are still thrown.
      */
     public Response exchange(String url) throws SourceException {
+        return exchange(url, Map.of());
+    }
+
+    /** As {@link #exchange(String)} with extra request headers (for example an API key sent as a header). */
+    public Response exchange(String url, Map<String, String> extraHeaders) throws SourceException {
         URI uri = checkAllowed(url);
         HttpRequest.Builder request = HttpRequest.newBuilder(uri)
                 .timeout(settings.timeout())
@@ -89,6 +95,7 @@ public final class HttpSourceClient {
                 .header("User-Agent", "QuestionCrawler/0.1")
                 .GET();
         applyAuth(request);
+        extraHeaders.forEach(request::header);
         HttpResponse<InputStream> response;
         try {
             response = http.send(request.build(), HttpResponse.BodyHandlers.ofInputStream());
@@ -100,8 +107,14 @@ public final class HttpSourceClient {
             Thread.currentThread().interrupt();
             throw new SourceException(SourceException.Kind.FATAL, "Interrupted", null, e);
         }
-        boolean gzip = response.headers().firstValue("Content-Encoding").map(v -> v.equalsIgnoreCase("gzip")).orElse(false);
-        try (InputStream raw = response.body(); InputStream in = gzip ? new java.util.zip.GZIPInputStream(raw) : raw) {
+        boolean gzipHeader = response.headers().firstValue("Content-Encoding").map(v -> v.equalsIgnoreCase("gzip")).orElse(false);
+        try (InputStream raw = response.body()) {
+            // Some proxies strip the Content-Encoding header but leave the body compressed: sniff the gzip signature as well.
+            java.io.PushbackInputStream peek = new java.io.PushbackInputStream(raw, 2);
+            byte[] sig = peek.readNBytes(2);
+            peek.unread(sig);
+            boolean gzipSignature = sig.length == 2 && (sig[0] & 0xff) == 0x1f && (sig[1] & 0xff) == 0x8b;
+            InputStream in = gzipHeader || gzipSignature ? new java.util.zip.GZIPInputStream(peek) : peek;
             return new Response(response.statusCode(), readBounded(in), response.headers().firstValue("Retry-After").orElse(null));
         } catch (IOException e) {
             throw new SourceException(SourceException.Kind.TRANSIENT, "Error reading response from " + describe(uri), null, e);

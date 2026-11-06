@@ -1,6 +1,6 @@
 import type {
-  CategoryListing, CategorySummary, ConfigView, ConnectionReport, Issue, Overview, Preset, SaveResult, SearchResponse,
-  SyncReport, SyncState, Taxonomy, TaxonomyView, ThreadView, TryResult,
+  ApiDocsResult, CategoryListing, CategorySummary, ConfigView, ConnectionReport, Issue, Overview, Preset, SaveResult, SearchResponse,
+  SyncReport, SyncState, Taxonomy, TaxonomyView, ThreadView, TopicProposal, TryResult,
 } from '../types/api'
 import { del, get, post, put } from './client'
 
@@ -46,3 +46,7 @@ export const saveTaxonomy = (t: Taxonomy) => put<TaxonomyView>('/taxonomy', t)
 export const resetTaxonomy = () => post<TaxonomyView>('/taxonomy/reset')
 export const tryTaxonomy = (taxonomy: Taxonomy | null, title: string, body: string, tags: string[]) => post<TryResult>('/taxonomy/try', { taxonomy, title, body, tags })
 export const reindex = () => post<{ threads: number; indexedDocuments: number }>('/reindex')
+
+// the site's API documentation and topic discovery
+export const discoverApiDocs = (values: Record<string, string>) => post<ApiDocsResult>('/api-docs/discover', { values })
+export const discoverTopics = (k: number) => post<TopicProposal>('/topics/discover', { k })

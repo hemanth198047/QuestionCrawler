@@ -26,7 +26,8 @@ public record SourceSettings(
         boolean allowInsecureHttp,
         String site,
         String apiKeyEnv,
-        ProxyConfig proxy) {
+        ProxyConfig proxy,
+        ApiOptions api) {
 
     public SourceSettings {
         allowedHosts = allowedHosts == null ? List.of() : List.copyOf(allowedHosts);
@@ -35,19 +36,42 @@ public record SourceSettings(
         authHeaderName = authHeaderName == null || authHeaderName.isBlank() ? "Authorization" : authHeaderName;
         timeout = timeout == null ? Duration.ofSeconds(30) : timeout;
         proxy = proxy == null ? ProxyConfig.NONE : proxy;
+        api = api == null ? ApiOptions.DEFAULT : api;
+    }
+
+    /** A copy that talks to another API address (its host is added to the allowed hosts). */
+    public SourceSettings withBase(String newBase, ApiOptions newApi) {
+        List<String> hosts = new java.util.ArrayList<>(allowedHosts);
+        try {
+            String host = java.net.URI.create(newBase).getHost();
+            if (host != null && hosts.stream().noneMatch(h -> h.equalsIgnoreCase(host))) {
+                hosts.add(host);
+            }
+        } catch (IllegalArgumentException ignored) {
+            // an unusable address is reported when it is used
+        }
+        return new SourceSettings(systemId, newBase, hosts, allowedPathPrefixes, authMethod, tokenEnv, authHeaderName, authScheme,
+                caCertFile, timeout, allowInsecureHttp, site, apiKeyEnv, proxy, newApi == null ? api : newApi);
+    }
+
+    public SourceSettings(String systemId, String baseUrl, List<String> allowedHosts, List<String> allowedPathPrefixes,
+                          String authMethod, String tokenEnv, String authHeaderName, String authScheme, Path caCertFile,
+                          Duration timeout, boolean allowInsecureHttp, String site, String apiKeyEnv, ProxyConfig proxy) {
+        this(systemId, baseUrl, allowedHosts, allowedPathPrefixes, authMethod, tokenEnv, authHeaderName, authScheme,
+                caCertFile, timeout, allowInsecureHttp, site, apiKeyEnv, proxy, ApiOptions.DEFAULT);
     }
 
     public SourceSettings(String systemId, String baseUrl, List<String> allowedHosts, List<String> allowedPathPrefixes,
                           String authMethod, String tokenEnv, String authHeaderName, String authScheme, Path caCertFile,
                           Duration timeout, boolean allowInsecureHttp, String site, String apiKeyEnv) {
         this(systemId, baseUrl, allowedHosts, allowedPathPrefixes, authMethod, tokenEnv, authHeaderName, authScheme,
-                caCertFile, timeout, allowInsecureHttp, site, apiKeyEnv, ProxyConfig.NONE);
+                caCertFile, timeout, allowInsecureHttp, site, apiKeyEnv, ProxyConfig.NONE, ApiOptions.DEFAULT);
     }
 
     public SourceSettings(String systemId, String baseUrl, List<String> allowedHosts, List<String> allowedPathPrefixes,
                           String authMethod, String tokenEnv, String authHeaderName, String authScheme, Path caCertFile,
                           Duration timeout, boolean allowInsecureHttp) {
         this(systemId, baseUrl, allowedHosts, allowedPathPrefixes, authMethod, tokenEnv, authHeaderName, authScheme,
-                caCertFile, timeout, allowInsecureHttp, null, null, ProxyConfig.NONE);
+                caCertFile, timeout, allowInsecureHttp, null, null, ProxyConfig.NONE, ApiOptions.DEFAULT);
     }
 }
