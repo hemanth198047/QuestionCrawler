@@ -52,9 +52,26 @@ questioncrawler search "your query"
 
 Collecting `sync.tags=all` without a **place id** or **time window** is refused — a whole community can be huge.
 
+## Search (plain English, no LLM)
+
+After sync (or `reindex`), every collected document/discussion/question is in the same Lucene index as other sources. Explore accepts everyday questions such as “how do I configure contractor VPN”:
+
+- Additive English stems so related word forms meet (configure / configuring / configuration)
+- A small curated synonym map (runbook↔playbook, SSO↔sign-in, howto↔guide, …)
+- Chatty prefixes like “how do I…” are ignored for matching; page titles are boosted
+- Optional comments are indexed when `source.jive.collectComments=true`
+- Discussion/question replies (answers) are searchable when the messages endpoint returns them
+- Still **local lexical** search — not an AI model and not semantic embeddings. It ranks real passages from content you collected; it does not invent answers.
+
+```bash
+questioncrawler search "how do I configure contractor VPN"
+```
+
+If search says the index is an older version, rebuild once: Settings → Where is everything saved? → **Rebuild search index**, or CLI `questioncrawler reindex` (index format version 3).
+
 ## UI
 
-Connect and Settings expose a Jive preset and Jive-only fields (username, places, content types). Collect/Explore work once content is synced.
+Connect and Settings expose a Jive preset and Jive-only fields (username, places, content types). Collect/Explore work once content is synced; Explore treats Jive hits as pages (and shows discussion replies when present).
 
 ## Next
 

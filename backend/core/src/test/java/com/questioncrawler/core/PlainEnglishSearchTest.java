@@ -76,6 +76,29 @@ class PlainEnglishSearchTest {
     }
 
     @Test
+    void plainEnglishFindsJiveStylePage() {
+        try (SearchIndex index = new SearchIndex(indexDir)) {
+            Question page = new Question("j9001", "Contractor VPN onboarding",
+                    "This playbook explains configuring VPN access before contractors connect. Complete authentication, then verify permissions.",
+                    BodyFormat.MARKDOWN, "https://community.example.com/docs/9001",
+                    List.of("onboarding", "vpn", "type:document", "place:1006"),
+                    "Ada", null, "2026-09-01T00:00:00Z", "2026-10-01T00:00:00Z", List.of(), List.of());
+            ThreadRecord thread = new ThreadRecord(ThreadRecord.SCHEMA_VERSION, "jive", page, page.id(),
+                    "2026-10-02T00:00:00Z", "hash-j", ThreadStatus.ACTIVE, null, null, null, "2026-10-02T00:00:00Z",
+                    List.of("scope"));
+            index.indexThread(thread, List.of("uncategorized"), taxonomy);
+            index.commit();
+        }
+        SearchResponse r = new SearchService(indexDir, taxonomy)
+                .search(new SearchRequest("how do I configure contractor VPN authentication", null, null, 5, 0, 0));
+        assertTrue(r.evidence().stream().anyMatch(e -> e.questionId().equals("j9001")),
+                "Jive page body should rank for a chatty plain-English ask");
+        assertEquals("set up VPN access", PlainEnglish.stripChattyPrefix("How do I set up VPN access"));
+        assertEquals("configure contractor VPN authentication",
+                PlainEnglish.stripChattyPrefix("how do I configure contractor VPN authentication"));
+    }
+
+    @Test
     void indexVersionIsThree() {
         assertEquals(3, SearchIndex.INDEX_VERSION);
         assertEquals(3, SearchIndex.readVersion(indexDir));

@@ -161,7 +161,35 @@ public final class PlainEnglish {
         addGroup(groups, "password", "credentials", "secret");
         addGroup(groups, "vpn", "remote-access");
         addGroup(groups, "howto", "how-to", "guide", "tutorial");
+        addGroup(groups, "faq", "faqs", "frequently-asked");
+        addGroup(groups, "community", "forum", "discussion");
         return Map.copyOf(groups);
+    }
+
+    /**
+     * Strips leading chatty wrappers ("how do I…", "where can I find…") so content words focus on the
+     * topic. Deterministic — not an LLM rewrite.
+     */
+    public static String stripChattyPrefix(String query) {
+        if (query == null || query.isBlank()) {
+            return "";
+        }
+        String q = query.strip();
+        String lowered = q.toLowerCase(Locale.ROOT);
+        String[] prefixes = {
+                "please help me to ", "please help me ", "can you help me ", "could you help me ",
+                "help me to ", "help me ", "i need to ", "i want to ", "i'm trying to ", "im trying to ",
+                "how do i ", "how do we ", "how can i ", "how can we ", "how to ",
+                "where can i find ", "where do i find ", "where is the ", "where are the ", "where is ",
+                "what is the ", "what are the ", "what's the ", "whats the ", "what is ",
+                "tell me about ", "show me how to ", "show me ", "find me ", "looking for "
+        };
+        for (String prefix : prefixes) {
+            if (lowered.startsWith(prefix) && q.length() > prefix.length() + 2) {
+                return q.substring(prefix.length()).strip();
+            }
+        }
+        return q;
     }
 
     private static void addGroup(Map<String, List<String>> map, String... terms) {

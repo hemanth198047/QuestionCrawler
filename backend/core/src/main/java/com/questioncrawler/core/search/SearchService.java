@@ -71,8 +71,13 @@ public final class SearchService {
         if (SearchIndex.readVersion(indexDir) != SearchIndex.INDEX_VERSION) {
             throw new StoreException("The search index was built by an older version (plain-English stems need a rebuild). Run 'reindex'.");
         }
-        String queryText = request.query() == null ? "" : request.query();
+        String rawQuery = request.query() == null ? "" : request.query();
+        String queryText = PlainEnglish.stripChattyPrefix(rawQuery);
         List<SymbolTokens.Word> words = SymbolTokens.contentWords(queryText);
+        if (words.isEmpty()) {
+            queryText = rawQuery;
+            words = SymbolTokens.contentWords(queryText);
+        }
         if (words.isEmpty()) {
             return empty(request);
         }

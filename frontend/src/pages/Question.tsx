@@ -67,7 +67,12 @@ export default function QuestionPage({ id, focusAnswerId }: { id: string; focusA
   if (!q) return <EmptyState icon={<ShieldAlert size={30} />} title="This question was removed">Its content was erased after the retention period because the site deleted or hid it.</EmptyState>
   const href = safeUrl(q.url)
   const answers = [...(q.answers ?? [])].sort((a, b) => Number(b.accepted) - Number(a.accepted) || (b.score ?? 0) - (a.score ?? 0))
-  const isWiki = (v.thread.sourceSystem ?? '').toLowerCase().startsWith('confluence')
+  const sourceSystem = (v.thread.sourceSystem ?? '').toLowerCase()
+  const isConfluence = sourceSystem.startsWith('confluence')
+  const isJive = sourceSystem.startsWith('jive')
+  const isWiki = isConfluence || isJive
+  const wikiKind = isJive ? 'Jive' : isConfluence ? 'Confluence' : 'Wiki'
+  const showWikiReplies = isJive && answers.length > 0
   return (
     <div className="stack" style={{ gap: 24 }}>
       <FocusAnswer answerId={focusAnswerId} ready={r.kind === 'ok'} />
@@ -77,7 +82,7 @@ export default function QuestionPage({ id, focusAnswerId }: { id: string; focusA
           {v.categoryNames.map((n) => <Badge key={n} tone="brand">{n}</Badge>)}</div>
         <h1 style={{ fontSize: 30 }}>{q.title}</h1>
         <p className="muted" style={{ marginTop: 12 }}>{isWiki
-          ? <>Created {timeAgo(q.createdAt)} ({dateOnly(q.createdAt)}) by {q.author ?? 'unknown'} · Confluence page</>
+          ? <>Created {timeAgo(q.createdAt)} ({dateOnly(q.createdAt)}) by {q.author ?? 'unknown'} · {wikiKind} page{showWikiReplies ? ` · ${answers.length} repl${answers.length === 1 ? 'y' : 'ies'}` : ''}</>
           : <>Asked {timeAgo(q.createdAt)} ({dateOnly(q.createdAt)}) by {q.author ?? 'unknown'} · {q.score ?? '?'} votes · {answers.length} answer{answers.length === 1 ? '' : 's'}</>}</p>
       </header>
       {v.thread.statusReason && <Banner tone="warn" title="Status">{v.thread.statusReason}</Banner>}
@@ -96,6 +101,8 @@ export default function QuestionPage({ id, focusAnswerId }: { id: string; focusA
               <div className="comments">{q.comments!.map((c, i) => <p key={i} className="small"><b>{c.author ?? 'unknown'}:</b> {c.body}</p>)}</div>
             </Card>
           )}
+          {showWikiReplies && <h2 id="answers">{answers.length} repl{answers.length === 1 ? 'y' : 'ies'}</h2>}
+          {showWikiReplies && answers.map((a, i) => <AnswerCard key={a.id ?? `answer-${i}`} a={a} />)}
           {!isWiki && answers.map((a, i) => <AnswerCard key={a.id ?? `answer-${i}`} a={a} />)}
         </div>
         <aside className="stack-sm qside">

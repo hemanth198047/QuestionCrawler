@@ -18,7 +18,12 @@ const SUGGESTIONS: Record<string, string[]> = {
     'incident response playbook',
     'architecture overview',
   ],
-  jive: ['runbook', 'onboarding', 'howto', 'faq'],
+  jive: [
+    'how do I configure SSO',
+    'contractor VPN playbook',
+    'onboarding checklist',
+    'troubleshooting login',
+  ],
   live: ['error message', 'how to configure', 'deployment failure'],
 }
 
@@ -72,6 +77,7 @@ export default function ExplorePage({ params }: { params: URLSearchParams }) {
   ]
   const hasData = (overview?.totals.questions ?? 0) > 0
   const isWiki = overview?.sourceType === 'confluence' || overview?.sourceType === 'jive'
+  const wikiLabel = overview?.sourceType === 'jive' ? 'Jive' : overview?.sourceType === 'confluence' ? 'Confluence' : 'wiki'
   const examples = SUGGESTIONS[overview?.sourceType ?? 'fixture'] ?? SUGGESTIONS.fixture
 
   return (
@@ -80,10 +86,10 @@ export default function ExplorePage({ params }: { params: URLSearchParams }) {
         eyebrow="Explore"
         title="Ask your knowledge"
         subtitle={isWiki
-          ? 'Ask in plain English — for example “how do I configure SSO”. We match your words (and close forms like configure/configuring) against every collected Confluence page, with the matching passage and source link. No AI model is used.'
+          ? `Ask in plain English — for example “how do I configure SSO”. We match your words (and close forms like configure/configuring) against every collected ${wikiLabel} page, with the matching passage and source link. No AI model is used.`
           : 'Type a question, an error message or a function name. We’ll show the passages that match, with where they came from and how old they are.'}
       />
-      {overview && !hasData && <Banner tone="warn" title="There is nothing to search yet" action={<Button onClick={() => go('/collect')}>{isWiki ? 'Collect pages' : 'Collect questions'}</Button>}>{isWiki ? 'Sync Confluence pages first, then come back.' : 'Collect some questions first, then come back.'}</Banner>}
+      {overview && !hasData && <Banner tone="warn" title="There is nothing to search yet" action={<Button onClick={() => go('/collect')}>{isWiki ? 'Collect pages' : 'Collect questions'}</Button>}>{isWiki ? `Sync ${wikiLabel} pages first, then come back.` : 'Collect some questions first, then come back.'}</Banner>}
 
       <Card className="searchcard">
         <form onSubmit={(e) => { e.preventDefault(); navigate() }}>
@@ -161,7 +167,7 @@ function Confidence({ level }: { level: string }) {
 }
 
 function CopilotCard({ q, wiki }: { q: string; wiki?: boolean }) {
-  const prompt = wiki ? `Search our Confluence knowledge for: ${q}` : `Search our internal Q&A for: ${q}`
+  const prompt = wiki ? `Search our collected wiki/community knowledge for: ${q}` : `Search our internal Q&A for: ${q}`
   return (
     <Card className="copilot">
       <div className="spread"><div className="row"><Copy size={18} color="var(--brand)" /><div><strong>Want Copilot to answer in plain words?</strong><div className="muted small">In VS Code Copilot Chat (Agent mode), paste:</div></div></div><CopyButton text={prompt} label="Copy prompt" /></div>
