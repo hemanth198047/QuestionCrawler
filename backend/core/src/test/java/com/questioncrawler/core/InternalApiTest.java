@@ -66,6 +66,7 @@ class InternalApiTest {
     volatile boolean specPageEnum = false; // the Swagger document lists the allowed page sizes
     volatile boolean rejectTagged = false;
     final java.util.concurrent.atomic.AtomicInteger rejected = new java.util.concurrent.atomic.AtomicInteger();
+    volatile String redirectMode = "off"; // off | same-host | no-query | cross-host | loop | login
     volatile String needBearer = "off"; // off | text | json: the API also wants "Authorization: Bearer API-TOKEN"
     final List<String> authSeen = Collections.synchronizedList(new ArrayList<>());
     volatile String docsAuth = "none"; // none | bearer | key: what the documentation itself demands
@@ -73,7 +74,7 @@ class InternalApiTest {
     // ------------------------------------------------------------------ the fake internal site
     @BeforeEach
     void start() throws Exception {
-        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server = HttpServer.create(new InetSocketAddress(0), 0); // all addresses, so 127.0.0.2 can stand in for "another host"
         server.createContext("/", this::route);
         server.start();
         origin = "http://127.0.0.1:" + server.getAddress().getPort();
@@ -88,6 +89,37 @@ class InternalApiTest {
         String path = ex.getRequestURI().getPath();
         Map<String, String> q = query(ex.getRequestURI().getRawQuery());
         requests.add(path + (ex.getRequestURI().getRawQuery() == null ? "" : "?" + ex.getRequestURI().getRawQuery()));
+        boolean viaGateway = path.startsWith("/gw/");
+        if (viaGateway) {
+            path = path.substring(3); // the gateway forwards to the real API
+        }
+        String rawQuery = ex.getRequestURI().getRawQuery();
+        if (path.equals("/landing")) {
+            send(ex, 200, "text/html", "<html><head><title>Welcome</title></head><body>Questions and answers</body></html>".getBytes(StandardCharsets.UTF_8), false, true);
+            return;
+        }
+        if (path.equals("/sso/login")) {
+            send(ex, 200, "text/html", "<html><head><title>Sign in</title></head><body><form><input type=\"password\"></form></body></html>".getBytes(StandardCharsets.UTF_8), false, true);
+            return;
+        }
+        if (!viaGateway && !redirectMode.equals("off") && (path.startsWith("/api/2.3") || path.equals("/start"))) {
+            String suffix = rawQuery == null ? "" : "?" + rawQuery;
+            String target = switch (redirectMode) {
+                case "no-query" -> "/gw" + path;
+                case "cross-host" -> "http://127.0.0.2:" + server.getAddress().getPort() + "/gw" + path + suffix;
+                case "loop" -> path + suffix;
+                case "login" -> "/sso/login?returnUrl=%2Fstart";
+                default -> path.equals("/start") ? "/landing" : "/gw" + path + suffix;
+            };
+            ex.getResponseHeaders().add("Location", target);
+            ex.sendResponseHeaders(307, -1);
+            ex.close();
+            return;
+        }
+        if (path.equals("/start")) {
+            send(ex, 200, "text/html", "<html><head><title>Welcome</title></head><body>No redirect here</body></html>".getBytes(StandardCharsets.UTF_8), false, true);
+            return;
+        }
         if (path.startsWith("/swagger/") && !docsAuth.equals("none")) {
             boolean allowed = docsAuth.equals("bearer") ? "Bearer DOCS-TOKEN".equals(ex.getRequestHeaders().getFirst("Authorization")) : KEY.equals(q.get("key"));
             if (!allowed) {
@@ -628,7 +660,8 @@ class InternalApiTest {
 
     @Test
     void aRedirectToSingleSignOnShowsWhereItGoesWithoutLeakingTheKey() throws Exception {
-        SourceException e = pingFailure("redirect");
+        infoMode = "redirect";
+        SourceException e = assertThrows(SourceException.class, () -> config("source.followRedirects=off\n").createAdapter(env()).ping());
         assertEquals(SourceException.Kind.AUTH_FAILED, e.kind());
         assertTrue(e.getMessage().contains("redirected") && e.getMessage().contains("https://sso.example.com/login"), e.getMessage());
         assertFalse(e.getMessage().contains(KEY) || e.getMessage().contains("returnUrl"), "the query string is not shown: " + e.getMessage());
@@ -685,13 +718,17 @@ class InternalApiTest {
     void theRawAnswerExplainsEachKindOfWrongAnswer() throws Exception {
         for (var e : Map.of("html-login", "HTML_LOGIN", "redirect", "REDIRECT", "docs-page", "HTML_DOCS", "blocked", "HTML_BLOCKED", "empty", "EMPTY", "text", "TEXT").entrySet()) {
             infoMode = e.getKey();
-            var r = workspace("p2" + e.getKey(), env()).probeApi(draft(), "/info");
+            Map<String, String> asked = new LinkedHashMap<>(draft());
+            asked.put("source.followRedirects", "off"); // so the redirect itself can be looked at
+            var r = workspace("p2" + e.getKey(), env()).probeApi(asked, "/info");
             assertEquals(e.getValue(), r.kind(), e.getKey() + " -> " + r.summary());
             assertFalse(r.hints().isEmpty(), e.getKey());
             assertFalse(Json.write(r).contains(KEY), e.getKey() + ": no key in the report");
         }
         infoMode = "redirect";
-        var redirect = workspace("p3", env()).probeApi(draft(), "/info");
+        Map<String, String> noFollow = new LinkedHashMap<>(draft());
+        noFollow.put("source.followRedirects", "off");
+        var redirect = workspace("p3", env()).probeApi(noFollow, "/info");
         assertEquals(302, redirect.status());
         assertTrue(redirect.summary().contains("https://sso.example.com/login") && !redirect.summary().contains("returnUrl"));
     }
@@ -869,5 +906,140 @@ class InternalApiTest {
         SyncReport r = kb.sync(options(c));
         assertEquals(SyncReport.FAILED, r.outcome());
         assertTrue(r.abortReason().contains("The API rejected the request (HTTP 400): Tagged: Tag 'ai' does not exist."), r.abortReason());
+    }
+
+    // ------------------------------------------------------------------ redirects
+    private int gatewayRequests() {
+        return (int) requests.stream().filter(x -> x.startsWith("/gw/api/2.3/")).count();
+    }
+
+    @Test
+    void theRedirectRulesAreSensible() throws Exception {
+        java.net.URI a = java.net.URI.create("https://so.corp.com/api/2.3/info?key=SECRET");
+        var all = com.questioncrawler.core.source.Redirects.Mode.ALL;
+        var none = new java.util.HashSet<String>();
+        var step = com.questioncrawler.core.source.Redirects.next(a, "/gw/api/2.3/info", a, all, none, 0);
+        assertTrue(step.follow());
+        assertEquals("https://so.corp.com/gw/api/2.3/info?key=SECRET", step.target().toString(), "the query string (the key) is carried over on the same host");
+        assertEquals("https://other.corp.com/x", com.questioncrawler.core.source.Redirects.next(a, "https://other.corp.com/x", a, all, none, 0).target().toString(),
+                "no query is added when the host changes");
+        assertTrue(com.questioncrawler.core.source.Redirects.next(a, "http://so.corp.com/x", a, all, none, 0).stopReason().contains("never followed"), "https down to http");
+        assertTrue(com.questioncrawler.core.source.Redirects.next(a, "/x", a, com.questioncrawler.core.source.Redirects.Mode.OFF, none, 0).stopReason().contains("switched off"));
+        assertTrue(com.questioncrawler.core.source.Redirects.next(a, "https://other.corp.com/x", a, com.questioncrawler.core.source.Redirects.Mode.SAME_HOST, none, 0).stopReason().contains("same host only"));
+        assertTrue(com.questioncrawler.core.source.Redirects.next(a, "/x", a, all, none, 5).stopReason().contains("more than 5"));
+        none.add("https://so.corp.com/loop?key=SECRET");
+        assertTrue(com.questioncrawler.core.source.Redirects.next(java.net.URI.create("https://so.corp.com/loop?key=SECRET"), "/loop", a, all, none, 1).stopReason().contains("circle"));
+        assertTrue(com.questioncrawler.core.source.Redirects.next(a, "ftp://x/y", a, all, new java.util.HashSet<>(), 0).stopReason().contains("not a web address"));
+        assertEquals("https://so.corp.com/api/2.3/info", com.questioncrawler.core.source.Redirects.show(a), "shown without the query string");
+        assertEquals(com.questioncrawler.core.source.Redirects.Mode.ALL, com.questioncrawler.core.source.Redirects.Mode.parse(null));
+        assertEquals(com.questioncrawler.core.source.Redirects.Mode.OFF, com.questioncrawler.core.source.Redirects.Mode.parse("No"));
+    }
+
+    @Test
+    void aRedirectToTheGatewayIsFollowedAndTheNewAddressIsUsedDirectlyAfterwards() throws Exception {
+        redirectMode = "same-host";
+        CoreConfig c = config("");
+        var adapter = c.createAdapter(env());
+        String ping = adapter.ping();
+        assertTrue(ping.contains("API reachable; the site redirects") && ping.contains("/gw/api/2.3") && ping.contains("used directly"), ping);
+        requests.clear();
+        KnowledgeBase kb = new KnowledgeBase(c, adapter, null, Clock.systemUTC());
+        SyncReport r = kb.sync(options(c));
+        assertEquals(SyncReport.COMPLETE, r.outcome(), r.abortReason());
+        assertEquals(2, r.added());
+        assertTrue(gatewayRequests() > 3);
+        assertEquals(0, requests.stream().filter(x -> x.startsWith("/api/2.3/")).count(), "no request went to the old address again: " + requests);
+    }
+
+    @Test
+    void aRedirectThatDropsTheQueryStringKeepsTheKeyOnTheSameHost() throws Exception {
+        redirectMode = "no-query";
+        CoreConfig c = config("");
+        assertTrue(c.createAdapter(env()).ping().contains("has 3 questions"));
+        assertTrue(requests.stream().anyMatch(x -> x.startsWith("/gw/api/2.3/info?") && x.contains("key=" + KEY)), "the key was carried over: " + requests);
+    }
+
+    @Test
+    void aRedirectToAnotherHostFollowsTheSettingsChoice() throws Exception {
+        redirectMode = "cross-host";
+        assertTrue(config("").createAdapter(env()).ping().contains("API reachable"), "followed by default");
+
+        SourceException sameHost = assertThrows(SourceException.class, () -> config("source.followRedirects=same-host\n").createAdapter(env()).ping());
+        assertTrue(sameHost.getMessage().contains("another host") && sameHost.getMessage().contains("same host only"), sameHost.getMessage());
+
+        SourceException off = assertThrows(SourceException.class, () -> config("source.followRedirects=off\n").createAdapter(env()).ping());
+        assertTrue(off.getMessage().contains("switched off") && off.getMessage().contains("not followed"), off.getMessage());
+    }
+
+    @Test
+    void redirectsInACircleAreStoppedAndExplained() throws Exception {
+        redirectMode = "loop";
+        SourceException e = assertThrows(SourceException.class, () -> config("").createAdapter(env()).ping());
+        assertTrue(e.getMessage().contains("circle"), e.getMessage());
+    }
+
+    @Test
+    void aRedirectToASignInPageShowsTheChainAndSaysSignInIsNeeded() throws Exception {
+        redirectMode = "login";
+        SourceException e = assertThrows(SourceException.class, () -> config("").createAdapter(env()).ping());
+        assertEquals(SourceException.Kind.AUTH_FAILED, e.kind());
+        assertTrue(e.getMessage().contains("sign-in page") && e.getMessage().contains("after redirects: 307 to http://127.0.0.1:") && e.getMessage().contains("/sso/login"), e.getMessage());
+        assertFalse(e.getMessage().contains("returnUrl") || e.getMessage().contains(KEY));
+    }
+
+    @Test
+    void theRawAnswerShowsTheRedirectsThatWereFollowed() throws Exception {
+        redirectMode = "same-host";
+        var r = workspace("rd1", env()).probeApi(draft(), "/info");
+        assertEquals(200, r.status());
+        assertEquals("JSON", r.kind());
+        assertEquals(1, r.redirects().size());
+        assertTrue(r.redirects().get(0).startsWith("307 to http://127.0.0.1:") && r.redirects().get(0).endsWith("/gw/api/2.3/info"), r.redirects().toString());
+        assertTrue(r.hints().get(0).contains("redirected 1 time"));
+        assertFalse(Json.write(r).contains(KEY));
+    }
+
+    @Test
+    void theSignInStepFollowsRedirectsAndReportsWhereTheyEnd() throws Exception {
+        Map<String, String> base = new LinkedHashMap<>(Map.of("source.type", "live", "source.baseUrl", origin + "/start", "source.allowInsecureHttp", "true", "source.timeoutSeconds", "5"));
+        redirectMode = "same-host";
+        var ok = workspace("rd2", env()).checkConnection(base).stages().stream().filter(x -> x.id().equals("access")).findFirst().orElseThrow();
+        assertEquals("PASS", ok.status(), ok.summary());
+        assertTrue(ok.summary().contains("after 1 redirect"), ok.summary());
+        assertTrue(ok.facts().stream().anyMatch(f -> f.label().equals("Redirected") && f.value().contains("307 to http://127.0.0.1:") && f.value().endsWith("/landing")), ok.facts().toString());
+
+        redirectMode = "login";
+        var login = workspace("rd3", env()).checkConnection(base).stages().stream().filter(x -> x.id().equals("access")).findFirst().orElseThrow();
+        assertEquals("WARN", login.status());
+        assertTrue(login.summary().contains("sign-in page") && login.summary().contains("1 redirect"), login.summary());
+
+        redirectMode = "same-host";
+        Map<String, String> off = new LinkedHashMap<>(base);
+        off.put("source.followRedirects", "off");
+        var notFollowed = workspace("rd4", env()).checkConnection(off).stages().stream().filter(x -> x.id().equals("access")).findFirst().orElseThrow();
+        assertEquals("INFO", notFollowed.status());
+        assertTrue(notFollowed.summary().contains("not followed") && notFollowed.summary().contains("switched off"), notFollowed.summary());
+    }
+
+    @Test
+    void theRedirectSettingIsExplainedAndSaved() throws Exception {
+        var service = new com.questioncrawler.core.service.ConfigService(k -> null);
+        var field = com.questioncrawler.core.service.ConfigService.sections().stream().flatMap(sec -> sec.fields().stream())
+                .filter(f -> f.key().equals("source.followRedirects")).findFirst().orElseThrow();
+        assertFalse(field.advanced(), "visible, not hidden");
+        assertEquals(3, field.options().size());
+        Path file = tmp.resolve("rd.properties");
+        var saved = service.save(file, Map.of("source.type", "live", "api.swaggerUrl", "https://so.example.com/swagger/index.html", "source.followRedirects", "same-host",
+                "storage.root", tmp.resolve("rdd").toString().replace('\\', '/')));
+        assertTrue(saved.saved(), saved.issues().toString());
+        assertEquals("same-host", CoreConfig.load(file, Map.of()).source().api().redirects());
+    }
+
+    @Test
+    void aRedirectToAnAddressThatCannotBeReachedSaysWhichRedirectLedThere() throws Exception {
+        infoMode = "redirect"; // leads to https://sso.example.com/login, which does not exist here
+        SourceException e = assertThrows(SourceException.class, () -> config("").createAdapter(env()).ping());
+        assertTrue(e.getMessage().contains("redirected the request (302 to https://sso.example.com/login)") && e.getMessage().contains("could not be used"), e.getMessage());
+        assertFalse(e.getMessage().contains(KEY));
     }
 }

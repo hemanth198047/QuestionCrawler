@@ -51,6 +51,19 @@ and what to check. Your key is never shown (it appears as `•••`). **Copy t
 
 Responses with a byte-order mark or a security prefix such as `)]}',` are cleaned automatically and are not an error.
 
+## Redirects (HTTP 301 / 302 / 307 / 308)
+Internal sites and API gateways redirect routinely (http to https, a trailing slash, a gateway path, another host). QuestionCrawler **follows redirects by default**, in the
+connection check (the *Sign-in* step), in the raw-answer card and in the real collection. What you get:
+
+- Up to **5 redirects in a row**; every hop is shown (without query strings or secrets), for example `307 to https://gateway.corp.com/api/2.3/info`.
+- When the API address redirects to another place, that final place is **used directly from then on** (no repeated redirect on every call).
+- If a redirect on the same host leaves out the query string (where the API key lives), the original one is carried over.
+- The chain can end at a **sign-in page** (single sign-on): the *Sign-in* step then reports "sends visitors to a sign-in page" and what is needed, instead of an unclear redirect message.
+- If a redirect leads to an address this computer cannot reach, the message says which redirect led there.
+
+Safety rules that stay on: a redirect **from https down to plain http is never followed**; redirects in a circle stop; credentials (the key and token) **are sent along** to wherever a followed redirect leads,
+so if you do not trust a redirect target, set **Follow redirects** (Connect screen, step 2) to **Same host only** or **No**.
+
 ## A Bearer token (HTTP 401 "Missing bearer token")
 Some sites require both the API key **and** a token sent as `Authorization: Bearer <token>`. When the answer says so, the *See what the API really answers* card shows
 **"This API wants a Bearer token"** with the fix:

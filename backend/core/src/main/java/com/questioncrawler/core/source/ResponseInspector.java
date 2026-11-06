@@ -188,7 +188,7 @@ public final class ResponseInspector {
             String target = location == null ? "an unknown address" : redact(withoutQuery(location), secrets);
             boolean login = location != null && LOGIN.matcher(location).find();
             hints.add(login ? "That address looks like a sign-in page: the API wants credentials that were not accepted or not sent."
-                    : "Redirects are not followed automatically, for safety. The API address may be wrong (for example http instead of https, or a missing /api path).");
+                    : "The address redirects elsewhere. If it was not followed, check the setting 'Follow redirects'; otherwise the API address may be wrong (for example http instead of https, or a missing /api path).");
             hints.add("Check that the API access key variable is set in the terminal that started the app, and the key parameter name matches the documentation.");
             return new Inspection("REDIRECT", "The site redirected the request (" + where + ") to " + target + ".", preview, hints);
         }

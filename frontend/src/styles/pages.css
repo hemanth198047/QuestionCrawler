@@ -197,3 +197,6 @@ button.rm-node:hover { background: var(--bg-sunken); }
 /* ---------- raw answer ---------- */
 .raw-preview { margin: 0; padding: 14px 16px; background: #1f2230; color: #e8eaf6; border-radius: var(--r-md); font-size: 12.5px; line-height: 1.55; overflow: auto; max-height: 260px; white-space: pre-wrap; word-break: break-word; }
 .raw-hints { background: var(--brand-50); border-radius: var(--r-md); padding: 14px 18px; } .raw-hints ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; font-size: 13.5px; color: var(--ink-2); }
+
+/* ---------- redirects ---------- */
+.redirect-chain { background: var(--bg-sunken); border-radius: var(--r-md); padding: 12px 16px; } .redirect-chain ol { margin: 8px 0 0; padding-left: 22px; display: grid; gap: 4px; } .redirect-chain code { font-size: 12.5px; }

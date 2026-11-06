@@ -153,7 +153,8 @@ public record CoreConfig(
                         p.getProperty("network.noProxy", ""), p.getProperty("network.proxyUserEnv", ""), p.getProperty("network.proxyPasswordEnv", "")),
                 new com.questioncrawler.core.source.ApiOptions(p.getProperty("api.keyName", ""), p.getProperty("api.keyIn", "query"),
                         p.getProperty("api.accessTokenEnv", ""), p.getProperty("api.bodyFilter", ""),
-                        Boolean.parseBoolean(p.getProperty("api.collectComments", "false").strip()), swagger, p.getProperty("api.swaggerFile", "")));
+                        Boolean.parseBoolean(p.getProperty("api.collectComments", "false").strip()), swagger, p.getProperty("api.swaggerFile", ""),
+                        p.getProperty("source.followRedirects", "all")));
 
         List<Path> fixtureDirs = csv(p.getProperty("source.fixture.dirs", "")).stream().map(s -> resolve(base, s)).toList();
         return new CoreConfig(file, storage, taxonomyFile, type, settings, fixtureDirs,
@@ -288,7 +289,7 @@ public record CoreConfig(
                 var keyScheme = discovery.catalog().security().stream().filter(x -> "apiKey".equals(x.type()) && x.name() != null).findFirst();
                 if (keyScheme.isPresent() && source.api().keyName().equals("key") && !explicitKeyName) {
                     api = new com.questioncrawler.core.source.ApiOptions(keyScheme.get().name(), keyScheme.get().in(), api.accessTokenEnv(),
-                            api.bodyFilter(), api.collectComments(), api.swaggerUrl(), api.swaggerFile());
+                            api.bodyFilter(), api.collectComments(), api.swaggerUrl(), api.swaggerFile(), api.redirects());
                 }
                 working = working.withBase(base, api);
             } catch (com.questioncrawler.core.source.SourceException e) {

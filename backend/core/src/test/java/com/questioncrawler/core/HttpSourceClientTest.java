@@ -126,8 +126,11 @@ class HttpSourceClientTest {
     }
 
     @Test
-    void redirectsAreNeverFollowedAndQueryStringsStayOutOfMessages() {
-        var c = client("none", true, List.of("/"), Map.of());
+    void aRedirectIsNotFollowedWhenTheSettingIsOffAndQueryStringsStayOutOfMessages() {
+        var settings = new SourceSettings("internal", base, List.of("127.0.0.1"), List.of("/"), "none", "TEST_TOKEN", "Authorization", "Bearer", null,
+                Duration.ofSeconds(5), true, null, null, com.questioncrawler.core.source.ProxyConfig.NONE,
+                new com.questioncrawler.core.source.ApiOptions(null, null, null, null, false, null, null, "off"));
+        var c = new HttpSourceClient(settings, k -> null);
         SourceException e = failure(c, "/redirect");
         assertEquals(SourceException.Kind.FATAL, e.kind());
         assertFalse(e.getMessage().contains("token=abc"));

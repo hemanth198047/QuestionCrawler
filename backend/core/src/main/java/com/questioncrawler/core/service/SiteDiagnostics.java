@@ -13,6 +13,7 @@ import com.questioncrawler.core.api.SwaggerDiscovery;
 import com.questioncrawler.core.source.ApiOptions;
 import com.questioncrawler.core.source.HttpSourceClient;
 import com.questioncrawler.core.source.ProxyConfig;
+import com.questioncrawler.core.source.Redirects;
 import com.questioncrawler.core.source.SourceException;
 import com.questioncrawler.core.source.SourceSettings;
 import com.questioncrawler.core.source.StackExchangeAdapter;
@@ -55,7 +56,7 @@ import javax.net.ssl.X509TrustManager;
  * Are there limits or bot protection? Does the topic we want exist?
  *
  * <p>It only issues a handful of plain GET requests (the home page, robots.txt and a few conventional API-description
- * paths), never sends credentials to anything but the configured site, never follows redirects, and never tries to get
+ * paths), follows redirects the way the real downloader does (and shows every hop), and never tries to get
  * around a login, CAPTCHA or block: it reports them and says what is needed.
  */
 public final class SiteDiagnostics {
@@ -84,7 +85,11 @@ public final class SiteDiagnostics {
     private static final List<String> API_DESCRIPTION_PATHS = List.of("/openapi.json", "/swagger.json", "/v3/api-docs", "/api-docs");
     private static final int MAX_BODY = 300_000;
 
-    private record Probe(String url, int status, Map<String, List<String>> headers, String body, long millis, String error) {
+    private record Probe(String url, int status, Map<String, List<String>> headers, String body, long millis, String error, List<String> chain, String stop) {
+        Probe(String url, int status, Map<String, List<String>> headers, String body, long millis, String error) {
+            this(url, status, headers, body, millis, error, List.of(), null);
+        }
+
         boolean ok() { return error == null && status >= 200 && status < 300; }
         String header(String name) {
             List<String> v = headers == null ? null : headers.get(name.toLowerCase(Locale.ROOT));
@@ -433,6 +438,16 @@ public final class SiteDiagnostics {
                     List.of(new Need("A site that answers requests", "We could connect but received no valid reply.", "The site owners")), t0);
         }
         facts.add(new Fact("Reply", "HTTP " + home.status()));
+        boolean redirected = !home.chain().isEmpty();
+        if (redirected) {
+            facts.add(new Fact("Redirected", String.join(" → ", home.chain())));
+            facts.add(new Fact("Final address", hostAndPath(home.url())));
+        }
+        if (redirected && LOGIN_WORDS.matcher(home.url()).find()) {
+            return stage("access", title, q, "WARN", "The site sends visitors to a sign-in page (through " + home.chain().size() + " redirect" + (home.chain().size() == 1 ? "" : "s") + "). Reading content requires an approved login.", facts,
+                    List.of(new Need("An access token or service account approved for reading Q&A", "The redirect chain ends at a sign-in page: anonymous access is not allowed. We will not bypass it.", "The site owners / platform team"),
+                            new Need("To know which sign-in system is used (for example SSO)", "It decides which kind of token you should request.", "The site owners")), t0);
+        }
         boolean tokenConfigured = in.authMethod() != null && in.authMethod().equals("token");
         if (tokenConfigured) {
             boolean has = in.tokenEnv() != null && env.apply(in.tokenEnv()) != null && !env.apply(in.tokenEnv()).isBlank();
@@ -447,7 +462,7 @@ public final class SiteDiagnostics {
             }
             return stage("access", title, q, "PASS", in.sourceType().equals("stackexchange")
                     ? "No sign-in is needed. Anyone may read public questions through the API."
-                    : "The address answers without signing in.", facts, List.of(), t0);
+                    : "The address answers without signing in" + (redirected ? " (after " + home.chain().size() + " redirect" + (home.chain().size() == 1 ? "" : "s") + ")." : "."), facts, List.of(), t0);
         }
         if (s >= 300 && s < 400) {
             String loc = home.header("location");
@@ -457,8 +472,8 @@ public final class SiteDiagnostics {
                         List.of(new Need("An access token or service account approved for reading Q&A", "The redirect means anonymous access is not allowed. We will not bypass it.", "The site owners / platform team"),
                                 new Need("To know which sign-in system is used (for example SSO)", "It decides which kind of token you should request.", "The site owners")), t0);
             }
-            return stage("access", title, q, "INFO", "The address redirects elsewhere; redirects are not followed automatically for safety.", facts,
-                    List.of(new Need("The final address of the API or site", "Use the address after the redirect in Settings.", "The site owners")), t0);
+            return stage("access", title, q, "INFO", "The address redirects elsewhere and the redirect was not followed: " + (home.stop() == null ? "unknown reason" : home.stop()) + ".", facts,
+                    List.of(new Need("The final address of the API or site", "Use the address after the redirect in Settings, or change 'Follow redirects'.", "You or the site owners")), t0);
         }
         if (s == 401) {
             String www = home.header("www-authenticate");
@@ -956,6 +971,7 @@ public final class SiteDiagnostics {
 
     private Probe get(Input in, String url, boolean withToken) {
         long t0 = System.nanoTime();
+        List<String> chain = new ArrayList<>();
         try {
             HttpClient.Builder b = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(Math.max(1, in.timeoutSeconds()))).followRedirects(HttpClient.Redirect.NEVER);
             ProxyConfig proxy = effectiveProxy(in, URI.create(url).getHost());
@@ -969,18 +985,52 @@ public final class SiteDiagnostics {
             if (in.caCertFile() != null) {
                 b.sslContext(trustWith(in.caCertFile()));
             }
-            HttpRequest.Builder req = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(Math.max(1, in.timeoutSeconds())))
-                    .header("User-Agent", "QuestionCrawler-diagnostics/0.1").header("Accept", "application/json, text/html;q=0.8, */*;q=0.5").header("Accept-Encoding", "gzip").GET();
-            if (withToken && in.tokenEnv() != null && env.apply(in.tokenEnv()) != null && !env.apply(in.tokenEnv()).isBlank()) {
-                req.header("Authorization", "Bearer " + env.apply(in.tokenEnv()));
-            }
-            HttpResponse<java.io.InputStream> r = b.build().send(req.build(), HttpResponse.BodyHandlers.ofInputStream());
-            boolean gz = r.headers().firstValue("Content-Encoding").map(v -> v.equalsIgnoreCase("gzip")).orElse(false);
-            try (var raw = r.body(); var is = gz ? new java.util.zip.GZIPInputStream(raw) : raw) {
-                byte[] bytes = is.readNBytes(MAX_BODY);
+            HttpClient client = b.build();
+            Redirects.Mode mode = (in.api() == null ? ApiOptions.DEFAULT : in.api()).redirectMode();
+            URI first = URI.create(url);
+            URI current = first;
+            java.util.Set<String> visited = new java.util.HashSet<>();
+            visited.add(current.toString());
+            Probe lastRedirect = null;
+            for (int hops = 0; ; hops++) {
+                HttpRequest.Builder req = HttpRequest.newBuilder(current).timeout(Duration.ofSeconds(Math.max(1, in.timeoutSeconds())))
+                        .header("User-Agent", "QuestionCrawler-diagnostics/0.1").header("Accept", "application/json, text/html;q=0.8, */*;q=0.5").header("Accept-Encoding", "gzip").GET();
+                if (withToken && in.tokenEnv() != null && env.apply(in.tokenEnv()) != null && !env.apply(in.tokenEnv()).isBlank()) {
+                    req.header("Authorization", "Bearer " + env.apply(in.tokenEnv()));
+                }
+                HttpResponse<java.io.InputStream> r;
+                try {
+                    r = client.send(req.build(), HttpResponse.BodyHandlers.ofInputStream());
+                } catch (java.io.IOException unreachable) {
+                    if (lastRedirect == null) {
+                        throw unreachable;
+                    }
+                    return new Probe(lastRedirect.url(), lastRedirect.status(), lastRedirect.headers(), lastRedirect.body(), lastRedirect.millis(), null, lastRedirect.chain(),
+                            "the address it leads to (" + Redirects.show(current) + ") could not be reached from this computer: " + unreachable.getClass().getSimpleName());
+                }
+                boolean gz = r.headers().firstValue("Content-Encoding").map(v -> v.equalsIgnoreCase("gzip")).orElse(false);
                 Map<String, List<String>> headers = new java.util.HashMap<>();
+                String text;
+                try (var raw = r.body(); var is = gz ? new java.util.zip.GZIPInputStream(raw) : raw) {
+                    text = new String(is.readNBytes(MAX_BODY), StandardCharsets.UTF_8);
+                }
                 r.headers().map().forEach((k, v) -> headers.put(k.toLowerCase(Locale.ROOT), v));
-                return new Probe(url, r.statusCode(), headers, new String(bytes, StandardCharsets.UTF_8), (System.nanoTime() - t0) / 1_000_000, null);
+                long ms = (System.nanoTime() - t0) / 1_000_000;
+                if (!Redirects.isRedirect(r.statusCode())) {
+                    return new Probe(current.toString(), r.statusCode(), headers, text, ms, null, chain, null);
+                }
+                List<String> loc = headers.get("location");
+                Redirects.Step step = Redirects.next(current, loc == null || loc.isEmpty() ? null : loc.get(0), first, mode, visited, hops);
+                if (step.follow() && !"https".equalsIgnoreCase(step.target().getScheme()) && !in.allowInsecureHttp() && !"http".equalsIgnoreCase(first.getScheme())) {
+                    step = new Redirects.Step(null, "the redirect leads to unencrypted http (" + Redirects.show(step.target()) + ")");
+                }
+                if (!step.follow()) {
+                    return new Probe(current.toString(), r.statusCode(), headers, text, ms, null, chain, step.stopReason());
+                }
+                lastRedirect = new Probe(current.toString(), r.statusCode(), headers, text, ms, null, List.copyOf(chain), null);
+                chain.add(r.statusCode() + " to " + Redirects.show(step.target()));
+                visited.add(step.target().toString());
+                current = step.target();
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();

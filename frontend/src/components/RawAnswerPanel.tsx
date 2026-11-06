@@ -1,4 +1,4 @@
-import { Eye, KeyRound, Lightbulb, Send } from 'lucide-react'
+import { CornerDownRight, Eye, KeyRound, Lightbulb, Send } from 'lucide-react'
 import { useState } from 'react'
 import { probeApi } from '../api'
 import type { ApiProbe } from '../types/api'
@@ -55,6 +55,9 @@ export function RawAnswerPanel({ values, onUse }: { values: Record<string, strin
             <span style={{ marginLeft: 'auto' }}><CopyButton text={reportText(result, path)} label="Copy this report" /></span>
           </div>
           <p className="muted small">Asked: <code>{result.url}</code></p>
+          {result.redirects.length > 0 && (
+            <div className="redirect-chain"><div className="row small"><CornerDownRight size={16} /><strong>{result.redirects.length === 1 ? 'The site redirected the request once' : `The site redirected the request ${result.redirects.length} times`}</strong><span className="muted">(followed; the answer below is from the last address)</span></div>
+              <ol>{result.redirects.map((r) => <li key={r}><code>{r}</code></li>)}</ol></div>)}
           <Banner tone={tone(result) === 'ok' ? 'ok' : tone(result) === 'warn' ? 'warn' : 'bad'} title={result.summary ?? ''}>{result.kind === 'JSON' && result.status < 400 ? 'This is what a working API looks like.' : 'Here is the beginning of what the site sent:'}</Banner>
           <pre className="raw-preview">{result.preview || '(empty)'}</pre>
           {result.suggestedPath && (

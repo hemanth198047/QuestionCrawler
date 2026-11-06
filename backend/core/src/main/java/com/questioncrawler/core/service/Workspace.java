@@ -159,7 +159,7 @@ public final class Workspace {
 
     private static com.questioncrawler.core.source.ApiOptions apiOptions(Map<String, String> v) {
         return new com.questioncrawler.core.source.ApiOptions(v.get("api.keyName"), v.get("api.keyIn"), v.get("api.accessTokenEnv"), v.get("api.bodyFilter"),
-                Boolean.parseBoolean(v.getOrDefault("api.collectComments", "false")), v.get("api.swaggerUrl"), v.get("api.swaggerFile"));
+                Boolean.parseBoolean(v.getOrDefault("api.collectComments", "false")), v.get("api.swaggerUrl"), v.get("api.swaggerFile"), v.get("source.followRedirects"));
     }
 
     private static com.questioncrawler.core.source.ProxyConfig proxyOf(Map<String, String> v) {
@@ -213,11 +213,11 @@ public final class Workspace {
     /** The raw answer of one API call: what the site really sends back. The key and tokens are never included. */
     public record ApiProbe(boolean reached, String problem, String url, int status, String contentType, int characters, String kind,
                            String summary, String preview, List<String> hints, boolean keySent, String keyPlacement,
-                           String authNeeded, String wwwAuthenticate, boolean tokenSent, String suggestedPath) {
+                           String authNeeded, String wwwAuthenticate, boolean tokenSent, String suggestedPath, List<String> redirects) {
         public ApiProbe(boolean reached, String problem, String url, int status, String contentType, int characters, String kind,
                         String summary, String preview, List<String> hints, boolean keySent, String keyPlacement,
                         String authNeeded, String wwwAuthenticate, boolean tokenSent) {
-            this(reached, problem, url, status, contentType, characters, kind, summary, preview, hints, keySent, keyPlacement, authNeeded, wwwAuthenticate, tokenSent, null);
+            this(reached, problem, url, status, contentType, characters, kind, summary, preview, hints, keySent, keyPlacement, authNeeded, wwwAuthenticate, tokenSent, null, List.of());
         }
     }
 
@@ -314,6 +314,11 @@ public final class Workspace {
                     response.status() >= 400 ? List.of("Read the error message in the answer above: it usually names the problem (key, parameter, permission).") : List.of())
                     : com.questioncrawler.core.source.ResponseInspector.inspect(response.status(), response.contentType(), response.location(), response.wwwAuthenticate(), response.body(), secrets);
             List<String> hints = new ArrayList<>(inspection.hints());
+            if (response.redirectStop() != null) {
+                hints.add(0, "A redirect was not followed: " + response.redirectStop() + ". Change the setting 'Follow redirects' or use the address it leads to.");
+            } else if (!response.redirects().isEmpty()) {
+                hints.add(0, "The request was redirected " + response.redirects().size() + " time(s) and the final answer is shown. If the API address always redirects, use the final address directly.");
+            }
             String authNeeded = com.questioncrawler.core.source.ResponseInspector.authKind(response.status(), response.wwwAuthenticate(), stripped);
             if (json && authNeeded != null) { // a JSON refusal that names the sign-in it wants
                 hints.addAll(0, com.questioncrawler.core.source.ResponseInspector.authHints(authNeeded));
@@ -339,7 +344,7 @@ public final class Workspace {
             }
             return new ApiProbe(true, null, shownUrl, response.status(), response.contentType(), response.body() == null ? 0 : response.body().length(),
                     inspection.kind(), inspection.summary(), inspection.preview(), hints, keySent, placement, authNeeded,
-                    com.questioncrawler.core.source.ResponseInspector.redact(response.wwwAuthenticate() == null ? "" : response.wwwAuthenticate(), secrets), bearer != null, suggested);
+                    com.questioncrawler.core.source.ResponseInspector.redact(response.wwwAuthenticate() == null ? "" : response.wwwAuthenticate(), secrets), bearer != null, suggested, response.redirects());
         } catch (com.questioncrawler.core.source.SourceException e) {
             return new ApiProbe(false, com.questioncrawler.core.source.ResponseInspector.redact(e.getMessage(), secrets), shownUrl, 0, null, 0, null, null, null,
                     List.of("The request did not get an answer at all: see the Check access result for the network steps (proxy, certificate)."), keySent, placement, null, null, bearer != null);

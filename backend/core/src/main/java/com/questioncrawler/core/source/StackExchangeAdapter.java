@@ -57,7 +57,8 @@ public final class StackExchangeAdapter implements SourceAdapter {
     private final HttpSourceClient client;
     private final Function<String, String> env;
     private final Sleeper sleeper;
-    private final String apiBase;
+    private volatile String apiBase;
+    private volatile String redirectedFrom;
     private final String site;
     private final String siteHost;
     private final ApiOptions api;
@@ -462,7 +463,8 @@ public final class StackExchangeAdapter implements SourceAdapter {
         boolean publicSite = site != null && !site.isBlank();
         String keyNote = keyed ? (publicSite ? " (application key in use)" : " (access key in use)")
                 : (publicSite ? " (anonymous: small daily quota)" : " (no access key set)");
-        return (publicSite ? "Stack Exchange API reachable; " : "API reachable; ") + where + " has " + size + " questions; request quota remaining: "
+        String moved = redirectedFrom == null ? "" : "; the site redirects " + ResponseInspector.withoutQuery(redirectedFrom) + " to " + apiBase + ", which is used directly from now on";
+        return (publicSite ? "Stack Exchange API reachable" + moved + "; " : "API reachable" + moved + "; ") + where + " has " + size + " questions; request quota remaining: "
                 + (quotaRemaining.get() < 0 ? "unknown" : quotaRemaining.get()) + keyNote;
     }
 
@@ -519,6 +521,7 @@ public final class StackExchangeAdapter implements SourceAdapter {
         if (response.status() < 200 || response.status() >= 300) {
             throw mapError(response, root, url.toString());
         }
+        learnBase(path, response);
         if (root.has("quota_remaining")) {
             quotaRemaining.set(root.get("quota_remaining").asInt());
         }
@@ -586,6 +589,27 @@ public final class StackExchangeAdapter implements SourceAdapter {
         return client.mapStatus(response.status(), response.retryAfter(), java.net.URI.create(ResponseInspector.withoutQuery(url)));
     }
 
+    /** If the API address redirected to another place (a gateway path, https, another host), use that place directly from now on. */
+    private void learnBase(String path, HttpSourceClient.Response r) {
+        if (r.redirects().isEmpty() || r.finalUrl() == null || r.status() < 200 || r.status() >= 300) {
+            return;
+        }
+        try {
+            java.net.URI fin = java.net.URI.create(r.finalUrl());
+            String pathOnly = path.contains("?") ? path.substring(0, path.indexOf('?')) : path;
+            String finPath = fin.getRawPath();
+            if (finPath != null && finPath.endsWith(pathOnly)) {
+                String newBase = (fin.getScheme() + "://" + fin.getRawAuthority() + finPath.substring(0, finPath.length() - pathOnly.length())).replaceAll("/+$", "");
+                if (!newBase.equals(apiBase)) {
+                    redirectedFrom = apiBase;
+                    apiBase = newBase;
+                }
+            }
+        } catch (IllegalArgumentException ignored) {
+            // keep using the configured address
+        }
+    }
+
     /** The answer as JSON. If it is not JSON, the error says what it is (a sign-in page, a redirect, ...) and what to check. */
     private JsonNode parseBody(HttpSourceClient.Response response, String url) throws SourceException {
         JsonNode node = null;
@@ -596,6 +620,14 @@ public final class StackExchangeAdapter implements SourceAdapter {
         }
         if (node != null && node.isObject()) {
             return node;
+        }
+        if (Redirects.isRedirect(response.status()) && response.redirectStop() != null) {
+            boolean login = response.location() != null && java.util.regex.Pattern.compile("(?i)login|signin|sign-in|sso|saml|oauth|authorize|adfs|okta").matcher(response.location()).find();
+            throw new SourceException(login ? SourceException.Kind.AUTH_FAILED : SourceException.Kind.FATAL,
+                    "The site redirected the request (HTTP " + response.status() + ") to " + ResponseInspector.withoutQuery(String.valueOf(response.location())) + " but it was not followed: " + response.redirectStop() + ". "
+                            + (login ? "The redirect leads to a sign-in page, so the API wants credentials that were not accepted. " : "")
+                            + (response.redirects().isEmpty() ? "" : "Followed before that: " + String.join("; ", response.redirects()) + ". ")
+                            + "(On the Connect screen, 'See what the API really answers' shows the whole chain.)");
         }
         List<String> secrets = new ArrayList<>();
         for (String name : new String[] {settings.apiKeyEnv(), api.accessTokenEnv(), settings.tokenEnv()}) {
@@ -614,7 +646,8 @@ public final class StackExchangeAdapter implements SourceAdapter {
         String hint = inspection.hints().isEmpty() ? "" : " " + inspection.hints().get(0);
         String said = !inspection.kind().startsWith("HTML") && !inspection.preview().isBlank() && inspection.preview().length() <= 200
                 ? " The site said: \"" + inspection.preview().strip() + "\"." : "";
-        throw new SourceException(kind, "The API did not answer with JSON. " + inspection.summary() + said + hint
+        String via = response.redirects().isEmpty() ? "" : " (after redirects: " + String.join(", ", response.redirects()) + ")";
+        throw new SourceException(kind, "The API did not answer with JSON. " + inspection.summary() + via + said + hint
                 + " (On the Connect screen, 'See what the API really answers' shows the full answer.)");
     }
 

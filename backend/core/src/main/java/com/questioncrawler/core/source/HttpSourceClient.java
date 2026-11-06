@@ -17,6 +17,9 @@ import java.time.Duration;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Collection;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.function.Function;
@@ -27,7 +30,7 @@ import javax.net.ssl.TrustManagerFactory;
  * Hardened HTTP transport for live adapters.
  *
  * <ul>
- *   <li>Only configured hosts and path prefixes are contacted; redirects are never followed.</li>
+ *   <li>Only configured hosts and path prefixes are contacted. Redirects are followed by default (see {@link Redirects}); the setting can restrict them to the same host or switch them off.</li>
  *   <li>TLS verification stays on. An organization CA certificate can be added to the trust set.</li>
  *   <li>The token is read from an environment variable at request time and is never logged.</li>
  *   <li>HTTP status codes are mapped to {@link SourceException.Kind}; retrying is the caller's job.</li>
@@ -38,13 +41,27 @@ public final class HttpSourceClient {
     private static final int MAX_BODY_BYTES = 10 * 1024 * 1024;
 
     /** Raw result of one exchange; {@code retryAfter} is the unparsed Retry-After header or null. */
-    public record Response(int status, String body, String retryAfter, String contentType, String location, String wwwAuthenticate) {
+    /**
+     * @param finalUrl     the address that finally answered (after redirects); contains the query string, so never show it as it is
+     * @param redirects    one line per redirect that was followed ("307 to https://host/path"), without query strings
+     * @param redirectStop why a redirect was NOT followed (null if there was none or it was followed)
+     */
+    public record Response(int status, String body, String retryAfter, String contentType, String location, String wwwAuthenticate,
+                           String finalUrl, List<String> redirects, String redirectStop) {
         public Response(int status, String body, String retryAfter) {
-            this(status, body, retryAfter, null, null, null);
+            this(status, body, retryAfter, null, null, null, null, List.of(), null);
         }
 
         public Response(int status, String body, String retryAfter, String contentType, String location) {
-            this(status, body, retryAfter, contentType, location, null);
+            this(status, body, retryAfter, contentType, location, null, null, List.of(), null);
+        }
+
+        public Response(int status, String body, String retryAfter, String contentType, String location, String wwwAuthenticate) {
+            this(status, body, retryAfter, contentType, location, wwwAuthenticate, null, List.of(), null);
+        }
+
+        Response after(String url, List<String> chain, String stop) {
+            return new Response(status, body, retryAfter, contentType, location, wwwAuthenticate, url, List.copyOf(chain), stop);
         }
     }
 
@@ -82,6 +99,10 @@ public final class HttpSourceClient {
         if (response.status() >= 200 && response.status() < 300) {
             return response;
         }
+        if (Redirects.isRedirect(response.status())) {
+            throw new SourceException(SourceException.Kind.FATAL, "HTTP " + response.status() + " redirect from " + describe(checkAllowed(url)) + " was not followed: "
+                    + (response.redirectStop() == null ? "unknown reason" : response.redirectStop()) + ".");
+        }
         throw mapStatus(response.status(), response.retryAfter(), checkAllowed(url));
     }
 
@@ -95,7 +116,39 @@ public final class HttpSourceClient {
 
     /** As {@link #exchange(String)} with extra request headers (for example an API key sent as a header). */
     public Response exchange(String url, Map<String, String> extraHeaders) throws SourceException {
-        URI uri = checkAllowed(url);
+        URI first = checkAllowed(url);
+        URI current = first;
+        java.util.Set<String> visited = new HashSet<>();
+        visited.add(current.toString());
+        List<String> chain = new ArrayList<>();
+        for (int hops = 0; ; hops++) {
+            Response r;
+            try {
+                r = exchangeOnce(current, extraHeaders);
+            } catch (SourceException e) {
+                if (chain.isEmpty()) {
+                    throw e;
+                }
+                throw new SourceException(e.kind(), "The site redirected the request (" + String.join(", ", chain) + ") but the address it leads to could not be used: " + e.getMessage(),
+                        e.retryAfter(), e);
+            }
+            if (!Redirects.isRedirect(r.status())) {
+                return r.after(current.toString(), chain, null);
+            }
+            Redirects.Step step = Redirects.next(current, r.location(), first, settings.api().redirectMode(), visited, hops);
+            if (step.follow() && !"https".equalsIgnoreCase(step.target().getScheme()) && !settings.allowInsecureHttp()) {
+                step = new Redirects.Step(null, "the redirect leads to unencrypted http (" + Redirects.show(step.target()) + ") and source.allowInsecureHttp is off");
+            }
+            if (!step.follow()) {
+                return r.after(current.toString(), chain, step.stopReason());
+            }
+            chain.add(r.status() + " to " + Redirects.show(step.target()));
+            visited.add(step.target().toString());
+            current = step.target();
+        }
+    }
+
+    private Response exchangeOnce(URI uri, Map<String, String> extraHeaders) throws SourceException {
         HttpRequest.Builder request = HttpRequest.newBuilder(uri)
                 .timeout(settings.timeout())
                 .header("Accept", "application/json, text/html;q=0.8")
@@ -194,7 +247,7 @@ public final class HttpSourceClient {
         }
         if (status >= 300 && status < 400) {
             return new SourceException(SourceException.Kind.FATAL,
-                    "HTTP " + status + " redirect from " + where + " was not followed (a login redirect means authentication is required)");
+                    "HTTP " + status + " redirect from " + where + " was not followed (see the setting 'Follow redirects'); a redirect to a sign-in page means authentication is required");
         }
         if (status >= 500) {
             return new SourceException(SourceException.Kind.TRANSIENT, "HTTP " + status + " from " + where);
