@@ -61,6 +61,7 @@ class InternalApiTest {
     final List<String> requests = Collections.synchronizedList(new ArrayList<>());
     volatile boolean specHasTagged = true;
     volatile String swaggerIndex = "html-direct";
+    volatile String docsAuth = "none"; // none | bearer | key: what the documentation itself demands
 
     // ------------------------------------------------------------------ the fake internal site
     @BeforeEach
@@ -80,6 +81,13 @@ class InternalApiTest {
         String path = ex.getRequestURI().getPath();
         Map<String, String> q = query(ex.getRequestURI().getRawQuery());
         requests.add(path + (ex.getRequestURI().getRawQuery() == null ? "" : "?" + ex.getRequestURI().getRawQuery()));
+        if (path.startsWith("/swagger/") && !docsAuth.equals("none")) {
+            boolean allowed = docsAuth.equals("bearer") ? "Bearer DOCS-TOKEN".equals(ex.getRequestHeaders().getFirst("Authorization")) : KEY.equals(q.get("key"));
+            if (!allowed) {
+                send(ex, 401, "text/plain", "sign in".getBytes(), false, true);
+                return;
+            }
+        }
         if (path.equals("/swagger/index.html")) {
             String html = switch (swaggerIndex) {
                 case "html-direct" -> "<html><body><div id=\"swagger-ui\"></div><script>window.ui = SwaggerUIBundle({ url: \"/swagger/v1/swagger.json\", dom_id: '#swagger-ui' })</script></body></html>";
@@ -472,5 +480,83 @@ class InternalApiTest {
         var ok = service.validate(new LinkedHashMap<>(Map.of("source.type", "live", "api.swaggerUrl", "https://so.example.com/swagger/index.html", "api.keyEnv", "MY_KEY")));
         assertFalse(ok.stream().anyMatch(i -> i.level().equals("error")), ok.toString());
         assertTrue(ok.stream().anyMatch(i -> i.key().equals("api.keyEnv") && i.level().equals("warning")), "a missing key variable is explained");
+    }
+
+    // ------------------------------------------------------------------ documentation that needs a sign-in (SSO)
+    @Test
+    void documentationBehindASignInExplainsTheOptionsInsteadOfJustFailing() throws Exception {
+        docsAuth = "bearer";
+        Workspace w = new Workspace(tmp.resolve("s1/config.properties"), Map.of("storage.root", tmp.resolve("s1d").toString()), k -> null, Clock.systemUTC());
+        var r = w.discoverApi(Map.of("api.swaggerUrl", origin + "/swagger/v1/swagger.json", "source.allowInsecureHttp", "true"));
+        assertFalse(r.ok());
+        assertTrue(r.needsSignIn(), "the screen can offer the upload and token options");
+        assertTrue(r.problem().contains("single sign-on") && r.problem().contains("upload"), r.problem());
+    }
+
+    @Test
+    void aBearerTokenFromTheEnvironmentOpensTheDocumentation() throws Exception {
+        docsAuth = "bearer";
+        Workspace w = new Workspace(tmp.resolve("s2/config.properties"), Map.of("storage.root", tmp.resolve("s2d").toString()),
+                k -> k.equals("DOCS_TOKEN") ? "DOCS-TOKEN" : null, Clock.systemUTC());
+        var r = w.discoverApi(Map.of("api.swaggerUrl", origin + "/swagger/index.html", "source.allowInsecureHttp", "true",
+                "source.auth.method", "token", "source.auth.tokenEnv", "DOCS_TOKEN"));
+        assertTrue(r.ok(), r.problem());
+        assertEquals(12, r.catalog().operations().size());
+    }
+
+    @Test
+    void theApiKeyIsTriedOnTheDocumentationWhenItIsRefused() throws Exception {
+        docsAuth = "key";
+        Workspace w = new Workspace(tmp.resolve("s3/config.properties"), Map.of("storage.root", tmp.resolve("s3d").toString()), env(), Clock.systemUTC());
+        var r = w.discoverApi(Map.of("api.swaggerUrl", origin + "/swagger/index.html", "source.allowInsecureHttp", "true", "api.keyEnv", "INTERNAL_KEY"));
+        assertTrue(r.ok(), r.problem());
+        assertTrue(requests.stream().anyMatch(x -> x.startsWith("/swagger/") && x.contains("key=" + KEY)), "retried with the key");
+    }
+
+    @Test
+    void aSavedCopyOfTheDocumentationWorksWithoutAnySignInAndDrivesACollection() throws Exception {
+        docsAuth = "bearer"; // the documentation can no longer be fetched at all
+        Workspace w = new Workspace(tmp.resolve("s4/config.properties"), Map.of("storage.root", tmp.resolve("s4d").toString()), env(), Clock.systemUTC());
+        var saved = w.saveApiDocs(spec());
+        assertTrue(saved.ok(), saved.problem());
+        assertEquals(12, saved.operations());
+        assertTrue(Files.exists(Path.of(saved.path())));
+
+        var read = w.discoverApi(Map.of("api.swaggerFile", saved.path()));
+        assertTrue(read.ok(), read.problem());
+        assertEquals(null, read.suggestedBaseUrl(), "a relative server path cannot be turned into an address without the site");
+        assertEquals("/api/2.3", read.suggestedBasePath());
+
+        // The connection check: documentation read from the file, address still unknown.
+        var check = w.checkConnection(Map.of("source.type", "live", "api.swaggerFile", saved.path(), "api.keyEnv", "INTERNAL_KEY"));
+        var data = check.stages().stream().filter(x -> x.id().equals("data")).findFirst().orElseThrow();
+        assertEquals("WARN", data.status());
+        assertTrue(data.facts().stream().anyMatch(f -> f.label().equals("API documentation") && f.value().contains("saved file")));
+        assertTrue(data.facts().stream().anyMatch(f -> f.label().startsWith("API path")), data.facts().toString());
+        assertEquals("SKIPPED", check.stages().get(0).status());
+
+        // With the address given, collecting works from the saved file alone.
+        CoreConfig c = config("api.swaggerUrl=\napi.swaggerFile=" + saved.path() + "\nsource.baseUrl=" + origin + "/api/2.3\n");
+        assertEquals(List.of(), c.validate());
+        KnowledgeBase kb = new KnowledgeBase(c, c.createAdapter(env()), null, Clock.systemUTC());
+        SyncReport r = kb.sync(options(c));
+        assertEquals(SyncReport.COMPLETE, r.outcome(), r.abortReason());
+        assertEquals(2, r.added());
+        assertTrue(requests.stream().noneMatch(x -> x.startsWith("/swagger/")), "no documentation request was needed");
+
+        // Without the address the error says what the documentation gives.
+        CoreConfig noBase = config("api.swaggerUrl=\napi.swaggerFile=" + saved.path() + "\n");
+        IllegalStateException e = assertThrows(IllegalStateException.class, () -> noBase.createAdapter(env()));
+        assertTrue(e.getMessage().contains("/api/2.3"), e.getMessage());
+    }
+
+    @Test
+    void somethingThatIsNotSwaggerIsRefusedWithAHelpfulMessage() {
+        Workspace w = new Workspace(tmp.resolve("s5/config.properties"), Map.of("storage.root", tmp.resolve("s5d").toString()), k -> null, Clock.systemUTC());
+        var html = w.saveApiDocs("<html><body>Please sign in</body></html>");
+        assertFalse(html.ok());
+        assertTrue(html.problem().contains("not a Swagger/OpenAPI JSON document"), html.problem());
+        assertTrue(w.saveApiDocs("openapi: 3.0.0\ninfo: {}").problem().contains("YAML"));
+        assertFalse(Files.exists(w.apiDocsFile()), "nothing is kept when the file is not documentation");
     }
 }

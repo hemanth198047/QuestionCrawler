@@ -1,6 +1,6 @@
-import { BookOpenText, CheckCircle2, ChevronDown, CircleSlash, FileSearch, KeyRound, Search, Wand2, XCircle } from 'lucide-react'
-import { useMemo, useState } from 'react'
-import { discoverApiDocs } from '../api'
+import { BookOpenText, CheckCircle2, ChevronDown, CircleSlash, FileSearch, KeyRound, LogIn, Search, ShieldCheck, Upload, Wand2, XCircle } from 'lucide-react'
+import { useMemo, useRef, useState } from 'react'
+import { discoverApiDocs, uploadApiDocs } from '../api'
 import type { ApiCapability, ApiDocsResult, ApiOperation } from '../types/api'
 import { Badge, Banner, Button, Card, Chip, CopyButton } from './ui'
 
@@ -51,6 +51,57 @@ function Endpoint({ op, used }: { op: ApiOperation; used: boolean }) {
   )
 }
 
+const IT_MESSAGE = `Hello,
+
+I am connecting an internal tool to our Stack Overflow site through its REST API. The Swagger documentation requires a company sign-in (SSO), which a tool cannot do interactively.
+Could you please provide ONE of these:
+  1. A token or service account that is allowed to read the Swagger documentation (read-only), or
+  2. Permission to read the documentation with the API access key, or
+  3. The Swagger JSON file for the API (swagger.json).
+Thank you!`
+
+/** The documentation itself needs a sign-in: offer the ways forward. */
+function SignInOptions({ values, onUse, onSaved }: { values: Record<string, string>; onUse: (patch: Record<string, string>) => void; onSaved: (path: string) => void }) {
+  const input = useRef<HTMLInputElement>(null)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  const pick = async (file: File | undefined) => {
+    if (!file) return
+    setBusy(true); setMsg(null)
+    try {
+      const saved = await uploadApiDocs(await file.text())
+      if (saved.ok && saved.path) onSaved(saved.path); else setMsg(saved.problem ?? 'That file could not be used.')
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Upload failed') } finally { setBusy(false) }
+  }
+  return (
+    <div className="signin-options">
+      <h4>The documentation needs a sign-in (SSO). Choose a way forward</h4>
+      <p className="muted small">QuestionCrawler cannot do an interactive single sign-on login (a browser redirect with your company sign-in). Here is what works:</p>
+      <div className="signin-grid">
+        <div className="signin-card recommended">
+          <div className="row"><Upload size={19} /><strong>Upload a saved copy</strong><Badge tone="ok">easiest</Badge></div>
+          <ol className="small"><li>Open the documentation&apos;s <b>JSON address</b> in your browser (you are already signed in). It is the link under the title of the Swagger page, often <code>/swagger/v1/swagger.json</code>.</li>
+            <li>Save the page as <b>swagger.json</b> (Ctrl+S).</li><li>Upload it here.</li></ol>
+          <input ref={input} type="file" accept=".json,application/json,text/plain" hidden onChange={(e) => void pick(e.target.files?.[0])} />
+          <Button variant="primary" icon={<Upload size={16} />} busy={busy} onClick={() => input.current?.click()}>Choose swagger.json</Button>
+          {msg && <p className="small" style={{ color: 'var(--bad)', marginTop: 8 }}>{msg}</p>}
+        </div>
+        <div className="signin-card">
+          <div className="row"><ShieldCheck size={19} /><strong>Use a token</strong></div>
+          <p className="small muted">If the site owners give you a token (or service account) for the documentation, tell us the <b>name</b> of the environment variable that holds it. It is sent as a Bearer token. The token itself is never saved.</p>
+          <input className="input" placeholder="DOCS_TOKEN" value={values['source.auth.tokenEnv'] ?? ''} aria-label="Token variable name"
+            onChange={(e) => onUse({ 'source.auth.method': 'token', 'source.auth.tokenEnv': e.target.value })} />
+        </div>
+        <div className="signin-card">
+          <div className="row"><LogIn size={19} /><strong>Ask the site owners</strong></div>
+          <p className="small muted">A ready-made message that lists what to ask for.</p>
+          <CopyButton text={IT_MESSAGE} label="Copy message" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /** Reads the site's Swagger documentation and shows every endpoint, which ones will be used, and what to fill in. */
 export function ApiDocsPanel({ values, onUse }: { values: Record<string, string>; onUse: (patch: Record<string, string>) => void }) {
   const [state, setState] = useState<'idle' | 'loading' | 'done'>('idle')
@@ -68,9 +119,9 @@ export function ApiDocsPanel({ values, onUse }: { values: Record<string, string>
     return [...groups.entries()]
   }, [result, filter])
 
-  const read = async () => {
+  const read = async (extra: Record<string, string> = {}) => {
     setState('loading')
-    try { setResult(await discoverApiDocs(values)) } catch (e) { setResult({ ok: false, problem: e instanceof Error ? e.message : 'Could not read it', catalog: null, capabilities: null, tried: [], suggestedBaseUrl: null, suggestedKeyName: null, suggestedKeyIn: null }) }
+    try { setResult(await discoverApiDocs({ ...values, ...extra })) } catch (e) { setResult({ ok: false, problem: e instanceof Error ? e.message : 'Could not read it', catalog: null, capabilities: null, tried: [], suggestedBaseUrl: null, suggestedKeyName: null, suggestedKeyIn: null, needsSignIn: false, suggestedBasePath: null }) }
     setState('done')
   }
   const fill = () => {
@@ -87,13 +138,14 @@ export function ApiDocsPanel({ values, onUse }: { values: Record<string, string>
       <div className="spread">
         <div className="row"><BookOpenText size={21} color="var(--brand)" /><div><h3>Read the API documentation</h3>
           <p className="card-sub">We open your Swagger page, find every endpoint, and work out which ones to use. Nothing is changed.</p></div></div>
-        <Button variant="primary" icon={<FileSearch size={17} />} busy={state === 'loading'} disabled={!values['api.swaggerUrl']} onClick={read}>{result ? 'Read it again' : 'Read the documentation'}</Button>
+        <Button variant="primary" icon={<FileSearch size={17} />} busy={state === 'loading'} disabled={!values['api.swaggerUrl'] && !values['api.swaggerFile']} onClick={() => read()}>{result ? 'Read it again' : 'Read the documentation'}</Button>
       </div>
-      {!values['api.swaggerUrl'] && <p className="muted small" style={{ marginTop: 10 }}>Enter the documentation address above first.</p>}
+      {!values['api.swaggerUrl'] && !values['api.swaggerFile'] && <p className="muted small" style={{ marginTop: 10 }}>Enter the documentation address above first (or upload a saved copy if it needs a sign-in).</p>}
 
       {state === 'done' && result && !result.ok && (
         <div style={{ marginTop: 16 }} className="stack-sm">
           <Banner tone="bad" title="We could not read the documentation">{result.problem}</Banner>
+          {result.needsSignIn && <SignInOptions values={values} onUse={onUse} onSaved={(path) => { onUse({ 'api.swaggerFile': path }); void read({ 'api.swaggerFile': path }) }} />}
           {result.tried.length > 0 && <details><summary className="small">Addresses we tried ({result.tried.length})</summary><ul className="plainlist">{result.tried.map((t) => <li key={t}><code>{t}</code></li>)}</ul></details>}
         </div>
       )}
@@ -113,7 +165,7 @@ export function ApiDocsPanel({ values, onUse }: { values: Record<string, string>
             <div className="found-card"><KeyRound size={18} /><div><strong>Access key</strong>
               <div className="muted small">{result.catalog.security.filter((s) => s.type === 'apiKey').map((s) => `Sent as “${s.name}” in the ${s.in === 'header' ? 'request header' : 'address'}`).join('; ') || 'The documentation does not say how the key is sent. The usual “key” in the address is used.'}</div></div></div>
             <div className="found-card"><Search size={18} /><div><strong>API address</strong>
-              <div className="muted small">{result.suggestedBaseUrl ?? 'The documentation does not give one: enter it above.'}</div></div></div>
+              <div className="muted small">{result.suggestedBaseUrl ?? (result.suggestedBasePath ? `The documentation says the API lives under ${result.suggestedBasePath}. Enter your site's address in front of it, for example https://your-site${result.suggestedBasePath}` : 'The documentation does not give one: enter it above.')}</div></div></div>
           </div>
           <div><Button size="sm" variant="primary" icon={<Wand2 size={15} />} onClick={fill}>Use these settings</Button>
             <span className="muted small" style={{ marginLeft: 10 }}>fills in the API address (if empty) and how the key is sent</span></div>

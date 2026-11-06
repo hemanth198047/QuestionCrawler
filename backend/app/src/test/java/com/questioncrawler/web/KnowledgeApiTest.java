@@ -214,4 +214,13 @@ class KnowledgeApiTest {
                 .andExpect(jsonPath("$.ok").value(false))
                 .andExpect(jsonPath("$.problem").value(org.hamcrest.Matchers.containsString("Swagger")));
     }
+
+    @Test
+    @Order(14)
+    void aSavedCopyOfTheDocumentationIsCheckedBeforeItIsKept() throws Exception {
+        mvc.perform(post("/api/api-docs/file").contentType(JSON).content("{\"content\":\"<html>Please sign in</html>\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ok").value(false))
+                .andExpect(jsonPath("$.problem").value(org.hamcrest.Matchers.containsString("Swagger/OpenAPI")));
+    }
 }

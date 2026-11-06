@@ -159,7 +159,7 @@ public final class Workspace {
 
     private static com.questioncrawler.core.source.ApiOptions apiOptions(Map<String, String> v) {
         return new com.questioncrawler.core.source.ApiOptions(v.get("api.keyName"), v.get("api.keyIn"), v.get("api.accessTokenEnv"), v.get("api.bodyFilter"),
-                Boolean.parseBoolean(v.getOrDefault("api.collectComments", "false")), v.get("api.swaggerUrl"));
+                Boolean.parseBoolean(v.getOrDefault("api.collectComments", "false")), v.get("api.swaggerUrl"), v.get("api.swaggerFile"));
     }
 
     private static com.questioncrawler.core.source.ProxyConfig proxyOf(Map<String, String> v) {
@@ -170,34 +170,67 @@ public final class Workspace {
     /** What the Swagger reader found (or why it could not read the documentation). Safe to show: no secrets are included. */
     public record ApiDocsResult(boolean ok, String problem, com.questioncrawler.core.api.ApiCatalog catalog,
                                 com.questioncrawler.core.api.ApiCapabilities capabilities, List<String> tried,
-                                String suggestedBaseUrl, String suggestedKeyName, String suggestedKeyIn) {}
+                                String suggestedBaseUrl, String suggestedKeyName, String suggestedKeyIn,
+                                boolean needsSignIn, String suggestedBasePath) {}
 
-    /** Reads the API documentation at the (draft) Swagger address and lists every endpoint. Nothing is saved. */
+    /** Reads the API documentation (address or saved file) and lists every endpoint. Nothing is saved. */
     public ApiDocsResult discoverApi(Map<String, String> draft) {
         Map<String, String> v = configService.read(configFile);
         if (draft != null) {
             v.putAll(draft);
         }
         String swagger = v.getOrDefault("api.swaggerUrl", "").strip();
-        if (swagger.isEmpty()) {
-            return new ApiDocsResult(false, "Enter the API documentation (Swagger) address first.", null, null, List.of(), null, null, null);
+        String file = v.getOrDefault("api.swaggerFile", "").strip();
+        if (swagger.isEmpty() && file.isEmpty()) {
+            return new ApiDocsResult(false, "Enter the API documentation (Swagger) address first, or upload a saved copy of it.", null, null, List.of(), null, null, null, false, null);
         }
         try {
-            java.net.URI u = java.net.URI.create(swagger);
+            java.net.URI u = swagger.isEmpty() ? null : java.net.URI.create(swagger);
             String ca = v.getOrDefault("source.caCertFile", "").strip();
-            var settings = new com.questioncrawler.core.source.SourceSettings("docs", swagger, List.of(u.getHost()), List.of("/"), "none", null, null, null,
-                    ca.isEmpty() ? null : Path.of(ca), java.time.Duration.ofSeconds(Math.min(parseInt(v.get("source.timeoutSeconds"), 30), 60)),
-                    Boolean.parseBoolean(v.getOrDefault("source.allowInsecureHttp", "false")), null, null, proxyOf(v), apiOptions(v));
-            var client = new com.questioncrawler.core.source.HttpSourceClient(settings, env);
-            var discovery = new com.questioncrawler.core.api.SwaggerDiscovery(url -> client.get(url).body()).discover(swagger);
+            var settings = new com.questioncrawler.core.source.SourceSettings("docs", swagger.isEmpty() ? "https://localhost/" : swagger,
+                    u == null || u.getHost() == null ? List.of() : List.of(u.getHost()), List.of("/"),
+                    v.getOrDefault("source.auth.method", "none"), v.getOrDefault("source.auth.tokenEnv", ""), v.getOrDefault("source.auth.headerName", "Authorization"),
+                    v.getOrDefault("source.auth.scheme", "Bearer"), ca.isEmpty() ? null : Path.of(ca),
+                    java.time.Duration.ofSeconds(Math.min(parseInt(v.get("source.timeoutSeconds"), 30), 60)),
+                    Boolean.parseBoolean(v.getOrDefault("source.allowInsecureHttp", "false")), null, v.getOrDefault("api.keyEnv", ""), proxyOf(v), apiOptions(v));
+            var discovery = com.questioncrawler.core.api.ApiDocsLoader.load(settings, env);
             var key = discovery.catalog().security().stream().filter(x -> "apiKey".equals(x.type()) && x.name() != null).findFirst();
-            String base = discovery.catalog().suggestedBaseUrl() == null ? null : u.resolve(discovery.catalog().suggestedBaseUrl()).toString();
+            String given = discovery.catalog().suggestedBaseUrl();
+            String base = given == null ? null : given.startsWith("http") ? given : u == null ? null : u.resolve(given).toString();
+            String path = given != null && base == null ? given : null;
             return new ApiDocsResult(true, null, discovery.catalog(), discovery.capabilities(), discovery.tried(), base,
-                    key.map(com.questioncrawler.core.api.ApiCatalog.SecurityScheme::name).orElse(null), key.map(com.questioncrawler.core.api.ApiCatalog.SecurityScheme::in).orElse(null));
+                    key.map(com.questioncrawler.core.api.ApiCatalog.SecurityScheme::name).orElse(null), key.map(com.questioncrawler.core.api.ApiCatalog.SecurityScheme::in).orElse(null),
+                    false, path);
         } catch (com.questioncrawler.core.source.SourceException e) {
-            return new ApiDocsResult(false, e.getMessage(), null, null, List.of(), null, null, null);
+            boolean signIn = e.kind() == com.questioncrawler.core.source.SourceException.Kind.AUTH_FAILED || e.kind() == com.questioncrawler.core.source.SourceException.Kind.FORBIDDEN;
+            return new ApiDocsResult(false, e.getMessage(), null, null, List.of(), null, null, null, signIn, null);
         } catch (IllegalArgumentException e) {
-            return new ApiDocsResult(false, "That is not a valid web address.", null, null, List.of(), null, null, null);
+            return new ApiDocsResult(false, "That is not a valid web address.", null, null, List.of(), null, null, null, false, null);
+        }
+    }
+
+    /** Where an uploaded copy of the documentation is kept: next to the settings file. */
+    public Path apiDocsFile() {
+        Path dir = configFile.toAbsolutePath().getParent();
+        return (dir == null ? Path.of(".") : dir).resolve("api-docs").resolve("swagger.json");
+    }
+
+    public record SavedDocs(boolean ok, String problem, String path, int operations) {}
+
+    /** Keeps a copy of the API documentation (saved from a signed-in browser) after checking that it really is one. */
+    public SavedDocs saveApiDocs(String json) {
+        try {
+            var discovery = com.questioncrawler.core.api.SwaggerDiscovery.fromJson(json, "uploaded file");
+            Path target = apiDocsFile();
+            Files.createDirectories(target.getParent());
+            Path tmp = target.resolveSibling("swagger.json.tmp");
+            Files.writeString(tmp, json, java.nio.charset.StandardCharsets.UTF_8);
+            Files.move(tmp, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            return new SavedDocs(true, null, target.toString().replace('\\', '/'), discovery.catalog().operations().size());
+        } catch (com.questioncrawler.core.source.SourceException e) {
+            return new SavedDocs(false, e.getMessage(), null, 0);
+        } catch (java.io.IOException e) {
+            return new SavedDocs(false, "The file could not be saved: " + e.getMessage(), null, 0);
         }
     }
 

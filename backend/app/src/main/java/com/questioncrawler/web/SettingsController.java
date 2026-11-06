@@ -26,6 +26,8 @@ public class SettingsController {
 
     public record TopicsRequest(Integer k) {}
 
+    public record ContentRequest(String content) {}
+
     public record TryRequest(Taxonomy taxonomy, String title, String body, List<String> tags) {}
 
     private final Workspace workspace;
@@ -59,6 +61,12 @@ public class SettingsController {
     @PostMapping("/api-docs/discover")
     public Workspace.ApiDocsResult discoverApi(@RequestBody(required = false) ValuesRequest request) {
         return workspace.discoverApi(request == null ? Map.of() : request.safe());
+    }
+
+    /** Stores a copy of the documentation saved from a signed-in browser; the returned path goes into api.swaggerFile. */
+    @PostMapping("/api-docs/file")
+    public Workspace.SavedDocs saveApiDocs(@RequestBody ContentRequest request) {
+        return workspace.saveApiDocs(request == null || request.content() == null ? "" : request.content());
     }
 
     // ---- connection check

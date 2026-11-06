@@ -21,6 +21,18 @@ The Swagger *page* only draws the documentation; the data is in a JSON file it r
 file in the page, in its small script files and at the usual locations. If it cannot, paste the JSON address (click the link under the title in your browser) instead.
 Swagger 2.0 and OpenAPI 3 (JSON) are supported; YAML is not.
 
+## If the documentation asks for a sign-in (HTTP 401, SSO)
+Many companies put the Swagger page behind single sign-on, while the API itself is used with an API key. QuestionCrawler cannot do an interactive SSO login
+(a browser redirect with your company sign-in or MFA), but there are three ways forward, offered on the Connect screen when this happens:
+
+1. **Upload a saved copy (easiest).** In your browser, where you are already signed in, open the documentation's JSON address (the link under the title of the Swagger page,
+   often `/swagger/v1/swagger.json`), save it as `swagger.json` (Ctrl+S), and press **Choose swagger.json**. The copy is kept next to your settings file
+   (`api-docs/swagger.json`) and used from then on, with no sign-in. If the file only gives a path such as `/api/2.3`, type your site's address in front of it in **API address**.
+2. **Use a token.** If the site owners give you a token or service account for the documentation, enter the *name* of the environment variable holding it. It is sent as a Bearer token.
+3. **Ask the site owners.** A ready-made message is one click away (a token, permission to use the API key on the documentation, or the JSON file).
+
+The API key is also tried automatically on the documentation when it is refused. The collection itself needs only the API key, not the documentation: once the saved copy exists, no documentation requests are made.
+
 ## Which endpoints are used for what
 
 | Purpose | Endpoint (matched by its documented path) | Needed |

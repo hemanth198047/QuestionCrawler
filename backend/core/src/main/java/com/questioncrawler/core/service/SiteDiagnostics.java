@@ -8,6 +8,7 @@ import com.questioncrawler.core.service.ConnectionReport.Route;
 import com.questioncrawler.core.service.ConnectionReport.Stage;
 import com.questioncrawler.core.api.ApiCapabilities;
 import com.questioncrawler.core.api.ApiCatalog;
+import com.questioncrawler.core.api.ApiDocsLoader;
 import com.questioncrawler.core.api.SwaggerDiscovery;
 import com.questioncrawler.core.source.ApiOptions;
 import com.questioncrawler.core.source.HttpSourceClient;
@@ -73,9 +74,9 @@ public final class SiteDiagnostics {
             this(sourceType, target, site, tags, authMethod, tokenEnv, keyEnv, caCertFile, allowInsecureHttp, timeoutSeconds, ProxyConfig.NONE, ApiOptions.DEFAULT);
         }
 
-        /** The internal site's REST API: a Swagger documentation address is configured. (Without one, the generic site probes run.) */
+        /** The internal site's REST API: Swagger documentation (an address or a saved file) is configured. (Without it, the generic site probes run.) */
         public boolean liveApi() {
-            return sourceType.equals("live") && api != null && api.swaggerUrl() != null;
+            return sourceType.equals("live") && api != null && api.hasDocs();
         }
     }
 
@@ -109,6 +110,19 @@ public final class SiteDiagnostics {
         List<Stage> stages = new ArrayList<>();
         URI uri = parse(in.liveApi() && (in.target() == null || in.target().isBlank()) ? in.api().swaggerUrl() : in.target());
         boolean https = uri != null && "https".equalsIgnoreCase(uri.getScheme());
+
+        if (in.liveApi() && uri == null && in.api().swaggerFile() != null) {
+            // The documentation comes from a saved file and no address is known yet: read the file, skip the network steps.
+            DataFindings fileData = new DataFindings();
+            String why = "Not tested yet: the documentation was read from a saved file, so we do not know where the API lives. Enter the API address.";
+            stages.add(skipped("network", "Reach the site", "Can this computer reach the site?", why));
+            stages.add(skipped("secure", "Secure connection", "Is the connection secure and trusted?", why));
+            stages.add(skipped("access", "Sign-in", "Do we need to sign in?", why));
+            stages.add(liveApiStage(in, fileData, System.nanoTime()));
+            stages.add(skipped("limits", "Limits and protection", "Are there limits or bot protection?", why));
+            stages.add(scopeStage(in, false, fileData));
+            return finish(now, in, stages, route(in, stages, fileData), fileData);
+        }
 
         Stage network = networkStage(in, uri);
         stages.add(network);
@@ -604,18 +618,27 @@ public final class SiteDiagnostics {
         String status = "PASS";
         String summary = "Yes: the site has a REST API that this app can use.";
 
-        if (api.swaggerUrl() != null) {
+        if (api.hasDocs()) {
             try {
-                var settings = apiSettings(in, base.isBlank() ? api.swaggerUrl() : base, api);
-                HttpSourceClient docs = new HttpSourceClient(settings, env);
-                var discovery = new SwaggerDiscovery(url -> docs.get(url).body()).discover(api.swaggerUrl());
+                var settings = apiSettings(in, !base.isBlank() ? base : api.swaggerUrl() != null ? api.swaggerUrl() : "https://localhost/", api);
+                var discovery = ApiDocsLoader.load(settings, env);
                 catalog = discovery.catalog();
                 caps = discovery.capabilities();
-                facts.add(new Fact("API documentation", catalog.title() + (catalog.version().isBlank() ? "" : " " + catalog.version())));
+                facts.add(new Fact("API documentation", catalog.title() + (catalog.version().isBlank() ? "" : " " + catalog.version())
+                        + (api.swaggerFile() != null ? " (from a saved file)" : "")));
                 facts.add(new Fact("Endpoints documented", String.valueOf(catalog.operations().size())));
                 if (base.isBlank() && catalog.suggestedBaseUrl() != null) {
-                    base = URI.create(api.swaggerUrl()).resolve(catalog.suggestedBaseUrl()).toString();
-                    facts.add(new Fact("API address (from the documentation)", base));
+                    String suggested = catalog.suggestedBaseUrl();
+                    if (suggested.startsWith("http")) {
+                        base = suggested;
+                    } else if (api.swaggerUrl() != null) {
+                        base = URI.create(api.swaggerUrl()).resolve(suggested).toString();
+                    } else {
+                        facts.add(new Fact("API path (from the documentation)", suggested + ": add your site's address in front of it"));
+                    }
+                    if (!base.isBlank()) {
+                        facts.add(new Fact("API address (from the documentation)", base));
+                    }
                 }
                 catalog.security().stream().filter(x -> "apiKey".equals(x.type())).findFirst().ifPresent(k ->
                         facts.add(new Fact("Access key is sent", "as '" + k.name() + "' in the " + ("header".equals(k.in()) ? "request header" : "address (query)"))));
@@ -635,7 +658,8 @@ public final class SiteDiagnostics {
                 summary = "We could not read the API documentation: " + friendly(e);
                 needs.add(new Need("The correct documentation address, or the JSON document behind it", "Open the Swagger page in your browser and use the link under its title (often /swagger/v1/swagger.json).", "You or the site owners"));
                 if (e.kind() == SourceException.Kind.AUTH_FAILED) {
-                    needs.add(new Need("Permission to read the documentation", "The documentation page itself asks for a sign-in.", "The site owners"));
+                    needs.add(new Need("A saved copy of the documentation (JSON file)", "Open the documentation's JSON address in your browser, where you are signed in, save it as swagger.json and upload it on the Connect screen.", "You"));
+                    needs.add(new Need("A token or service account for the documentation", "Interactive single sign-on (SSO) cannot be done by this app; a token can be sent instead (Extra sign-in settings).", "The site owners / IT"));
                 }
             }
         }
@@ -687,7 +711,10 @@ public final class SiteDiagnostics {
 
     private SourceSettings apiSettings(Input in, String base, ApiOptions api) {
         URI u = URI.create(base);
-        List<String> hosts = new ArrayList<>(List.of(u.getHost()));
+        List<String> hosts = new ArrayList<>();
+        if (u.getHost() != null) {
+            hosts.add(u.getHost());
+        }
         if (api.swaggerUrl() != null) {
             try {
                 String h = URI.create(api.swaggerUrl()).getHost();
@@ -698,8 +725,8 @@ public final class SiteDiagnostics {
                 // reported elsewhere
             }
         }
-        return new SourceSettings(in.sourceType(), base, hosts, List.of("/"), "none", null, null, null, in.caCertFile(),
-                Duration.ofSeconds(Math.max(1, in.timeoutSeconds())), in.allowInsecureHttp(), in.site(), in.keyEnv(), in.proxy(), api);
+        return new SourceSettings(in.sourceType(), base, hosts, List.of("/"), in.authMethod() == null ? "none" : in.authMethod(), in.tokenEnv(), "Authorization", "Bearer",
+                in.caCertFile(), Duration.ofSeconds(Math.max(1, in.timeoutSeconds())), in.allowInsecureHttp(), in.site(), in.keyEnv(), in.proxy(), api);
     }
 
     static boolean robotsDisallowsEverything(String robots) {

@@ -186,3 +186,10 @@ button.rm-node:hover { background: var(--bg-sunken); }
 .topic { display: grid; gap: 10px; align-content: start; transition: opacity .2s, border-color .2s; } .topic.off { opacity: .5; } .topic.on { border-color: var(--brand-100); }
 .topic-head { display: flex; align-items: center; gap: 12px; } .topic-dot { width: 12px; height: 12px; border-radius: 4px; flex: none; } .topic-name { font-weight: 650; padding: 8px 12px; }
 .topic-stats { font-size: 13px; color: var(--ink-2); } .topic-samples { display: grid; gap: 4px; font-size: 13px; } .topic-samples a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- documentation needs a sign-in ---------- */
+.signin-options { border: 1px solid var(--warn-line, #f0d9a8); background: #fffaf0; border-radius: var(--r-lg); padding: 18px 20px; }
+.signin-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; margin-top: 14px; }
+.signin-card { background: #fff; border: 1px solid var(--line); border-radius: var(--r-md); padding: 16px; display: grid; gap: 10px; align-content: start; }
+.signin-card.recommended { border-color: var(--brand-100); box-shadow: 0 0 0 3px var(--brand-50); }
+.signin-card ol { margin: 0; padding-left: 18px; display: grid; gap: 4px; }

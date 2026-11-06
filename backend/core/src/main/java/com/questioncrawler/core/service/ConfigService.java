@@ -80,6 +80,8 @@ public final class ConfigService {
                                 Type.ENV_NAME, "STACKEXCHANGE_KEY", "STACKEXCHANGE_KEY", SE, false, null),
                         f("api.swaggerUrl", "API documentation (Swagger) address", "The page that lists the site's REST API, for example https://so.mycompany.com/swagger/index.html. We read it to find every endpoint, the API address and how the access key is sent.",
                                 Type.URL, "", "https://so.mycompany.com/swagger/index.html", LIVE, false, null),
+                        f("api.swaggerFile", "API documentation file (JSON)", "Use this when the documentation page needs a company sign-in (SSO). Open the documentation's JSON address in your browser (where you are signed in), save it as swagger.json, and upload it on the Connect screen: its location is filled in here.",
+                                Type.PATH, "", "C:/data/swagger.json", LIVE, false, null),
                         f("source.baseUrl", "API address", "The address every API call starts with, for example https://so.mycompany.com/api/2.3. Leave it empty to take it from the Swagger documentation.",
                                 Type.URL, "", "https://so.mycompany.com/api/2.3", LIVE, false, null),
                         f("api.keyEnv", "API access key variable name", "All API requests need an access key. Enter the NAME of the environment variable that holds your key (the key itself is never saved), then set that variable in your terminal.",
@@ -260,7 +262,11 @@ public final class ConfigService {
             URI uri = parseUri(url);
             URI docs = parseUri(swagger);
             boolean insecure = Boolean.parseBoolean(v.getOrDefault("source.allowInsecureHttp", "false"));
-            if (url.isBlank() && swagger.isBlank()) {
+            String docsFile = v.getOrDefault("api.swaggerFile", "").strip();
+            if (!docsFile.isEmpty() && !java.nio.file.Files.isReadable(Path.of(docsFile))) {
+                issues.add(new Issue("api.swaggerFile", "error", "That documentation file cannot be read.", "Check the path, or upload the file again on the Connect screen."));
+            }
+            if (url.isBlank() && swagger.isBlank() && docsFile.isEmpty()) {
                 issues.add(new Issue("api.swaggerUrl", "error", "Enter the API documentation (Swagger) address, or the API address.", "Ask the site owners for the link to their Swagger page; it usually ends in /swagger/index.html."));
             }
             if (!url.isBlank() && (uri == null || uri.getHost() == null)) {

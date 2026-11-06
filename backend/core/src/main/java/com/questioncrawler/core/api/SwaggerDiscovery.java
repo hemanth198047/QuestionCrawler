@@ -38,6 +38,22 @@ public final class SwaggerDiscovery {
         this.fetcher = fetcher;
     }
 
+    /** Reads a Swagger/OpenAPI JSON text that was obtained in another way (for example saved from a browser that is signed in). */
+    public static Discovery fromJson(String json, String label) throws SourceException {
+        if (json == null || json.isBlank()) {
+            throw new SourceException(SourceException.Kind.FATAL, "The documentation file is empty.");
+        }
+        if (json.stripLeading().startsWith("openapi:") || json.stripLeading().startsWith("swagger:")) {
+            throw new SourceException(SourceException.Kind.FATAL, "That file is YAML. Only JSON Swagger/OpenAPI documents are supported: save the JSON version (the link under the title, often swagger.json).");
+        }
+        ApiCatalog catalog = tryParse(json, label);
+        if (catalog == null) {
+            throw new SourceException(SourceException.Kind.FATAL, "That file is not a Swagger/OpenAPI JSON document (it has no 'paths'). "
+                    + "Open the JSON address in your browser, save that page as swagger.json, and use that file.");
+        }
+        return new Discovery(catalog, ApiCapabilities.analyze(catalog), List.of(label));
+    }
+
     public Discovery discover(String swaggerUrl) throws SourceException {
         if (swaggerUrl == null || swaggerUrl.isBlank()) {
             throw new SourceException(SourceException.Kind.FATAL, "No API documentation address was given.");

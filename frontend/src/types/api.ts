@@ -90,7 +90,8 @@ export interface ApiSecurity { id: string; type: string; in: string | null; name
 export interface ApiCatalog { title: string; version: string; specUrls: string[]; suggestedBaseUrl: string | null; security: ApiSecurity[]; operations: ApiOperation[]; warnings: string[] }
 export interface ApiCapability { id: string; label: string; purpose: string; required: boolean; found: boolean; method: string | null; path: string | null; parameters: string[] }
 export interface ApiCapabilities { capabilities: ApiCapability[]; ready: boolean; problems: string[]; taggedFilter: boolean; fromDate: boolean; minActivity: boolean; customFilter: boolean; createFilter: boolean; otherEndpoints: number }
-export interface ApiDocsResult { ok: boolean; problem: string | null; catalog: ApiCatalog | null; capabilities: ApiCapabilities | null; tried: string[]; suggestedBaseUrl: string | null; suggestedKeyName: string | null; suggestedKeyIn: string | null }
+export interface ApiDocsResult { ok: boolean; problem: string | null; catalog: ApiCatalog | null; capabilities: ApiCapabilities | null; tried: string[]; suggestedBaseUrl: string | null; suggestedKeyName: string | null; suggestedKeyIn: string | null; needsSignIn: boolean; suggestedBasePath: string | null }
+export interface SavedDocs { ok: boolean; problem: string | null; path: string | null; operations: number }
 
 // ---- topics discovered from the questions
 export interface DiscoveredTopic { id: string; name: string; description: string; size: number; matches: number; topTerms: string[]; topTags: string[]; samples: { id: string; title: string }[]; rules: Rule[] }

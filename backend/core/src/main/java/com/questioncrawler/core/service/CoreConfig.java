@@ -153,7 +153,7 @@ public record CoreConfig(
                         p.getProperty("network.noProxy", ""), p.getProperty("network.proxyUserEnv", ""), p.getProperty("network.proxyPasswordEnv", "")),
                 new com.questioncrawler.core.source.ApiOptions(p.getProperty("api.keyName", ""), p.getProperty("api.keyIn", "query"),
                         p.getProperty("api.accessTokenEnv", ""), p.getProperty("api.bodyFilter", ""),
-                        Boolean.parseBoolean(p.getProperty("api.collectComments", "false").strip()), swagger));
+                        Boolean.parseBoolean(p.getProperty("api.collectComments", "false").strip()), swagger, p.getProperty("api.swaggerFile", "")));
 
         List<Path> fixtureDirs = csv(p.getProperty("source.fixture.dirs", "")).stream().map(s -> resolve(base, s)).toList();
         return new CoreConfig(file, storage, taxonomyFile, type, settings, fixtureDirs,
@@ -206,7 +206,7 @@ public record CoreConfig(
             problems.add("sync.tags is empty: at least one target tag is required to run 'sync'");
         }
         if (sourceType.equals("live")) {
-            if (source.baseUrl().isBlank() && source.api().swaggerUrl() == null) {
+            if (source.baseUrl().isBlank() && !source.api().hasDocs()) {
                 problems.add("Give the API address (source.baseUrl) or the API documentation address (api.swaggerUrl) for source.type=live");
             } else if (!source.baseUrl().isBlank()) {
                 try {
@@ -268,21 +268,27 @@ public record CoreConfig(
         com.questioncrawler.core.source.SourceSettings working = source;
         com.questioncrawler.core.api.ApiCapabilities[] learned = new com.questioncrawler.core.api.ApiCapabilities[1];
         java.util.function.Supplier<com.questioncrawler.core.api.ApiCapabilities> provider = null;
-        String swagger = source.api().swaggerUrl();
-        if (swagger != null) {
-            HttpSourceClient docsClient = new HttpSourceClient(working, env);
+        String suggestedPath = null;
+        if (source.api().hasDocs()) {
             try {
-                var discovery = new com.questioncrawler.core.api.SwaggerDiscovery(url -> docsClient.get(url).body()).discover(swagger);
+                var discovery = com.questioncrawler.core.api.ApiDocsLoader.load(working, env);
                 learned[0] = discovery.capabilities();
                 String base = working.baseUrl();
-                if (base.isBlank() && discovery.catalog().suggestedBaseUrl() != null) {
-                    base = java.net.URI.create(swagger).resolve(discovery.catalog().suggestedBaseUrl()).toString();
+                String suggested = discovery.catalog().suggestedBaseUrl();
+                if (base.isBlank() && suggested != null) {
+                    if (suggested.startsWith("http")) {
+                        base = suggested;
+                    } else if (source.api().swaggerUrl() != null) {
+                        base = java.net.URI.create(source.api().swaggerUrl()).resolve(suggested).toString();
+                    } else {
+                        suggestedPath = suggested;
+                    }
                 }
                 var api = working.api();
                 var keyScheme = discovery.catalog().security().stream().filter(x -> "apiKey".equals(x.type()) && x.name() != null).findFirst();
                 if (keyScheme.isPresent() && source.api().keyName().equals("key") && !explicitKeyName) {
                     api = new com.questioncrawler.core.source.ApiOptions(keyScheme.get().name(), keyScheme.get().in(), api.accessTokenEnv(),
-                            api.bodyFilter(), api.collectComments(), api.swaggerUrl());
+                            api.bodyFilter(), api.collectComments(), api.swaggerUrl(), api.swaggerFile());
                 }
                 working = working.withBase(base, api);
             } catch (com.questioncrawler.core.source.SourceException e) {
@@ -292,7 +298,9 @@ public record CoreConfig(
             provider = () -> learned[0];
         }
         if (working.baseUrl().isBlank()) {
-            throw new IllegalStateException("The API address is not known. Enter it in the settings, or make the API documentation address readable "
+            throw new IllegalStateException("The API address is not known. " + (suggestedPath != null
+                    ? "The documentation says the API lives under '" + suggestedPath + "': enter your site's full address in front of it (for example https://your-site" + suggestedPath + "). "
+                    : "Enter it in the settings, or make the API documentation readable ")
                     + "(run 'Check access' on the Connect screen to see why it cannot be read).");
         }
         return new com.questioncrawler.core.source.StackExchangeAdapter(working, new HttpSourceClient(working, env), env,

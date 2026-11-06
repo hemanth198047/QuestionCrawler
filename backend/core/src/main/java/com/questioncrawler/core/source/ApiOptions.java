@@ -11,10 +11,11 @@ package com.questioncrawler.core.source;
  * @param bodyFilter      response filter that includes question and answer text (default "withbody")
  * @param collectComments also collect comments on questions and answers
  * @param swaggerUrl      address of the Swagger documentation page (optional)
+ * @param swaggerFile     a saved copy of the Swagger JSON on this computer (optional; for documentation that needs a sign-in)
  */
-public record ApiOptions(String keyName, String keyIn, String accessTokenEnv, String bodyFilter, boolean collectComments, String swaggerUrl) {
+public record ApiOptions(String keyName, String keyIn, String accessTokenEnv, String bodyFilter, boolean collectComments, String swaggerUrl, String swaggerFile) {
 
-    public static final ApiOptions DEFAULT = new ApiOptions("key", "query", null, "withbody", false, null);
+    public static final ApiOptions DEFAULT = new ApiOptions("key", "query", null, "withbody", false, null, null);
 
     public ApiOptions {
         keyName = keyName == null || keyName.isBlank() ? "key" : keyName.strip();
@@ -22,5 +23,15 @@ public record ApiOptions(String keyName, String keyIn, String accessTokenEnv, St
         bodyFilter = bodyFilter == null || bodyFilter.isBlank() ? "withbody" : bodyFilter.strip();
         accessTokenEnv = accessTokenEnv == null || accessTokenEnv.isBlank() ? null : accessTokenEnv.strip();
         swaggerUrl = swaggerUrl == null || swaggerUrl.isBlank() ? null : swaggerUrl.strip();
+        swaggerFile = swaggerFile == null || swaggerFile.isBlank() ? null : swaggerFile.strip();
+    }
+
+    public ApiOptions(String keyName, String keyIn, String accessTokenEnv, String bodyFilter, boolean collectComments, String swaggerUrl) {
+        this(keyName, keyIn, accessTokenEnv, bodyFilter, collectComments, swaggerUrl, null);
+    }
+
+    /** Is there any documentation to read (an address or a saved file)? */
+    public boolean hasDocs() {
+        return swaggerUrl != null || swaggerFile != null;
     }
 }
