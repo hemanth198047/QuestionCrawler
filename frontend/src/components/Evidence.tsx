@@ -3,9 +3,11 @@ import { safeUrl } from '../lib/url'
 import { dateOnly, timeAgo } from '../lib/format'
 import type { Evidence } from '../types/api'
 import { Badge, Chip, InfoTip } from './ui'
+import { termsFor, type Terms } from '../lib/terms'
 import { Markdown } from './Markdown'
 
-export function EvidenceCard({ e, onCategory, pageMode }: { e: Evidence; onCategory?: (id: string) => void; pageMode?: boolean }) {
+export function EvidenceCard({ e, onCategory, pageMode, terms }: { e: Evidence; onCategory?: (id: string) => void; pageMode?: boolean; terms?: Terms }) {
+  const t = terms ?? termsFor(null)
   const href = safeUrl(e.sourceUrl)
   const isAnswer = e.type === 'answer'
   const cov = Math.round(e.termCoverage * 100)
@@ -14,12 +16,12 @@ export function EvidenceCard({ e, onCategory, pageMode }: { e: Evidence; onCateg
       <div className={`ev-icon ${isAnswer ? 'ans' : 'q'}`}>{isAnswer ? (e.accepted ? <CheckCircle2 size={20} /> : <MessageSquareText size={20} />) : <HelpCircle size={20} />}</div>
       <div className="ev-main">
         <div className="ev-badges">
-          <Badge tone={isAnswer ? 'info' : 'neutral'}>{pageMode && !isAnswer ? 'Page' : isAnswer ? 'Answer' : 'Question'}</Badge>
+          <Badge tone={isAnswer ? 'info' : 'neutral'}>{isAnswer ? (t.answer === 'reply' ? 'Reply' : 'Answer') : t.Item}</Badge>
           {!pageMode && e.accepted && <Badge tone="ok" icon={<CheckCircle2 size={12} />}>Accepted</Badge>}
           {!pageMode && <Badge tone="neutral" icon={<ThumbsUp size={12} />}>{e.votes ?? '?'} votes</Badge>}
           <span className="ev-age muted"><User size={12} style={{ verticalAlign: -1 }} /> {e.author ?? 'unknown'}</span>
-          <span className="ev-age" title={dateOnly(e.createdAt)}>{pageMode && !isAnswer ? 'updated' : isAnswer ? 'answered' : 'asked'} {timeAgo(e.createdAt)}</span>
-          {isAnswer && <span className="ev-age muted">· question asked {timeAgo(e.questionCreatedAt)}</span>}
+          <span className="ev-age" title={dateOnly(e.createdAt)}>{isAnswer ? (t.answer === 'reply' ? 'replied' : 'answered') : t.created} {timeAgo(e.createdAt)}</span>
+          {isAnswer && <span className="ev-age muted">· {t.item} {t.created} {timeAgo(e.questionCreatedAt)}</span>}
           {e.threadStatus !== 'ACTIVE' && <Badge tone="warn">{e.threadStatus.toLowerCase().replace('_', ' ')}</Badge>}
           {!pageMode && <InfoTip term={e.accepted ? 'accepted' : 'votes'} />}
         </div>

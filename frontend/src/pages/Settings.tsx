@@ -7,6 +7,7 @@ import { useOverview } from '../components/OverviewContext'
 import { Badge, Banner, Button, Card, CopyButton, Skeleton, useToast } from '../components/ui'
 import { isShown } from '../lib/fields'
 import { go, useRemote } from '../lib/useRemote'
+import { count, termsFor } from '../lib/terms'
 import type { Issue } from '../types/api'
 
 const ICONS: Record<string, React.ReactNode> = { plug: <Plug size={19} />, lock: <Lock size={19} />, tags: <Tags size={19} />, globe: <Globe size={19} />, refresh: <RefreshCw size={19} />, folder: <FolderOpen size={19} /> }
@@ -63,8 +64,8 @@ export default function SettingsPage({ section }: { section: string | null }) {
       setConfirmDelete(false)
       setDeleteTag('')
       toast('ok', r.deletedThreads === 0
-        ? `No stored questions carried the tag “${r.tag}”`
-        : `Removed ${r.deletedThreads} question${r.deletedThreads === 1 ? '' : 's'} (and ${r.deletedAnswers} answer${r.deletedAnswers === 1 ? '' : 's'}) for “${r.tag}”`)
+        ? `No stored ${termsFor(source).items} carried the tag “${r.tag}”`
+        : `Removed ${count(r.deletedThreads, termsFor(source).item, termsFor(source).items)}${termsFor(source).hasAnswers ? ` (and ${count(r.deletedAnswers, termsFor(source).answer, termsFor(source).answers)})` : ''} for “${r.tag}”`)
       reload()
     } catch (e) { toast('bad', e instanceof Error ? e.message : 'Could not delete') } finally { setDeleting(false) }
   }
@@ -80,7 +81,8 @@ export default function SettingsPage({ section }: { section: string | null }) {
     } catch (e) { toast('bad', e instanceof Error ? e.message : 'Could not rebuild the search index') } finally { setReindexing(false) }
   }
   const storedCount = overview?.totals.questions ?? 0
-  const isWiki = source === 'confluence' || source === 'jive'
+  const terms = termsFor(source)
+  const isWiki = terms.pageLike
 
   return (
     <div className="stack" style={{ gap: 26 }}>
@@ -120,7 +122,7 @@ export default function SettingsPage({ section }: { section: string | null }) {
                   <div>
                     <h3>Rebuild search index</h3>
                     <p className="card-sub">
-                      Re-reads every locally stored {isWiki ? 'page' : 'question'} and rebuilds classification, Markdown exports, and the search index.
+                      Re-reads every locally stored {terms.item} and rebuilds classification, Markdown exports, and the search index.
                       Use this after a search upgrade (for example when Explore says the index is an older version), or if search results look stale.
                       The remote site is not contacted — nothing is downloaded again.
                     </p>
@@ -129,7 +131,7 @@ export default function SettingsPage({ section }: { section: string | null }) {
                 <hr className="divider" />
                 <p className="muted small" style={{ marginBottom: 14 }}>
                   {storedCount > 0
-                    ? `${storedCount} stored ${isWiki ? 'page' : 'question'}${storedCount === 1 ? '' : 's'} on this computer.`
+                    ? `${count(storedCount, `stored ${terms.item}`, `stored ${terms.items}`)} on this computer.`
                     : 'No stored content yet — collect first, then rebuild if needed.'}
                 </p>
                 <div className="row" style={{ gap: 10 }}>
@@ -147,8 +149,8 @@ export default function SettingsPage({ section }: { section: string | null }) {
               <Card>
                 <div className="spread" style={{ marginBottom: 6 }}>
                   <div>
-                    <h3>Remove {isWiki ? 'pages' : 'questions'} by tag</h3>
-                    <p className="card-sub">Permanently deletes matching {isWiki ? 'pages' : 'questions and answers'} from this computer’s knowledge folder (JSON files and the search index). The remote site is not contacted. The special tag “all” is refused.</p>
+                    <h3>Remove {terms.items} by {source === 'confluence' ? 'label' : 'tag'}</h3>
+                    <p className="card-sub">Permanently deletes matching {terms.hasAnswers ? `${terms.items} and their ${terms.answers}` : terms.items} from this computer’s knowledge folder (JSON files and the search index). The remote site is not contacted. The special tag “all” is refused.</p>
                   </div>
                 </div>
                 <hr className="divider" />
@@ -159,7 +161,7 @@ export default function SettingsPage({ section }: { section: string | null }) {
                 <div className="row" style={{ marginTop: 16, gap: 10 }}>
                   {confirmDelete ? (
                     <>
-                      <span className="small muted">Delete every locally stored {isWiki ? 'page' : 'question'} tagged “{deleteTag.trim()}”?</span>
+                      <span className="small muted">Delete every locally stored {terms.item} tagged “{deleteTag.trim()}”?</span>
                       <Button size="sm" variant="danger" icon={<Trash2 size={14} />} busy={deleting} onClick={runDeleteByTag}>Yes, delete</Button>
                       <Button size="sm" variant="ghost" disabled={deleting} onClick={() => setConfirmDelete(false)}>Cancel</Button>
                     </>

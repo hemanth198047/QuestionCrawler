@@ -8,6 +8,7 @@ import { PageHeader } from '../components/PageHeader'
 import { useOverview } from '../components/OverviewContext'
 import { Badge, Banner, Button, Card, Chip, CopyButton, EmptyState, InfoTip, Skeleton, TagInput } from '../components/ui'
 import { ageLabel, timeAgo } from '../lib/format'
+import { termsFor } from '../lib/terms'
 import { go, useRemote } from '../lib/useRemote'
 
 const SUGGESTIONS: Record<string, string[]> = {
@@ -41,6 +42,7 @@ function fromParams(params: URLSearchParams, newer: string, older: string): AgeV
 
 export default function ExplorePage({ params }: { params: URLSearchParams }) {
   const { overview } = useOverview()
+  const terms = termsFor(overview?.sourceType)
   const q = params.get('q') ?? ''
   const tags = useMemo(() => params.getAll('tag'), [params])
   const category = params.get('category') ?? ''
@@ -79,11 +81,11 @@ export default function ExplorePage({ params }: { params: URLSearchParams }) {
   const activeFilters = [
     ...tags.map((t) => ({ k: `tag-${t}`, label: `tag: ${t}`, clear: () => navigate({ tags: tags.filter((x) => x !== t) }) })),
     ...(category ? [{ k: 'cat', label: `topic: ${cats.kind === 'ok' ? cats.data.find((c) => c.id === category)?.name ?? category : category}`, clear: () => navigate({ category: '' }) }] : []),
-    ...(qAge.value ? [{ k: 'qa', label: `questions ${qAge.mode === 'newer' ? 'from the' : 'older than the'} ${ageLabel(qAge.value).toLowerCase().replace('past ', qAge.mode === 'newer' ? 'past ' : '')}`, clear: () => navigate({ qAge: { mode: 'newer', value: '' } }) }] : []),
-    ...(aAge.value ? [{ k: 'aa', label: `answers ${aAge.mode === 'newer' ? 'from the' : 'older than the'} ${ageLabel(aAge.value).toLowerCase().replace('past ', aAge.mode === 'newer' ? 'past ' : '')}`, clear: () => navigate({ aAge: { mode: 'newer', value: '' } }) }] : []),
+    ...(qAge.value ? [{ k: 'qa', label: `${terms.items} ${qAge.mode === 'newer' ? 'from the' : 'older than the'} ${ageLabel(qAge.value).toLowerCase().replace('past ', qAge.mode === 'newer' ? 'past ' : '')}`, clear: () => navigate({ qAge: { mode: 'newer', value: '' } }) }] : []),
+    ...(aAge.value ? [{ k: 'aa', label: `${terms.answers} ${aAge.mode === 'newer' ? 'from the' : 'older than the'} ${ageLabel(aAge.value).toLowerCase().replace('past ', aAge.mode === 'newer' ? 'past ' : '')}`, clear: () => navigate({ aAge: { mode: 'newer', value: '' } }) }] : []),
   ]
   const hasData = (overview?.totals.questions ?? 0) > 0
-  const isWiki = overview?.sourceType === 'confluence' || overview?.sourceType === 'jive' || overview?.sourceType === 'sharepoint'
+  const isWiki = terms.pageLike
   const wikiLabel = overview?.sourceType === 'jive' ? 'Jive' : overview?.sourceType === 'confluence' ? 'Confluence' : overview?.sourceType === 'sharepoint' ? 'SharePoint' : 'wiki'
   const examples = SUGGESTIONS[overview?.sourceType ?? 'fixture'] ?? SUGGESTIONS.fixture
 
@@ -96,7 +98,7 @@ export default function ExplorePage({ params }: { params: URLSearchParams }) {
           ? `Ask in plain English — for example “how do I configure SSO”. We find the paragraph or section of your ${wikiLabel} pages that answers it, quote it word for word as the best answer, and link to the exact section. No AI model is used.`
           : 'Type a question, an error message or a function name. We’ll show the passages that match, with where they came from and how old they are.'}
       />
-      {overview && !hasData && <Banner tone="warn" title="There is nothing to search yet" action={<Button onClick={() => go('/collect')}>{isWiki ? 'Collect pages' : 'Collect questions'}</Button>}>{isWiki ? `Sync ${wikiLabel} pages first, then come back.` : 'Collect some questions first, then come back.'}</Banner>}
+      {overview && !hasData && <Banner tone="warn" title="There is nothing to search yet" action={<Button onClick={() => go('/collect')}>{terms.collect}</Button>}>{isWiki ? `Collect ${wikiLabel} pages first, then come back.` : 'Collect some questions first, then come back.'}</Banner>}
 
       <Card className="searchcard">
         <form onSubmit={(e) => { e.preventDefault(); navigate() }}>
@@ -115,15 +117,15 @@ export default function ExplorePage({ params }: { params: URLSearchParams }) {
           {open && (
             <div className="filters rise">
               <div className="grid-2" style={{ gap: 28 }}>
-                <AgeSlider label={isWiki ? 'How old may the page be?' : 'How old may the question be?'} hint={isWiki ? 'No limit on the page’s age.' : 'No limit on the question’s age.'} state={qDraft} onChange={setQDraft} />
-                {!isWiki && <AgeSlider label="How old may the answer be?" hint="No limit on the answer’s age. Questions stay visible even if their answers are filtered out." state={aDraft} onChange={setADraft} />}
+                <AgeSlider label={`How old may the ${terms.item} be?`} hint={`No limit on the ${terms.item}’s age.`} state={qDraft} onChange={setQDraft} />
+                {terms.hasAnswers && <AgeSlider label={`How old may the ${terms.answer} be?`} hint={`No limit on the ${terms.answer}’s age. ${terms.Items} stay visible even if their ${terms.answers} are filtered out.`} state={aDraft} onChange={setADraft} />}
               </div>
               <div className="grid-2" style={{ gap: 28 }}>
                 <div className="field"><div className="field-label">Topic <InfoTip term="category" /></div>
                   <select className="select" value={catDraft} onChange={(e) => setCatDraft(e.target.value)}>
                     <option value="">Any topic</option>{cats.kind === 'ok' && cats.data.filter((c) => c.questionCount > 0).map((c) => <option key={c.id} value={c.id}>{c.name} ({c.questionCount})</option>)}
                   </select></div>
-                <div className="field"><div className="field-label">{isWiki ? 'Only pages with label' : 'Only questions tagged'} <InfoTip term="tag" /></div><TagInput value={tagDraft} onChange={setTagDraft} placeholder={isWiki ? 'Type a label, press Enter' : 'Type a tag, press Enter'} /></div>
+                <div className="field"><div className="field-label">{overview?.sourceType === 'confluence' ? 'Only pages with label' : `Only ${terms.items} tagged`} <InfoTip term="tag" /></div><TagInput value={tagDraft} onChange={setTagDraft} placeholder={isWiki ? 'Type a label, press Enter' : 'Type a tag, press Enter'} /></div>
               </div>
               <div className="row"><Button type="submit" variant="primary">Apply filters</Button><Button type="button" variant="ghost" onClick={() => { setQDraft({ mode: 'newer', value: '' }); setADraft({ mode: 'newer', value: '' }); setTagDraft([]); setCatDraft('') }}>Clear all</Button></div>
             </div>
@@ -153,12 +155,12 @@ export default function ExplorePage({ params }: { params: URLSearchParams }) {
           {result.data.resultCount === 0 ? (
             <EmptyState icon={<MessageCircleQuestion size={30} />} title="Nothing matches that" action={<>
               {activeFilters.length > 0 && <Button onClick={() => go(`/explore?q=${encodeURIComponent(q)}`)} icon={<Filter size={16} />}>Remove all filters</Button>}
-              <Button onClick={() => go('/collect')}>{isWiki ? 'Collect more pages' : 'Collect more questions'}</Button></>}>
+              <Button onClick={() => go('/collect')}>{`Collect more ${terms.items}`}</Button></>}>
               {isWiki
                 ? 'Try different words, a space label such as space:ENG, or a wider age range. Related forms (configure/configuring, runbook/playbook) are already expanded — still no AI model.'
                 : 'Try different words, an exact error message, or a wider age range. Related wording is expanded lightly; this is still lexical search, not an AI model.'}</EmptyState>
           ) : (
-            <div className="stack-sm">{result.data.evidence.map((e) => <EvidenceCard key={`${e.questionId}-${e.answerId ?? 'q'}-${e.sectionIndex}`} e={e} pageMode={isWiki} onCategory={(id) => navigate({ category: id })} />)}</div>
+            <div className="stack-sm">{result.data.evidence.map((e) => <EvidenceCard key={`${e.questionId}-${e.answerId ?? 'q'}-${e.sectionIndex}`} e={e} pageMode={isWiki} terms={terms} onCategory={(id) => navigate({ category: id })} />)}</div>
           )}
           {result.data.truncated && <p className="muted small">{result.data.omittedForBudget} lower-ranked passage(s) were left out to keep this readable.</p>}
           <p className="muted small"><InfoTip term="untrusted" /> Everything shown was written by other people and is displayed as reading material only. Check the original source before relying on it.</p>

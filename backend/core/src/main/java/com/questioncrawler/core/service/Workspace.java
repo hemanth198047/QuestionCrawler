@@ -743,8 +743,9 @@ public final class Workspace {
         }
         Optional<ConnectionReport> conn = lastConnection();
         List<Overview.SetupStep> steps = new ArrayList<>();
-        steps.add(new Overview.SetupStep("choose", "Choose where questions come from",
-                configExists ? "Source: " + label + (config.tags().isEmpty() ? "" : " · tags: " + String.join(", ", config.tags())) : "Pick a source and the tags you care about.",
+        com.questioncrawler.core.util.Terms terms = com.questioncrawler.core.util.Terms.of(type);
+        steps.add(new Overview.SetupStep("choose", "Choose your source",
+                configExists ? "Source: " + label + (config.tags().isEmpty() ? "" : " · " + (type.equals("confluence") ? "labels: " : "tags: ") + String.join(", ", config.tags())) : "Pick the system and what you care about.",
                 configExists && (!config.tags().isEmpty() || type.equals("fixture")) ? "DONE" : "TODO", "connect"));
         String checkStatus;
         String checkText;
@@ -760,11 +761,13 @@ public final class Workspace {
             checkText = conn.get().headline();
         }
         steps.add(new Overview.SetupStep("check", "Check we can reach it", checkText, checkStatus, "connect"));
-        steps.add(new Overview.SetupStep("collect", "Collect questions and answers",
-                questions > 0 ? questions + " questions and " + answers + " answers saved." : "Download the questions into your knowledge folder.",
+        steps.add(new Overview.SetupStep("collect", terms.hasAnswers() ? "Collect " + terms.items() + " and " + terms.answers() : "Collect " + terms.items(),
+                questions > 0 ? terms.count(questions) + (terms.hasAnswers() ? " and " + terms.countAnswers(answers) : "") + " saved."
+                        : "Download the " + terms.items() + " into your knowledge folder.",
                 questions > 0 ? "DONE" : steps.get(0).status().equals("DONE") ? "TODO" : "LOCKED", "collect"));
-        steps.add(new Overview.SetupStep("explore", "Ask questions of your knowledge",
-                questions > 0 ? "Search by words, error messages, tags and age." : "Available after the first collection.",
+        steps.add(new Overview.SetupStep("explore", "Ask your knowledge",
+                questions > 0 ? (terms == com.questioncrawler.core.util.Terms.PAGES ? "Ask in plain words; the best paragraph is quoted as the answer." : "Search by words, error messages, tags and age.")
+                        : "Available after the first collection.",
                 questions > 0 ? "READY" : "LOCKED", "explore"));
         String next = steps.stream().filter(s -> s.status().equals("TODO") || s.status().equals("ATTENTION")).map(Overview.SetupStep::id).findFirst().orElse("explore");
         List<String> notes = new ArrayList<>();
@@ -783,10 +786,11 @@ public final class Workspace {
                 notes.add("A collection was interrupted. Start a new one and it continues where it stopped.");
             }
             if (status.threadsClassifiedWithOlderTaxonomy() > 0) {
-                notes.add(status.threadsClassifiedWithOlderTaxonomy() + " question(s) were sorted with older topic rules. Re-sort them to apply your current rules.");
+                notes.add(terms.count(status.threadsClassifiedWithOlderTaxonomy()) + (status.threadsClassifiedWithOlderTaxonomy() == 1 ? " was" : " were")
+                        + " sorted with older topic rules. Re-sort them to apply your current rules.");
             }
             if (status.indexedDocuments() == null && status.threadCount() > 0) {
-                notes.add("The search index is missing. Re-sort your questions to rebuild it.");
+                notes.add("The search index is missing. Re-sort your " + terms.items() + " to rebuild it.");
             }
         }
         String window = config.maxQuestionAge();

@@ -131,7 +131,8 @@ final class TextFormat {
         sb.append('\n');
         sb.append("Scope: source '").append(r.sourceSystem()).append("', tags ").append(r.tags()).append(' ').append(r.tagMode())
                 .append(r.partialTags() ? " (partial tag matching)" : " (exact tag matching)").append('\n');
-        sb.append("Listing: ").append(r.pagesListed()).append(" page(s), ").append(r.questionsListed()).append(" question(s)")
+        sb.append("Listing: ").append(r.pagesListed()).append(" request page(s), ")
+                .append(com.questioncrawler.core.util.Terms.ofSystem(r.sourceSystem()).count(r.questionsListed()))
                 .append(r.since() == null ? "" : ", changed since " + r.since())
                 .append(r.listingComplete() ? "" : ", NOT complete").append('\n');
         sb.append("Added ").append(r.added()).append(", updated ").append(r.updated()).append(", unchanged ").append(r.unchanged())

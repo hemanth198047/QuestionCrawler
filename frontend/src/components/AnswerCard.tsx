@@ -2,6 +2,7 @@ import { BookOpenCheck, ExternalLink, SearchX } from 'lucide-react'
 import { safeUrl } from '../lib/url'
 import type { DirectAnswer } from '../types/api'
 import { Badge, Card } from './ui'
+import { useTerms } from '../lib/terms'
 import { Markdown } from './Markdown'
 
 const CONFIDENCE: Record<string, { label: string; tone: 'ok' | 'info' | 'warn' | 'neutral' }> = {
@@ -13,11 +14,13 @@ const CONFIDENCE: Record<string, { label: string; tone: 'ok' | 'info' | 'warn' |
 
 /** The best answer found in the collected pages: quoted word for word, each piece with the page and section it comes from. */
 export function AnswerCard({ answer }: { answer: DirectAnswer }) {
+  const t = useTerms()
+  const from = t.pageLike ? `your ${t.items}` : 'your questions and answers'
   const conf = CONFIDENCE[answer.confidence] ?? CONFIDENCE.NONE
   if (answer.status !== 'FOUND' || answer.points.length === 0) {
     return (
       <Card className="rise answer-card">
-        <div className="row" style={{ gap: 10 }}><SearchX size={20} color="var(--ink-3)" /><strong>No page clearly answers this</strong><Badge tone="neutral">{conf.label}</Badge></div>
+        <div className="row" style={{ gap: 10 }}><SearchX size={20} color="var(--ink-3)" /><strong>{t.pageLike ? `No ${t.item} clearly answers this` : 'No question or answer clearly answers this'}</strong><Badge tone="neutral">{conf.label}</Badge></div>
         <p className="muted small" style={{ marginTop: 8 }}>{answer.note}</p>
       </Card>
     )
@@ -25,7 +28,7 @@ export function AnswerCard({ answer }: { answer: DirectAnswer }) {
   return (
     <Card className="rise answer-card">
       <div className="spread">
-        <div className="row" style={{ gap: 10 }}><BookOpenCheck size={21} color="var(--brand)" /><h3 style={{ margin: 0 }}>Best answer from your pages</h3></div>
+        <div className="row" style={{ gap: 10 }}><BookOpenCheck size={21} color="var(--brand)" /><h3 style={{ margin: 0 }}>Best answer from {from}</h3></div>
         <Badge tone={conf.tone}>{conf.label}</Badge>
       </div>
       <div className="stack-sm" style={{ marginTop: 14 }}>

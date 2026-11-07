@@ -6,6 +6,7 @@ import { useOverview } from '../components/OverviewContext'
 import { Badge, Banner, Button, Card, Chip, EmptyState, InfoTip, ProgressBar, Segmented, Skeleton, useToast } from '../components/ui'
 import { dateOnly, duration, number, plainCompleteness, timeAgo } from '../lib/format'
 import { go, useRemote } from '../lib/useRemote'
+import { termsFor, useTerms } from '../lib/terms'
 import type { SyncProgress, SyncReport, SyncState } from '../types/api'
 
 const WINDOWS = [
@@ -42,6 +43,7 @@ function LivePanel({ state, startedAt }: { state: SyncState; startedAt: string |
   const elapsed = startedAt ? now - Date.parse(startedAt) : 0
   const full = state.mode === 'FULL'
   const known = p && p.toFetch > 0
+  const t = useTerms()
   return (
     <Card className="live rise">
       <div className="spread">
@@ -52,7 +54,7 @@ function LivePanel({ state, startedAt }: { state: SyncState; startedAt: string |
       <ProgressBar value={known ? p!.fetched : 0} max={known ? p!.toFetch : 100} striped={!known} />
       <p className="live-msg">{p?.message ?? 'Starting…'}</p>
       <div className="counters">
-        <div><b>{number(p?.questionsFound ?? 0)}</b><span>questions found</span></div>
+        <div><b>{number(p?.questionsFound ?? 0)}</b><span>{t.items} found</span></div>
         <div><b>{number(p?.fetched ?? 0)}{known ? <small>/{p!.toFetch}</small> : null}</b><span>downloaded</span></div>
         <div><b>{number(p?.added ?? 0)}</b><span>new</span></div>
         <div><b>{number(p?.updated ?? 0)}</b><span>changed</span></div>
@@ -73,6 +75,7 @@ function Result({ r, onEverything }: { r: SyncReport; onEverything: () => void }
   const nothing = r.questionsListed === 0 && r.outcome !== 'FAILED'
   const limited = windowUsed(r) !== 'everything'
   const tone = r.outcome === 'COMPLETE' ? 'ok' : r.outcome === 'PARTIAL' ? 'warn' : 'bad'
+  const t = useTerms()
   return (
     <Card className={`result result-${tone} rise`} id="collect-result">
       <div className="spread">
@@ -84,20 +87,20 @@ function Result({ r, onEverything }: { r: SyncReport; onEverything: () => void }
         <div><b>{r.statusChanged}</b><span>no longer visible</span></div><div className={r.failures.length ? 'bad' : ''}><b>{r.failures.length}</b><span>problems</span></div>
       </div>
       {nothing && (
-        <Banner tone="warn" title="The site returned no questions"
+        <Banner tone="warn" title={`The site returned no ${t.items}`}
           action={<div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
             {limited && <Button size="sm" variant="primary" onClick={onEverything}>Choose Everything</Button>}
             <Button size="sm" onClick={() => go('/connect')}>Find the tag on the site</Button></div>}>
           <p>Nothing matched the tag{r.tags.length === 1 ? '' : 's'} <b>{r.tags.join(', ')}</b>{limited ? <> within the <b>{windowUsed(r)}</b> window</> : ' (no time limit)'}.</p>
           <ul className="plainlist">
-            {limited && <li>A time window hides older questions. Choose <b>Everything</b> above and start again.</li>}
+            {limited && <li>A time window hides older {t.items}. Choose <b>Everything</b> above and start again.</li>}
             <li>The tag may be spelled differently on the site (for example in capitals). Use <b>Find tags on the site</b> on the Connect screen.</li>
-            <li>On the Connect screen, use <b>Test the collection</b>: it shows what the site returns for your tags and what was understood. If the site returns questions there but a collection finds none, send me that report.</li>
+            <li>On the Connect screen, use <b>Test the collection</b>: it shows what the site returns for your tags and what was understood. If the site returns {t.items} there but a collection finds none, send me that report.</li>
           </ul>
         </Banner>)}
       {!(nothing && c.tone === 'ok') && <Banner tone={c.tone === 'bad' ? 'bad' : c.tone === 'ok' ? 'ok' : c.tone === 'warn' ? 'warn' : 'info'} title={c.label}>{c.text}</Banner>}
       {r.abortReason && <Banner tone="bad" title="Why it stopped">{r.abortReason}</Banner>}
-      {r.warnings.filter((w) => !w.startsWith('No questions were returned')).map((w) => <Banner key={w} tone="info">{w}</Banner>)}
+      {r.warnings.filter((w) => !/^No \w+ were returned/.test(w)).map((w) => <Banner key={w} tone="info">{w}</Banner>)}
       {r.limitations.filter((l) => l.startsWith('Collection window')).map((l) => <Banner key={l} tone="info" title="Time window">{l}</Banner>)}
       {r.statusChanges.length > 0 && (<div><h4>Questions that changed visibility</h4><ul className="plainlist">{r.statusChanges.map((s) => <li key={s.questionId}><b>#{s.questionId}</b> {s.from.toLowerCase().replace('_', ' ')} → <b>{s.to.toLowerCase().replace('_', ' ')}</b> <span className="muted">· {s.reason}</span></li>)}</ul></div>)}
       {r.failures.length > 0 && (<div><h4>Questions that could not be downloaded</h4><ul className="plainlist">{r.failures.slice(0, 8).map((f) => <li key={f.questionId}><b>#{f.questionId}</b> {f.message}</li>)}</ul><p className="muted small">They are retried automatically on the next update.</p></div>)}
@@ -120,7 +123,7 @@ export default function CollectPage() {
     else if (s.lastReport) {
       const r = s.lastReport
       if (r.outcome === 'FAILED') toast('bad', `The run stopped: ${r.abortReason ?? 'see the details below'}`)
-      else if (r.questionsListed === 0) toast('info', 'The run finished, but the site returned no questions. See the explanation below.')
+      else if (r.questionsListed === 0) toast('info', `The run finished, but the site returned no ${termsFor(o?.sourceType).items}. See the explanation below.`)
       else toast(r.outcome === 'COMPLETE' ? 'ok' : 'info', r.outcome === 'COMPLETE' ? `Collection finished: ${r.added} new, ${r.updated} changed` : 'Collection ended with problems')
     }
     window.setTimeout(() => document.getElementById('collect-result')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 250)
@@ -138,6 +141,7 @@ export default function CollectPage() {
   const noTags = o.tags.length === 0
   const allTags = o.tags.some((t) => ['all', '*'].includes(t.toLowerCase()))
   const isSE = o.sourceType === 'stackexchange'
+  const terms = termsFor(o.sourceType)
   const isConfluence = o.sourceType === 'confluence'
   const isJive = o.sourceType === 'jive'
   const isSharePoint = o.sourceType === 'sharepoint'
@@ -156,16 +160,16 @@ export default function CollectPage() {
 
   return (
     <div className="stack" style={{ gap: 28 }}>
-      <PageHeader eyebrow="Collect" title={isConfluence ? 'Download Confluence pages' : isJive ? 'Download Jive content' : isSharePoint ? 'Download SharePoint content' : 'Download questions & answers'} subtitle={isConfluence ? 'Tags mean Confluence labels. Pick how far back to look; pages are stored as local threads (answers stay empty).' : isJive ? 'Tags mean Jive content tags. Pick how far back to look; discussions may include replies as answers.' : isSharePoint ? 'Tags match page title/description or list keywords. Pick how far back to look; pages are stored as local threads (answers stay empty).' : 'Pick how far back to look and how thorough to be. You can watch it happen, and leave this page: it keeps running.'} />
-      {noTags && <Banner tone="warn" title="No tags chosen yet" action={<Button onClick={() => go('/connect')}>Choose tags</Button>}>{isConfluence ? 'We need at least one label (or space keys on Connect) to know which pages to collect.' : isJive ? 'We need at least one tag (or place ids on Connect) to know which content to collect.' : isSharePoint ? 'We need at least one tag (or use all with a site URL on Connect) to know which content to collect.' : 'We need at least one tag to know which questions to collect.'}</Banner>}
+      <PageHeader eyebrow="Collect" title={`Download ${terms.items}`} subtitle={isConfluence ? 'Every page in the chosen spaces (narrowed by labels, if you named any). Pick how far back to look.' : isJive ? 'Documents, discussions and questions from the chosen places, with their replies. Pick how far back to look.' : isSharePoint ? 'Pages of the chosen site. Pick how far back to look.' : 'Pick how far back to look and how thorough to be. You can watch it happen, and leave this page: it keeps running.'} />
+      {noTags && <Banner tone="warn" title={terms.pageLike ? 'Nothing chosen yet' : 'No tags chosen yet'} action={<Button onClick={() => go('/connect')}>{terms.pageLike ? 'Choose what to collect' : 'Choose tags'}</Button>}>{isConfluence ? 'Choose the spaces on Connect (and keep the label “all”, or name labels).' : isJive ? 'Choose the places on Connect (and keep the tag “all”, or name tags).' : isSharePoint ? 'Keep “all” to collect every page of the site, or name words that must appear in page titles.' : 'We need at least one tag to know which questions to collect.'}</Banner>}
 
       <Card>
         <div className="row" style={{ marginBottom: 18 }}><FolderSync size={20} color="var(--brand)" /><h3>What will be collected</h3></div>
         <div className="scope">
           <div><span className="muted small">Source</span><strong>{o.sourceLabel}</strong></div>
-          <div><span className="muted small">Tags <InfoTip term="tag" /></span><div className="row" style={{ gap: 6 }}>{o.tags.length ? o.tags.map((t) => <Chip key={t} active={['all', '*'].includes(t.toLowerCase())}>{['all', '*'].includes(t.toLowerCase()) ? 'All tags (every question)' : t}</Chip>) : <span className="muted">none yet</span>}</div></div>
+          <div><span className="muted small">{isConfluence ? 'Labels' : 'Tags'} <InfoTip term="tag" /></span><div className="row" style={{ gap: 6 }}>{o.tags.length ? o.tags.map((t) => <Chip key={t} active={['all', '*'].includes(t.toLowerCase())}>{['all', '*'].includes(t.toLowerCase()) ? (terms.pageLike ? `All (every ${terms.item})` : 'All tags (every question)') : t}</Chip>) : <span className="muted">none yet</span>}</div></div>
           {o.scope && <div><span className="muted small">{isConfluence ? 'Where' : 'Scope'}</span><strong>{o.scope}</strong></div>}
-          <div><span className="muted small">Questions from <InfoTip term="window" /></span>
+          <div><span className="muted small">{terms.Items} from <InfoTip term="window" /></span>
             <Segmented label="Time window" value={WINDOWS.some((w) => w.value === (win ?? '')) ? (win ?? '') : '__custom'} onChange={(v) => setWin(v)} options={WINDOWS} /></div>
         </div>
         {allTags && (win ?? '') === '' && !isSE && !isConfluence && !isJive && !isSharePoint && <div style={{ marginTop: 14 }}><Banner tone="info" title="Every question, from all time">That can be a lot. To try it out first, choose a shorter time window (for example 1 year); you can widen it later.</Banner></div>}
@@ -183,14 +187,14 @@ export default function CollectPage() {
           </button>
           <button type="button" className={`choice ${mode === 'full' ? 'on' : ''}`} onClick={() => setMode('full')} aria-pressed={mode === 'full'}>
             <span className="choice-icon"><ListChecks size={20} /></span><strong>Full check <InfoTip term="full" /></strong>
-            <span className="hint">Re-reads everything in the window and notices deleted, hidden or re-tagged questions. Slower; do it now and then.</span>
+            <span className="hint">Re-reads everything in the window and notices deleted, hidden or re-tagged {terms.items}. Slower; do it now and then.</span>
           </button>
         </div>
         <div className="row" style={{ marginTop: 22 }}>
           <Button variant="primary" size="lg" icon={<Play size={18} />} busy={starting || running} disabled={noTags} onClick={start}>{running ? 'Running…' : mode === 'full' ? 'Start full check' : 'Start quick update'}</Button>
           {o.freshness.lastSuccessfulSyncAt && <span className="muted small">Last successful update {timeAgo(o.freshness.lastSuccessfulSyncAt)}</span>}
         </div>
-        <p className="muted small" style={{ marginTop: 12 }}>This will collect {allTags ? <b>every question on the site (all tags)</b> : <>questions tagged <b>{o.tags.join(', ') || '…'}</b></>} from <b>{(win ?? '') === '' ? 'all time' : `the last ${win}`}</b> as a <b>{mode === 'full' ? 'full check' : 'quick update'}</b>.</p>
+        <p className="muted small" style={{ marginTop: 12 }}>This will collect {allTags ? <b>{o.scope ? `every ${terms.item} in ${o.scope.replace(/^(Spaces?|Places?): /, '')}` : `every ${terms.item} on the site`}</b> : <>{terms.items} {isConfluence ? 'labelled' : 'tagged'} <b>{o.tags.join(', ') || '…'}</b>{o.scope ? <> in <b>{o.scope.replace(/^(Spaces?|Places?): /, '')}</b></> : null}</>} from <b>{(win ?? '') === '' ? 'all time' : `the last ${win}`}</b> as a <b>{mode === 'full' ? 'full check' : 'quick update'}</b>.</p>
         {startError && <div style={{ marginTop: 12 }}><Banner tone="bad" title="The run could not be started">{startError}</Banner></div>}
       </Card>
 

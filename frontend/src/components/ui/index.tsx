@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import { AlertTriangle, Check, CheckCircle2, Copy, Info, Loader2, X, XCircle } from 'lucide-react'
 import { GLOSSARY } from '../../lib/glossary'
+import { useTerms } from '../../lib/terms'
 
 export type Tone = 'neutral' | 'ok' | 'warn' | 'bad' | 'info' | 'brand'
 
@@ -122,8 +123,9 @@ export function Stat({ icon, label, value, hint, tone = 'brand' }: { icon: React
 // ------------------------------------------------------------------ helpers & tips
 export function InfoTip({ term, text, title }: { term?: keyof typeof GLOSSARY; text?: string; title?: string }) {
   const id = useId()
+  const t = useTerms()
   const entry = term ? GLOSSARY[term] : undefined
-  const body = text ?? entry?.text
+  const body = text ?? entry?.text.replace(/\{item\}/g, t.item).replace(/\{items\}/g, t.items).replace(/\{Items\}/g, t.Items).replace(/\{created\}/g, t.created)
   const head = title ?? entry?.title
   if (!body) return null
   return (

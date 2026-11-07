@@ -11,6 +11,7 @@ import HelpPage from './pages/Help'
 import OrganizePage from './pages/Organize'
 import OverviewPage from './pages/OverviewPage'
 import QuestionPage from './pages/Question'
+import { termsFor } from './lib/terms'
 import SettingsPage from './pages/Settings'
 
 function NavItem({ to, icon, label, active, dot, badge }: { to: string; icon: ReactNode; label: string; active: boolean; dot?: boolean; badge?: string }) {
@@ -49,7 +50,7 @@ function Shell() {
         <div className="sidebar-foot">
           <div className="side-card">
             <div className="muted">Knowledge on this computer</div>
-            <strong>{overview ? number(overview.totals.questions) : '–'} <span style={{ fontSize: 14, fontWeight: 550, color: 'var(--ink-3)' }}>questions</span></strong>
+            <strong>{overview ? number(overview.totals.questions) : '–'} <span style={{ fontSize: 14, fontWeight: 550, color: 'var(--ink-3)' }}>{termsFor(overview?.sourceType).items}</span></strong>
             <div className={`fresh ${!fresh || !fresh.lastSuccessfulSyncAt ? 'none' : fresh.stale ? 'stale' : ''}`}>
               <i />{!fresh || !fresh.lastSuccessfulSyncAt ? 'Not collected yet' : fresh.stale ? `Out of date · ${timeAgo(fresh.lastSuccessfulSyncAt)}` : `Updated ${timeAgo(fresh.lastSuccessfulSyncAt)}`}
             </div>

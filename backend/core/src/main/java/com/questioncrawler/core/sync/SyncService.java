@@ -55,6 +55,11 @@ public final class SyncService {
 
     private final KnowledgeStore store;
     private final SourceAdapter adapter;
+
+    /** The words for what this source holds: pages (Confluence, SharePoint), posts (Jive) or questions. */
+    private com.questioncrawler.core.util.Terms terms() {
+        return com.questioncrawler.core.util.Terms.ofAdapter(adapter);
+    }
     private final ThreadPublisher publisher;
     private final Retrier retrier;
     private final Clock clock;
@@ -139,7 +144,7 @@ public final class SyncService {
             Checkpoint checkpoint = store.readState(checkpointName, Checkpoint.class).orElse(null);
             RunState state = loadOrCreateRunState(checkpoint);
             current = state;
-            emit(SyncProgress.LISTING, resumed ? "Resuming an interrupted run" : "Looking up which questions exist");
+            emit(SyncProgress.LISTING, resumed ? "Resuming an interrupted run" : "Looking up which " + terms().items() + " exist");
             try {
                 listPhase(state);
                 if (abortReason == null) {
@@ -230,7 +235,7 @@ public final class SyncService {
                     state.listingCursor = page.nextCursor();
                 }
                 store.writeState(runStateName, state);
-                emit(SyncProgress.LISTING, "Found " + state.candidates.size() + " question(s) so far");
+                emit(SyncProgress.LISTING, "Found " + terms().count(state.candidates.size()) + " so far");
             }
         }
 
@@ -258,7 +263,7 @@ public final class SyncService {
                 }
             }
             toFetchCount = toFetch.size();
-            emit(SyncProgress.FETCHING, toFetch.isEmpty() ? "Nothing new to download" : "Downloading " + toFetch.size() + " question(s) with their answers");
+            emit(SyncProgress.FETCHING, toFetch.isEmpty() ? "Nothing new to download" : "Downloading " + terms().count(toFetch.size()) + (terms().hasAnswers() ? " with their " + terms().answers() : ""));
             fetchAll(toFetch, state, false);
         }
 
@@ -304,7 +309,7 @@ public final class SyncService {
                         }
                         fetchedCount++;
                         emit(reconciling ? SyncProgress.RECONCILING : SyncProgress.FETCHING,
-                                (reconciling ? "Verifying question " : "Saved question ") + id);
+                                (reconciling ? "Verifying " : "Saved ") + terms().item() + " " + id);
                     }
                 }
             } finally {
@@ -457,7 +462,7 @@ public final class SyncService {
                 return;
             }
             toFetchCount += missing.size();
-            emit(SyncProgress.RECONCILING, "Checking " + missing.size() + " stored question(s) that were not in the listing");
+            emit(SyncProgress.RECONCILING, "Checking " + terms().count(missing.size()) + " stored but not in the listing");
             warnings.add(missing.size() + " stored question(s) were absent from the listing and were probed individually; "
                     + "only explicit source answers (gone / forbidden / tags changed) changed their status.");
             fetchAll(missing, state, true);
@@ -510,8 +515,8 @@ public final class SyncService {
             limitations.add("Only content visible to the configured credentials is collected; hidden or restricted items are not counted.");
             limitations.add("A tag-filtered listing cannot prove deletion. Status changes come only from explicit source answers during a full reconciliation.");
             if (createdAfter != null) {
-                limitations.add("Collection window: only questions created on or after " + createdAfter + " (" + options.maxQuestionAge()
-                        + " ago) were collected; older questions are out of scope, so this is not the complete history.");
+                limitations.add("Collection window: only " + terms().items() + " created on or after " + createdAfter + " (" + options.maxQuestionAge()
+                        + " ago) were collected; older " + terms().items() + " are out of scope, so this is not the complete history.");
             }
             if (options.mode() == SyncMode.INCREMENTAL) {
                 limitations.add("Incremental sync cannot detect deletions, tag changes or access revocation, and may miss answers added without a question timestamp change. Run a full reconciliation periodically.");
@@ -523,7 +528,7 @@ public final class SyncService {
                 }
             }
             if (!aborted && state.candidates.isEmpty()) {
-                warnings.add("No questions were returned for the tag(s) " + String.join(", ", options.tags()) + " "
+                warnings.add("No " + terms().items() + " were returned for the tag(s) " + String.join(", ", options.tags()) + " "
                         + (createdAfter == null ? "(no time limit)" : "created in the last " + options.maxQuestionAge()) + ". "
                         + "Check the tag's exact spelling, widen the time window" + (createdAfter == null ? "" : " (choose Everything)")
                         + ", and see what the site answers (Connect > See what the API really answers).");

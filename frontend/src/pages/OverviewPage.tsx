@@ -6,6 +6,7 @@ import { useOverview } from '../components/OverviewContext'
 import { go } from '../lib/useRemote'
 import { useToast } from '../components/ui'
 import { number, timeAgo } from '../lib/format'
+import { count, termsFor, useTerms } from '../lib/terms'
 import type { Overview, SetupStep } from '../types/api'
 
 const STEP_ICON: Record<string, React.ReactNode> = {
@@ -39,12 +40,13 @@ function Journey({ steps, next }: { steps: SetupStep[]; next: string }) {
 
 function Hero({ o }: { o: Overview }) {
   const q = o.totals.questions
+  const t = termsFor(o.sourceType)
   let title = 'Welcome. Let’s connect your first source.'
-  let text = 'Tell QuestionCrawler where your team’s questions live. It takes about two minutes, and you can try it with demo data first.'
+  let text = 'Tell QuestionCrawler where your team’s knowledge lives: questions on a Q&A site, or pages on Confluence, Jive or SharePoint. It takes about two minutes, and you can try it with demo data first.'
   let cta = { label: 'Start setup', to: '/connect', icon: <Sparkles size={18} /> }
   if (o.nextStep === 'check') { title = 'One quick check before collecting.'; text = 'We’ll look at whether this computer can reach the site, and exactly what is needed if something is in the way.'; cta = { label: 'Check the connection', to: '/connect', icon: <ShieldCheck size={18} /> } }
-  else if (o.nextStep === 'collect') { title = 'Everything is set. Time to collect your first questions.'; text = 'We’ll download the questions and answers for your tags and organize them into topics. Start with a small time window.'; cta = { label: 'Collect questions', to: '/collect', icon: <Download size={18} /> } }
-  else if (q > 0) { title = 'Your knowledge is ready to ask.'; text = `${number(q)} questions and ${number(o.totals.answers)} answers from ${o.sourceLabel} are stored on this computer. Search by words, error messages, topic or age.`; cta = { label: 'Ask a question', to: '/explore', icon: <Search size={18} /> } }
+  else if (o.nextStep === 'collect') { title = `Everything is set. Time to collect your first ${t.items}.`; text = t.hasAnswers && !t.pageLike ? 'We’ll download the questions and answers for your tags and organize them into topics. Start with a small time window.' : `We’ll download the ${t.items} you chose and organize them into topics.`; cta = { label: t.collect, to: '/collect', icon: <Download size={18} /> } }
+  else if (q > 0) { title = 'Your knowledge is ready to ask.'; text = t.hasAnswers ? `${count(q, t.item, t.items)} and ${count(o.totals.answers, t.answer, t.answers)} from ${o.sourceLabel} are stored on this computer. Search by words, error messages, topic or age.` : `${count(q, t.item, t.items)} from ${o.sourceLabel} are stored on this computer. Ask in plain words: the best paragraph is quoted as the answer.`; cta = { label: 'Ask a question', to: '/explore', icon: <Search size={18} /> } }
   return (
     <Card className="hero rise" pad={false}>
       <div className="hero-copy">
@@ -70,10 +72,11 @@ function Hero({ o }: { o: Overview }) {
 }
 
 function HowItWorks() {
+  const t = useTerms()
   const items = [
-    { icon: <Download size={22} />, title: 'Collect', text: 'Downloads questions and their answers for the tags you choose. Everything is saved as plain files on this computer.' },
-    { icon: <Layers size={22} />, title: 'Organize', text: 'Sorts questions into topics with simple rules you can read and change. No hidden AI guesswork.' },
-    { icon: <MessageCircleQuestion size={22} />, title: 'Ask', text: 'Search in plain words, an error message or a function name, and filter by how recent the question or answer is.' },
+    { icon: <Download size={22} />, title: 'Collect', text: t.pageLike ? `Downloads the ${t.items} of the spaces or places you choose. Everything is saved as plain files on this computer.` : 'Downloads questions and their answers for the tags you choose. Everything is saved as plain files on this computer.' },
+    { icon: <Layers size={22} />, title: 'Organize', text: `Sorts ${t.items} into topics with simple rules you can read and change. No hidden AI guesswork.` },
+    { icon: <MessageCircleQuestion size={22} />, title: 'Ask', text: t.pageLike ? `Ask in plain words. The paragraph of your ${t.items} that answers it is quoted, with a link to the exact section.` : 'Search in plain words, an error message or a function name, and filter by how recent the question or answer is.' },
   ]
   return (
     <div className="grid-3">
@@ -91,6 +94,7 @@ export default function OverviewPage() {
     return (<div className="stack"><Skeleton h={260} r={26} /><div className="grid-4"><Skeleton h={96} r={18} /><Skeleton h={96} r={18} /><Skeleton h={96} r={18} /><Skeleton h={96} r={18} /></div></div>)
   }
   const hasData = o.totals.questions > 0
+  const t = termsFor(o.sourceType)
   const slices = o.categories.slice().sort((a, b) => b.count - a.count).map((c, i) => ({ label: c.name, value: c.count, color: PALETTE[i % PALETTE.length], id: c.id }))
   const pctAnswered = hasData ? Math.round((o.totals.accepted / o.totals.questions) * 100) : 0
   return (
@@ -98,7 +102,7 @@ export default function OverviewPage() {
       <PageHeader eyebrow="Overview" title="Home" subtitle="Where things stand, and what to do next." />
       {o.notes.map((n) => (
         <Banner key={n} tone="warn" title="Heads up"
-          action={/Re-sort/.test(n) ? <Button size="sm" onClick={async () => { const r = await reindex(); toast('ok', `Re-sorted ${r.threads} questions`); reload() }}>Re-sort now</Button> : undefined}>{n}</Banner>
+          action={/Re-sort/.test(n) ? <Button size="sm" onClick={async () => { const r = await reindex(); toast('ok', `Re-sorted ${count(r.threads, t.item, t.items)}`); reload() }}>Re-sort now</Button> : undefined}>{n}</Banner>
       ))}
       <Hero o={o} />
       <section aria-labelledby="journey-h">
@@ -109,16 +113,17 @@ export default function OverviewPage() {
       {hasData && (
         <>
           <div className="grid-4">
-            <Stat icon={<BookOpenCheck size={22} />} label="Questions" value={number(o.totals.questions)} hint={o.window ? `from the past ${o.window}` : 'all collected'} />
-            <Stat tone="info" icon={<MessageCircleQuestion size={22} />} label="Answers" value={number(o.totals.answers)} hint="across all questions" />
-            <Stat tone="ok" icon={<CheckCheck size={22} />} label="With accepted answer" value={`${pctAnswered}%`} hint={`${number(o.totals.accepted)} questions`} />
-            <Stat tone="warn" icon={<HelpCircle size={22} />} label="Still unanswered" value={number(o.totals.unanswered)} hint="worth a look" />
+            <Stat icon={<BookOpenCheck size={22} />} label={t.Items} value={number(o.totals.questions)} hint={o.window ? `from the past ${o.window}` : 'all collected'} />
+            {t.hasAnswers && <Stat tone="info" icon={<MessageCircleQuestion size={22} />} label={t.Answers} value={number(o.totals.answers)} hint={`across all ${t.items}`} />}
+            {t.hasAnswers && !t.pageLike && <Stat tone="ok" icon={<CheckCheck size={22} />} label="With accepted answer" value={`${pctAnswered}%`} hint={count(o.totals.accepted, t.item, t.items)} />}
+            {t.hasAnswers && !t.pageLike && <Stat tone="warn" icon={<HelpCircle size={22} />} label="Still unanswered" value={number(o.totals.unanswered)} hint="worth a look" />}
+            {!t.hasAnswers && <Stat tone="info" icon={<Layers size={22} />} label="Topics" value={number(o.categories.filter((c) => c.count > 0).length)} hint={`that your ${t.items} fall into`} />}
           </div>
           <div className="grid-2">
             <Card>
               <div className="spread"><h3>What’s inside <InfoTip term="category" /></h3><a href="#/organize" className="small">Browse topics <ArrowRight size={13} style={{ verticalAlign: -2 }} /></a></div>
               <div className="inside">
-                <Donut slices={slices} size={190} center={<><strong style={{ fontSize: 30, letterSpacing: '-0.03em' }}>{number(o.totals.questions)}</strong><span className="muted small">questions</span></>} />
+                <Donut slices={slices} size={190} center={<><strong style={{ fontSize: 30, letterSpacing: '-0.03em' }}>{number(o.totals.questions)}</strong><span className="muted small">{t.items}</span></>} />
                 <ul className="legend">
                   {slices.slice(0, 8).map((s) => (
                     <li key={s.id}><a href={`#/organize/browse/${s.id}`}><i style={{ background: s.color }} />{s.label}<b>{s.value}</b></a></li>

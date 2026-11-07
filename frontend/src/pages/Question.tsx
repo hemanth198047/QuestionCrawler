@@ -6,6 +6,7 @@ import { Badge, Banner, Button, Card, Chip, EmptyState, InfoTip, Skeleton, useTo
 import { dateOnly, friendlyRule, plainHeading, timeAgo } from '../lib/format'
 import { go, useRemote } from '../lib/useRemote'
 import { safeUrl } from '../lib/url'
+import { termsForSystem } from '../lib/terms'
 import type { Answer, ThreadView } from '../types/api'
 
 function AnswerCard({ a }: { a: Answer }) {
@@ -100,16 +101,17 @@ export default function QuestionPage({ id, focusAnswerId, focusSection }: { id: 
   const r = useRemote((s) => getQuestion(id, s), [id])
   const [editing, setEditing] = useState(false)
   if (r.kind === 'loading') return <div className="stack"><Skeleton h={50} w={420} /><Skeleton h={220} r={18} /><Skeleton h={160} r={18} /></div>
-  if (r.kind === 'error') return <div className="stack"><Button variant="ghost" icon={<ArrowLeft size={16} />} onClick={() => history.back()}>Back</Button><Banner tone="bad" title="That question could not be opened">{r.message}</Banner></div>
+  if (r.kind === 'error') return <div className="stack"><Button variant="ghost" icon={<ArrowLeft size={16} />} onClick={() => history.back()}>Back</Button><Banner tone="bad" title="That item could not be opened">{r.message}</Banner></div>
   const v = r.data
   const q = v.thread.question
-  if (!q) return <EmptyState icon={<ShieldAlert size={30} />} title="This question was removed">Its content was erased after the retention period because the site deleted or hid it.</EmptyState>
+  if (!q) return <EmptyState icon={<ShieldAlert size={30} />} title={`This ${termsForSystem(v.thread.sourceSystem).item} was removed`}>Its content was erased after the retention period because the site deleted or hid it.</EmptyState>
   const href = safeUrl(q.url)
   const answers = [...(q.answers ?? [])].sort((a, b) => Number(b.accepted) - Number(a.accepted) || (b.score ?? 0) - (a.score ?? 0))
   const sourceSystem = (v.thread.sourceSystem ?? '').toLowerCase()
   const isConfluence = sourceSystem.startsWith('confluence')
   const isJive = sourceSystem.startsWith('jive')
   const isSharePoint = sourceSystem.startsWith('sharepoint')
+  const t = termsForSystem(v.thread.sourceSystem)
   const isWiki = isConfluence || isJive || isSharePoint
   const wikiKind = isJive ? 'Jive' : isConfluence ? 'Confluence' : isSharePoint ? 'SharePoint' : 'Wiki'
   const showWikiReplies = isJive && answers.length > 0
@@ -123,14 +125,14 @@ export default function QuestionPage({ id, focusAnswerId, focusSection }: { id: 
           {v.categoryNames.map((n) => <Badge key={n} tone="brand">{n}</Badge>)}</div>
         <h1 style={{ fontSize: 30 }}>{q.title}</h1>
         <p className="muted" style={{ marginTop: 12 }}>{isWiki
-          ? <>Created {timeAgo(q.createdAt)} ({dateOnly(q.createdAt)}) by {q.author ?? 'unknown'} · {wikiKind} page{showWikiReplies ? ` · ${answers.length} repl${answers.length === 1 ? 'y' : 'ies'}` : ''}</>
+          ? <>Created {timeAgo(q.createdAt)} ({dateOnly(q.createdAt)}) by {q.author ?? 'unknown'} · {wikiKind} {t.item}{showWikiReplies ? ` · ${answers.length} repl${answers.length === 1 ? 'y' : 'ies'}` : ''}</>
           : <>Asked {timeAgo(q.createdAt)} ({dateOnly(q.createdAt)}) by {q.author ?? 'unknown'} · {q.score ?? '?'} votes · {answers.length} answer{answers.length === 1 ? '' : 's'}</>}</p>
       </header>
       {v.thread.statusReason && <Banner tone="warn" title="Status">{v.thread.statusReason}</Banner>}
       <div className="qlayout">
         <div className="stack">
           <Card className="rise">
-            <div className="ribbon neutral">{isWiki ? 'Page' : 'Question'}</div>
+            <div className="ribbon neutral">{t.Item}</div>
             <Markdown text={q.body} />
             <div className="row" style={{ marginTop: 18, gap: 6 }}>{q.tags.map((t) => <Chip key={t} onClick={() => go(`/explore?q=${encodeURIComponent(q.title)}&tag=${encodeURIComponent(t)}`)}>{t}</Chip>)}</div>
           </Card>
@@ -149,7 +151,7 @@ export default function QuestionPage({ id, focusAnswerId, focusSection }: { id: 
         <aside className="stack-sm qside">
           {isWiki && <PageOutline body={q.body ?? ''} />}
           <Card>
-            <h4>{isWiki ? 'About this page' : 'About this question'}</h4>
+            <h4>About this {t.item}</h4>
             <dl className="facts one">
               <div><dt>{isWiki ? 'Created' : 'Asked'}</dt><dd>{dateOnly(q.createdAt)}</dd></div>
               <div><dt>Last changed on the site</dt><dd>{dateOnly(q.modifiedAt)} ({timeAgo(q.modifiedAt)})</dd></div>
