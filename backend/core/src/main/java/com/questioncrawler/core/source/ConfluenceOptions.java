@@ -160,6 +160,63 @@ public record ConfluenceOptions(
         return t;
     }
 
+    /** Path parts that mark "inside the wiki" (a page, a space, the API): everything from here on is not the site address. */
+    private static final java.util.regex.Pattern WIKI_PATH = java.util.regex.Pattern.compile(
+            "/(wiki|spaces|display|pages|rest|plugins|x|label|search|people|homepage\\.action|dashboard\\.action|login\\.action)(/|$|\\?)",
+            java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    /**
+     * The Confluence site address from whatever was pasted: a page, a space or the site itself.
+     * {@code https://acme.atlassian.net/wiki/spaces/DGF/pages/123/Title} becomes {@code https://acme.atlassian.net};
+     * on Server/Data Center a context path is kept ({@code https://wiki.corp.com/confluence/display/ENG/Home} becomes
+     * {@code https://wiki.corp.com/confluence}). Query strings and fragments are dropped.
+     */
+    public static String siteBase(String pasted) {
+        if (pasted == null || pasted.isBlank()) {
+            return pasted == null ? "" : pasted.strip();
+        }
+        String text = pasted.strip();
+        java.net.URI uri;
+        try {
+            uri = java.net.URI.create(text.replace(" ", "%20"));
+        } catch (IllegalArgumentException e) {
+            return text;
+        }
+        if (uri.getScheme() == null || uri.getRawAuthority() == null) {
+            return text;
+        }
+        String origin = uri.getScheme().toLowerCase(java.util.Locale.ROOT) + "://" + uri.getRawAuthority();
+        String path = uri.getRawPath() == null ? "" : uri.getRawPath();
+        String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(java.util.Locale.ROOT);
+        if (host.endsWith(".atlassian.net") || host.endsWith(".jira.com")) {
+            return origin; // Cloud: the API lives under /wiki of the site itself
+        }
+        java.util.regex.Matcher m = WIKI_PATH.matcher(path);
+        String context = m.find() ? path.substring(0, m.start()) : path;
+        while (context.endsWith("/")) {
+            context = context.substring(0, context.length() - 1);
+        }
+        return origin + context;
+    }
+
+    /** The page id in a pasted page address ({@code /pages/123456} or {@code ?pageId=123456}), or null. */
+    public static String pageIdFrom(String pasted) {
+        if (pasted == null) {
+            return null;
+        }
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?:/pages/|[?&]pageId=)(\\d+)").matcher(pasted);
+        return m.find() ? m.group(1) : null;
+    }
+
+    /** The space key in a pasted space or page address, or null when the address is just the site. */
+    public static String spaceKeyFrom(String pasted) {
+        if (pasted == null || !(pasted.contains("/spaces/") || pasted.contains("/display/"))) {
+            return null;
+        }
+        String key = spaceKey(pasted);
+        return key.isBlank() || key.contains("/") || key.contains(":") ? null : key;
+    }
+
     public static List<String> csv(String value) {
         if (value == null || value.isBlank()) {
             return List.of();

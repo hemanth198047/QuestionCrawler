@@ -46,7 +46,7 @@ sync.maxQuestionAge=1y
 
 | Setting | What to put | Where to get it |
 |---|---|---|
-| `source.baseUrl` | `https://<site>.atlassian.net` (Server/DC: the wiki address) | The start of any Confluence page address |
+| `source.baseUrl` | `https://<site>.atlassian.net` (Server/DC: the wiki address) | The start of any Confluence page address. Pasting a whole page or space address also works: the site is taken from it, and its space is added to the spaces to collect |
 | `source.confluence.apiVersion` | `v2` for Confluence Cloud, `v1` for Server/Data Center | Cloud addresses end in `atlassian.net` |
 | `source.confluence.spaces` | Space keys (or pasted space addresses) | **Show my spaces** after signing in, or `questioncrawler spaces` |
 | `network.proxyHost` / `Port` | Your web proxy, only if needed | The `--proxy` value you use with curl |

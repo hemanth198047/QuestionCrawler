@@ -90,7 +90,7 @@ public final class ConfigService {
                                 Type.URL, "", "https://so.mycompany.com/swagger/index.html", LIVE, false, null),
                         f("api.swaggerFile", "API documentation file (JSON)", "Use this when the documentation page needs a company sign-in (SSO). Open the documentation's JSON address in your browser (where you are signed in), save it as swagger.json, and upload it on the Connect screen: its location is filled in here.",
                                 Type.PATH, "", "C:/data/swagger.json", LIVE, false, null),
-                        f("source.baseUrl", "Site / API address", "For Confluence: the site origin (https://acme.atlassian.net). For Jive: the community origin (https://community.example.com). For SharePoint: the site URL (https://contoso.sharepoint.com/sites/Engineering). For an internal Q&A API: the address every call starts with (or leave empty to take it from Swagger).",
+                        f("source.baseUrl", "Site / API address", "For Confluence: the site (https://acme.atlassian.net); pasting any page or space address also works, the site is taken from it. For Jive: the community origin (https://community.example.com). For SharePoint: the site URL (https://contoso.sharepoint.com/sites/Engineering). For an internal Q&A API: the address every call starts with (or leave empty to take it from Swagger).",
                                 Type.URL, "", "https://contoso.sharepoint.com/sites/Engineering", LIVE_WIKI, false, null),
                         f("source.confluence.edition", "Confluence edition", "Cloud uses /wiki/rest/api and email + API token (Basic). Server/Data Center uses /rest/api and a personal access token (Bearer).",
                                 Type.SELECT, "cloud", null, CONFLUENCE, false, null,
@@ -449,6 +449,13 @@ public final class ConfigService {
                 if (url.isBlank() && swagger.isBlank() && docsFile.isEmpty()) {
                     issues.add(new Issue("api.swaggerUrl", "error", "Enter the API documentation (Swagger) address, or the API address.", "Ask the site owners for the link to their Swagger page; it usually ends in /swagger/index.html."));
                 }
+            } else if (type.equals("confluence") && !url.isBlank()
+                    && !com.questioncrawler.core.source.ConfluenceOptions.siteBase(url).equals(url.strip().replaceAll("/+$", ""))) {
+                String site = com.questioncrawler.core.source.ConfluenceOptions.siteBase(url);
+                String space = com.questioncrawler.core.source.ConfluenceOptions.spaceKeyFrom(url);
+                issues.add(new Issue("source.baseUrl", "info", "That is an address inside the wiki. The site address " + site + " will be used"
+                        + (space != null ? ", and the space " + space + " (if no space is chosen yet)." : "."),
+                        "Nothing to do: it is corrected when you save. To collect only this one page, put its id in “Only these pages”."));
             } else if (type.equals("confluence") && url.isBlank()) {
                 issues.add(new Issue("source.baseUrl", "error", "Enter the Confluence site address.", "For Cloud use https://your-site.atlassian.net — not a page URL inside the wiki."));
             } else if (type.equals("jive") && url.isBlank()) {
@@ -728,6 +735,20 @@ public final class ConfigService {
         submitted.forEach((k, val) -> merged.put(k, val == null ? "" : val.strip()));
         // Friendliness: the host allow-list follows the address the user typed.
         String type = merged.getOrDefault("source.type", "fixture");
+        if (type.equals("confluence")) {
+            // A pasted page or space address is saved as the site address; its space becomes the space to collect.
+            String pasted = merged.getOrDefault("source.baseUrl", "");
+            String site = com.questioncrawler.core.source.ConfluenceOptions.siteBase(pasted);
+            if (!site.equals(pasted)) {
+                merged.put("source.baseUrl", site);
+                String space = com.questioncrawler.core.source.ConfluenceOptions.spaceKeyFrom(pasted);
+                if (space != null && merged.getOrDefault("source.confluence.spaces", "").isBlank()
+                        && merged.getOrDefault("source.confluence.pageIds", "").isBlank()
+                        && merged.getOrDefault("source.confluence.ancestorPageId", "").isBlank()) {
+                    merged.put("source.confluence.spaces", space);
+                }
+            }
+        }
         if ((type.equals("live") || type.equals("confluence") || type.equals("jive") || type.equals("sharepoint"))
                 && merged.getOrDefault("source.allowedHosts", "").isBlank()) {
             java.util.LinkedHashSet<String> hosts = new java.util.LinkedHashSet<>();

@@ -57,7 +57,7 @@ sync.maxQuestionAge=1y
 
 | Setting | What to put | Where to get it |
 |---|---|---|
-| `source.baseUrl` | `https://<your-site>.atlassian.net` (no `/wiki`, no page path) | The start of any Confluence page address in your browser |
+| `source.baseUrl` | `https://<your-site>.atlassian.net` | The start of any Confluence page address in your browser. A pasted page or space address is also accepted: the site is taken from it |
 | `source.confluence.tvm.url` | The full TVM exchange address | Your platform/identity team's documentation: the address in the `curl -u : --negotiate ...` command. It normally ends in `/exchange/token/confluence/<your-site>.atlassian.net` |
 | `network.proxyHost`, `network.proxyPort` | Proxy host name and port, **without** `https://` | The `--proxy` value in the documented curl call (`https://webproxy-inet.mycompany.com:8080` → host `webproxy-inet.mycompany.com`, port `8080`) |
 | `source.confluence.spaces` | Space keys, comma-separated (or paste space addresses: they are saved as keys) | Easiest: **Connect → Choose the spaces to collect → Show my spaces**, then tick them. Or CLI `questioncrawler spaces`. Or from any page address: `.../wiki/spaces/`**`ENG`**`/pages/...` |

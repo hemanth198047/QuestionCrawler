@@ -135,6 +135,9 @@ public final class Workspace {
             site = CoreConfig.siteFromUrl(v.getOrDefault("source.siteUrl", "https://stackoverflow.com/"));
         } else {
             target = v.getOrDefault("source.baseUrl", "");
+            if (type.equals("confluence")) {
+                target = com.questioncrawler.core.source.ConfluenceOptions.siteBase(target);
+            }
             if (type.equals("live")) {
                 site = v.getOrDefault("api.site", "");
                 keyEnv = v.getOrDefault("api.keyEnv", "");

@@ -112,6 +112,9 @@ public record CoreConfig(
         String prefixes = p.getProperty("source.allowedPathPrefixes", "/");
         String systemId = p.getProperty("source.systemId", "").strip();
         String baseUrl = p.getProperty("source.baseUrl", "").strip();
+        if (type.equals("confluence")) {
+            baseUrl = ConfluenceOptions.siteBase(baseUrl); // a pasted page or space address still means this site
+        }
         boolean liveApi = type.equals("live");
         String swagger = p.getProperty("api.swaggerUrl", "").strip();
         ConfluenceOptions confluence = new ConfluenceOptions(
