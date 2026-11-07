@@ -53,7 +53,7 @@ class ConfigServiceTest {
                 "sync.tags", "Artificial Intelligence", "sync.maxQuestionAge", "90d", "storage.root", tmp.resolve("data").toString().replace('\\', '/')));
         assertTrue(result.saved(), result.issues().toString());
         String text = Files.readString(file);
-        assertTrue(text.contains("# Tags: Press Enter after each tag"), "settings are documented inside the file");
+        assertTrue(text.contains("# Tags / labels: Press Enter after each one"), "settings are documented inside the file");
         assertTrue(text.contains("sync.maxQuestionAge=90d"));
         assertFalse(text.toLowerCase().contains("password="));
 

@@ -24,14 +24,35 @@ public final class ConfigService {
 
     public enum Type { TEXT, NUMBER, SWITCH, SELECT, TAGS, PATH, AGE, ENV_NAME, URL }
 
-    public record Option(String value, String label, String hint) {}
+    /** @param sources the source types this choice applies to (empty = all) */
+    public record Option(String value, String label, String hint, List<String> sources) {
+        public Option(String value, String label, String hint) {
+            this(value, label, hint, List.of());
+        }
+    }
 
     /**
      * @param showForSources source types for which this setting matters (empty = always)
      * @param advanced       hidden behind "advanced" in the UI
      */
     public record Field(String key, String label, String help, Type type, List<Option> options, String defaultValue,
-                        String placeholder, List<String> showForSources, boolean advanced, String unit) {}
+                        String placeholder, List<String> showForSources, boolean advanced, String unit,
+                        Map<String, List<String>> showWhen, Map<String, String> helpBySource) {
+
+        /** Help text written for one system (shown instead of the general help when that system is chosen). */
+        public Field helpFor(String source, String text) {
+            Map<String, String> h = new java.util.LinkedHashMap<>(helpBySource);
+            h.put(source, text);
+            return new Field(key, label, help, type, options, defaultValue, placeholder, showForSources, advanced, unit, showWhen, Map.copyOf(h));
+        }
+
+        /** Shown only while the setting {@code key} has one of {@code values} (for example one sign-in method). */
+        public Field when(String key, String... values) {
+            Map<String, List<String>> w = new java.util.LinkedHashMap<>(showWhen);
+            w.put(key, List.of(values));
+            return new Field(this.key, label, help, type, options, defaultValue, placeholder, showForSources, advanced, unit, Map.copyOf(w), helpBySource);
+        }
+    }
 
     public record Section(String id, String title, String description, String icon, List<Field> fields) {}
 
@@ -67,13 +88,19 @@ public final class ConfigService {
     // ================================================================== metadata
 
     private static Field f(String key, String label, String help, Type type, String def, String placeholder, List<String> sources, boolean advanced, String unit, Option... options) {
-        return new Field(key, label, help, type, List.of(options), def, placeholder, sources, advanced, unit);
+        return new Field(key, label, help, type, List.of(options), def, placeholder, sources, advanced, unit, Map.of(), Map.of());
     }
 
+    /**
+     * Settings in the order a person thinks about them: 1. which system and where it is, 2. how to sign in, 3. what to
+     * collect, 4. the company network (only if needed), then how collecting behaves and where things are saved.
+     * Each field says for which systems ({@code showForSources}) and, where it matters, for which choices
+     * ({@code showWhen}, for example only for one sign-in method) it is shown.
+     */
     public static List<Section> sections() {
         return List.of(
-                new Section("source", "Where do the questions come from?",
-                        "Pick the site to collect from and tell the app how to reach it. Use the Connect page to test access.", "plug", List.of(
+                new Section("source", "1. Your source",
+                        "Which system the questions or pages come from, and its address.", "plug", List.of(
                         f("source.type", "Source", "Demo data needs no internet. Stack Overflow / Stack Exchange uses the public API. Confluence collects wiki pages via its REST API. Jive collects community content via Core REST v3. SharePoint collects site pages/list items via Microsoft Graph. Your internal Q&A site needs its own connector.",
                                 Type.SELECT, "fixture", null, ALL, false, null,
                                 new Option("fixture", "Demo data", "Offline sample questions, nothing to set up"),
@@ -84,146 +111,153 @@ public final class ConfigService {
                                 new Option("live", "Our internal Q&A site", "Needs API documentation (Stack Exchange–style)")),
                         f("source.siteUrl", "Site address", "The home page of the Stack Exchange site, for example https://stackoverflow.com/.",
                                 Type.URL, "https://stackoverflow.com/", "https://stackoverflow.com/", SE, false, null),
-                        f("source.stackexchange.keyEnv", "API key variable name", "Optional. Name of the environment variable that holds a free Stack Exchange application key. A key raises the daily request limit from about 300 to 10,000. The key itself is never stored here.",
-                                Type.ENV_NAME, "STACKEXCHANGE_KEY", "STACKEXCHANGE_KEY", SE, false, null),
+                        f("source.baseUrl", "Site address", "Confluence: your site, for example https://acme.atlassian.net (pasting any page or space address also works). Jive: the community, for example https://community.example.com. SharePoint: the site, for example https://contoso.sharepoint.com/sites/Engineering. Internal Q&A: the API address, or leave empty to take it from the documentation.",
+                                Type.URL, "", "https://acme.atlassian.net", LIVE_WIKI, false, null)
+                                .helpFor("confluence", "Your Confluence site, for example https://acme.atlassian.net. You can also paste the address of any page or space: the site (and its space) are taken from it.")
+                                .helpFor("jive", "Your Jive community, for example https://community.example.com.")
+                                .helpFor("sharepoint", "Your SharePoint site, for example https://contoso.sharepoint.com/sites/Engineering.")
+                                .helpFor("live", "The address every API call starts with. Leave empty to take it from the API documentation above."),
                         f("api.swaggerUrl", "API documentation (Swagger) address", "The page that lists the site's REST API, for example https://so.mycompany.com/swagger/index.html. We read it to find every endpoint, the API address and how the access key is sent.",
                                 Type.URL, "", "https://so.mycompany.com/swagger/index.html", LIVE, false, null),
                         f("api.swaggerFile", "API documentation file (JSON)", "Use this when the documentation page needs a company sign-in (SSO). Open the documentation's JSON address in your browser (where you are signed in), save it as swagger.json, and upload it on the Connect screen: its location is filled in here.",
                                 Type.PATH, "", "C:/data/swagger.json", LIVE, false, null),
-                        f("source.baseUrl", "Site / API address", "For Confluence: the site (https://acme.atlassian.net); pasting any page or space address also works, the site is taken from it. For Jive: the community origin (https://community.example.com). For SharePoint: the site URL (https://contoso.sharepoint.com/sites/Engineering). For an internal Q&A API: the address every call starts with (or leave empty to take it from Swagger).",
-                                Type.URL, "", "https://contoso.sharepoint.com/sites/Engineering", LIVE_WIKI, false, null),
-                        f("source.confluence.edition", "Confluence edition", "Cloud uses /wiki/rest/api and email + API token (Basic). Server/Data Center uses /rest/api and a personal access token (Bearer).",
+                        f("source.confluence.edition", "Confluence edition", "Cloud: the address ends in atlassian.net. Server / Data Center: your company runs Confluence on its own servers.",
                                 Type.SELECT, "cloud", null, CONFLUENCE, false, null,
-                                new Option("cloud", "Confluence Cloud", "Atlassian Cloud site"),
-                                new Option("server", "Server / Data Center", "Self-hosted Confluence")),
+                                new Option("cloud", "Confluence Cloud", "…atlassian.net"),
+                                new Option("server", "Server / Data Center", "Run by your company")),
                         f("source.confluence.apiVersion", "Confluence REST API", "v1 = classic Content API + CQL (Cloud and Server/DC). v2 = Confluence Cloud REST API v2 (/wiki/api/v2/pages?body-format=storage), the one used with a Token Vending Machine token. Read-only either way.",
-                                Type.SELECT, "v1", null, CONFLUENCE, false, null,
+                                Type.SELECT, "v1", null, CONFLUENCE, true, null,
                                 new Option("v1", "v1: Content API + CQL", "Cloud or Server/DC"),
                                 new Option("v2", "v2: Cloud REST API v2", "Cloud only; /wiki/api/v2")),
-                        f("source.confluence.tvm.url", "Token Vending Machine address", "Only for sign-in 'Kerberos + Token Vending Machine'. The full exchange address, for example https://atlassian-tvm.mycompany.com/exchange/token/confluence/acme.atlassian.net. The app calls it like 'curl -u : --negotiate <address>' and renews the ~15-minute token by itself.",
-                                Type.URL, "", "https://atlassian-tvm.mycompany.com/exchange/token/confluence/acme.atlassian.net", CONFLUENCE, false, null),
-                        f("source.confluence.tvm.client", "Kerberos sign-in via", "curl (recommended) runs the same command you would type: curl -u : --negotiate. java uses the JDK's own Kerberos support (needs a ticket the JVM can see).",
-                                Type.SELECT, "curl", null, CONFLUENCE, true, null,
-                                new Option("curl", "curl --negotiate", "Recommended"),
-                                new Option("java", "Java built-in SPNEGO", "No external program")),
-                        f("source.confluence.tvm.curlPath", "curl program", "Only if curl is not on the PATH. Windows 10+ has curl.exe built in.",
-                                Type.TEXT, "curl", "curl", CONFLUENCE, true, null),
-                        f("source.confluence.tvm.useProxy", "Token service through the web proxy", "Usually off: the Token Vending Machine is an internal address. Turn on only if it must be reached through the proxy below.",
-                                Type.SWITCH, "false", null, CONFLUENCE, true, null),
-                        f("source.confluence.tvm.caCertFile", "Token service certificate file", "Only for curl, if the Token Vending Machine uses a company certificate authority curl does not trust yet.",
-                                Type.PATH, "", "C:\\certs\\company-ca.pem", CONFLUENCE, true, null),
-                        f("source.confluence.spaces", "Spaces to collect", "Every page in these spaces is collected. Press 'Show my spaces' below and tick them, or type space keys (ENG) or paste a space address (https://acme.atlassian.net/wiki/spaces/ENG/overview). Press Enter after each.",
-                                Type.TAGS, "", "ENG", CONFLUENCE, false, null),
-                        f("source.confluence.browser.path", "Browser program", "Only for 'Sign in with my browser'. Leave empty to use Edge or Chrome automatically. Otherwise the full path, for example C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe.",
-                                Type.PATH, "", "", CONFLUENCE, true, null),
-                        f("source.confluence.browser.profileDir", "Browser profile folder", "Only for 'Sign in with my browser'. The app's own browser profile, so your company login can remember you. Empty = ~/.questioncrawler/browser-profile.",
-                                Type.PATH, "", "", CONFLUENCE, true, null),
-                        f("source.confluence.browser.loginUrl", "Address to open for signing in", "Only for 'Sign in with my browser'. Empty = the Confluence site itself, which sends you to the company login page.",
-                                Type.URL, "", "", CONFLUENCE, true, null),
-                        f("source.confluence.browser.timeoutSeconds", "Time to finish signing in", "Only for 'Sign in with my browser'. How long the app waits for you to finish the login in the browser.",
-                                Type.NUMBER, "300", "300", CONFLUENCE, true, "seconds"),
-                        f("source.confluence.pageIds", "Only these pages (optional)", "Advanced. Instead of whole spaces, collect exactly these pages (the number in the page address, for example .../pages/123456789/Title). Leave empty to collect the spaces above.",
-                                Type.TAGS, "", "123456789", CONFLUENCE, true, null),
-                        f("source.confluence.email", "Atlassian account email", "Cloud only. The email for Basic auth with your API token. Not a secret; the token stays in an environment variable.",
-                                Type.TEXT, "", "you@example.com", CONFLUENCE, false, null),
-                        f("source.confluence.emailEnv", "Email variable name (optional)", "Optional alternative: NAME of an environment variable that holds the Atlassian email instead of typing it above.",
-                                Type.ENV_NAME, "", "CONFLUENCE_EMAIL", CONFLUENCE, true, null),
-                        f("source.confluence.ancestorPageId", "Ancestor page id", "Advanced, optional. Instead of whole spaces, only collect the pages under this page id (a subtree).",
-                                Type.TEXT, "", "123456", CONFLUENCE, true, null),
-                        f("source.confluence.contentTypes", "Content types", "Usually just page. Add blogpost only if you want blog posts too.",
-                                Type.TAGS, "page", "page", CONFLUENCE, true, null),
-                        f("source.confluence.apiRoot", "REST API root override", "Leave empty for the edition default (/wiki/rest/api on Cloud, /rest/api on Server/DC). Set only if your site uses a custom context path.",
-                                Type.TEXT, "", "/wiki/rest/api", CONFLUENCE, true, null),
-                        f("source.confluence.bodyExpand", "Page body format", "Prefer storage XHTML (converted to Markdown). Fall back to view HTML if needed.",
-                                Type.SELECT, "body.storage", null, CONFLUENCE, true, null,
-                                new Option("body.storage", "Storage (XHTML)", "Recommended"),
-                                new Option("body.view", "View (rendered HTML)", "Fallback")),
-                        f("source.confluence.collectComments", "Also collect page comments", "Downloads footer/inline page comments as thread comments. Uses more API requests. Failures are non-fatal.",
-                                Type.SWITCH, "false", null, CONFLUENCE, false, null),
-                        f("source.confluence.pageSize", "Search page size", "How many pages Confluence returns per search request (1–50).",
-                                Type.NUMBER, "25", null, CONFLUENCE, true, null),
-                        f("source.confluence.includeSpaceTag", "Add space:KEY tags", "Adds a synthetic space:ENG-style tag on each page for filtering and classification.",
-                                Type.SWITCH, "true", null, CONFLUENCE, true, null),
-                        f("source.systemId", "Storage system id", "Folder name under threads/ for this site. Defaults: confluence, jive, or sharepoint depending on the source type.",
-                                Type.TEXT, "", "sharepoint", List.of("confluence", "jive", "sharepoint"), true, null),
-                        f("source.jive.username", "Jive username", "Basic auth only. The Jive username (often a non-SSO service account). Not a secret; the password/token stays in an environment variable.",
-                                Type.TEXT, "", "svc-questioncrawler", JIVE, false, null),
-                        f("source.jive.usernameEnv", "Username variable name (optional)", "Optional alternative: NAME of an environment variable that holds the Jive username instead of typing it above.",
-                                Type.ENV_NAME, "", "JIVE_USERNAME", JIVE, true, null),
-                        f("source.jive.places", "Place ids", "Comma-separated Jive place/space ids to include (numeric ids). Strongly recommended so sync stays bounded.",
-                                Type.TAGS, "", "1006", JIVE, false, null),
-                        f("source.jive.contentTypes", "Content types", "Jive object types to collect. Defaults cover documents, discussions, and questions.",
-                                Type.TAGS, "document,discussion,question", "document,discussion,question", JIVE, true, null),
-                        f("source.jive.apiRoot", "REST API root override", "Leave empty for /api/core/v3. Set only if your site uses a custom context path.",
-                                Type.TEXT, "", "/api/core/v3", JIVE, true, null),
-                        f("source.jive.collectComments", "Also collect comments", "Downloads content comments as thread comments. Uses more API requests. Failures are non-fatal.",
-                                Type.SWITCH, "false", null, JIVE, false, null),
-                        f("source.jive.pageSize", "List page size", "How many content items Jive returns per request (1–100).",
-                                Type.NUMBER, "25", null, JIVE, true, null),
-                        f("source.jive.includePlaceTag", "Add place:ID tags", "Adds a synthetic place:1006-style tag on each item for filtering and classification.",
-                                Type.SWITCH, "true", null, JIVE, true, null),
-                        f("source.sharepoint.tenantId", "Azure AD tenant id", "Directory (tenant) ID for client-credentials auth. Leave empty when using a pre-minted Bearer access token.",
-                                Type.TEXT, "", "00000000-0000-0000-0000-000000000000", SHAREPOINT, false, null),
-                        f("source.sharepoint.clientId", "App (client) id", "Entra ID app registration application (client) ID. Used with client credentials only.",
-                                Type.TEXT, "", "11111111-1111-1111-1111-111111111111", SHAREPOINT, false, null),
-                        f("source.sharepoint.clientSecretEnv", "Client secret variable name", "NAME of the environment variable that holds the app client secret (never the secret itself). Used only for Azure AD client credentials.",
-                                Type.ENV_NAME, "SHAREPOINT_CLIENT_SECRET", "SHAREPOINT_CLIENT_SECRET", SHAREPOINT, false, null),
                         f("source.sharepoint.siteId", "Graph site id (optional)", "Optional Microsoft Graph site id. Leave empty to resolve from the SharePoint site URL above.",
                                 Type.TEXT, "", "", SHAREPOINT, true, null),
-                        f("source.sharepoint.listIds", "List ids", "Optional comma-separated Graph list ids when collecting list items (content mode listItems or both).",
-                                Type.TAGS, "", "", SHAREPOINT, false, null),
-                        f("source.sharepoint.contentMode", "What to collect", "Site pages (default), list items, or both. Separate from Confluence/Jive content types.",
-                                Type.SELECT, "pages", null, SHAREPOINT, false, null,
-                                new Option("pages", "Site pages", "SharePoint site pages via Graph"),
-                                new Option("listItems", "List items", "Items from the configured list ids"),
-                                new Option("both", "Pages and list items", "Pages first, then configured lists")),
                         f("source.sharepoint.graphBaseUrl", "Graph base URL", "Usually https://graph.microsoft.com/v1.0. Override only for national clouds (for example graph.microsoft.us).",
                                 Type.URL, "https://graph.microsoft.com/v1.0", "https://graph.microsoft.com/v1.0", SHAREPOINT, true, null),
-                        f("source.sharepoint.pageSize", "List page size", "How many pages/items Graph returns per request (1–100).",
-                                Type.NUMBER, "25", null, SHAREPOINT, true, null),
-                        f("source.sharepoint.includeSiteTag", "Add site:NAME tags", "Adds a synthetic site:Engineering-style tag on each item for filtering and classification.",
-                                Type.SWITCH, "true", null, SHAREPOINT, true, null),
-                        f("source.sharepoint.collectComments", "Also collect comments", "Reserved; SharePoint page comments are not collected in this version.",
-                                Type.SWITCH, "false", null, SHAREPOINT, true, null),
-                        f("api.keyEnv", "API access key variable name", "All API requests need an access key. Enter the NAME of the environment variable that holds your key (the key itself is never saved), then set that variable in your terminal.",
-                                Type.ENV_NAME, "INTERNAL_QA_API_KEY", "INTERNAL_QA_API_KEY", LIVE, false, null),
-                        f("api.collectComments", "Also collect comments", "Downloads the comments under questions and answers as extra context. Uses more API requests.",
-                                Type.SWITCH, "false", null, LIVE, false, null),
+                        f("source.confluence.apiRoot", "REST API root override", "Leave empty for the edition default (/wiki/rest/api on Cloud, /rest/api on Server/DC). Set only if your site uses a custom context path.",
+                                Type.TEXT, "", "/wiki/rest/api", CONFLUENCE, true, null),
+                        f("source.jive.apiRoot", "REST API root override", "Leave empty for /api/core/v3. Set only if your site uses a custom context path.",
+                                Type.TEXT, "", "/api/core/v3", JIVE, true, null),
                         f("api.keyName", "Key parameter name", "How the key is called in each request. Leave empty to use what the Swagger documentation says (usually 'key').",
                                 Type.TEXT, "", "key", LIVE, true, null),
                         f("api.keyIn", "Send the key in", "Normally in the address (query). Choose 'header' if the documentation says so.",
                                 Type.SELECT, "query", null, LIVE, true, null,
                                 new Option("query", "The address (query)", "?key=..."),
                                 new Option("header", "A request header", "key: ...")),
-                        f("api.accessTokenEnv", "Access token variable name", "Only if the API also needs a signed-in user token. Name of the environment variable that holds it.",
-                                Type.ENV_NAME, "", "INTERNAL_QA_ACCESS_TOKEN", LIVE, true, null),
                         f("api.site", "Site name", "Only if the API expects a 'site' parameter. Most internal APIs do not.",
                                 Type.TEXT, "", "", LIVE, true, null),
                         f("api.bodyFilter", "Response filter with text", "The filter that makes the API include question and answer text. Leave empty for the standard one; if it does not exist, one is created for you.",
                                 Type.TEXT, "", "withbody", LIVE, true, null),
-                        f("source.auth.method", "How to sign in", "Confluence Cloud: Email + API token (Basic). Confluence Server/DC: Bearer PAT. Jive: username + password (Basic) or OAuth Bearer. SharePoint: Bearer Graph token (or leave Bearer and set tenant/client for client credentials). Internal Q&A: Bearer only when the API asks for it in addition to a key.",
+                        f("source.systemId", "Storage system id", "Folder name under threads/ for this site. Defaults: confluence, jive, or sharepoint depending on the source type.",
+                                Type.TEXT, "", "sharepoint", List.of("confluence", "jive", "sharepoint"), true, null))),
+                new Section("signin", "2. Signing in",
+                        "How the app proves who you are. Only the ways that work for your system are shown. Secrets are never stored: at most the name of an environment variable that holds one.", "lock", List.of(
+                        f("source.auth.method", "Sign-in method", "Pick the way you already sign in to this system. Only the choices that work for it are shown. Passwords and tokens are never stored; at most the NAME of an environment variable that holds one.",
                                 Type.SELECT, "none", null, AUTH_TOKEN, false, null,
-                                new Option("none", "Not needed", "Only for some internal Q&A APIs"),
-                                new Option("basic-env", "Username/email + secret (Basic)", "Confluence Cloud email+token, or Jive username+password from env"),
-                                new Option("token", "Bearer token / PAT / OAuth / Graph", "Confluence Server/DC PAT, Jive OAuth, SharePoint Graph token, or internal Bearer"),
-                                new Option("tvm", "Kerberos + Token Vending Machine (Confluence)", "Short-lived Bearer token from your company TVM; no secret to store"),
-                                new Option("browser", "Sign in with my browser (Confluence)", "Opens your company login page in Edge/Chrome, like you do every day; no secret to store")),
-                        f("source.auth.tokenEnv", "Token / password variable name", "The NAME of the environment variable that holds the secret (never the secret itself). Suggested: CONFLUENCE_API_TOKEN / CONFLUENCE_PAT, JIVE_PASSWORD / JIVE_ACCESS_TOKEN, SHAREPOINT_ACCESS_TOKEN.",
-                                Type.ENV_NAME, "SHAREPOINT_ACCESS_TOKEN", "SHAREPOINT_ACCESS_TOKEN", AUTH_TOKEN, false, null),
+                                new Option("browser", "Sign in with my browser", "Recommended for company Confluence: your usual company login page opens in Edge/Chrome, you sign in, the app continues. Nothing to set up", List.of("confluence")),
+                                new Option("tvm", "Company token service (Kerberos)", "Your company's Token Vending Machine gives a short-lived token using your Windows/Kerberos login", List.of("confluence")),
+                                new Option("basic-env", "Email or username + API token / password", "Confluence Cloud: your email and an API token. Jive: a username and password", List.of("confluence", "jive")),
+                                new Option("token", "Access token", "Confluence Server/Data Center personal access token, Jive OAuth token, SharePoint (Microsoft Graph) token, or an internal API token", List.of("confluence", "jive", "sharepoint", "live")),
+                                new Option("none", "No sign-in", "Only for internal APIs that need nothing besides the access key", List.of("live"))),
+                        f("source.confluence.email", "Atlassian account email", "Cloud only. The email for Basic auth with your API token. Not a secret; the token stays in an environment variable.",
+                                Type.TEXT, "", "you@example.com", CONFLUENCE, false, null).when("source.auth.method", "basic-env"),
+                        f("source.confluence.emailEnv", "Email variable name (optional)", "Optional alternative: NAME of an environment variable that holds the Atlassian email instead of typing it above.",
+                                Type.ENV_NAME, "", "CONFLUENCE_EMAIL", CONFLUENCE, true, null).when("source.auth.method", "basic-env"),
+                        f("source.jive.username", "Jive username", "Basic auth only. The Jive username (often a non-SSO service account). Not a secret; the password/token stays in an environment variable.",
+                                Type.TEXT, "", "svc-questioncrawler", JIVE, false, null).when("source.auth.method", "basic-env"),
+                        f("source.jive.usernameEnv", "Username variable name (optional)", "Optional alternative: NAME of an environment variable that holds the Jive username instead of typing it above.",
+                                Type.ENV_NAME, "", "JIVE_USERNAME", JIVE, true, null).when("source.auth.method", "basic-env"),
+                        f("source.auth.tokenEnv", "Token / password variable name", "The NAME of the environment variable that holds your token or password (never the secret itself). For example CONFLUENCE_API_TOKEN, CONFLUENCE_PAT, JIVE_PASSWORD, SHAREPOINT_ACCESS_TOKEN.",
+                                Type.ENV_NAME, "", "CONFLUENCE_API_TOKEN", AUTH_TOKEN, false, null)
+                                .helpFor("confluence", "The NAME of the environment variable that holds your Confluence API token (Cloud, with your email) or personal access token (Server/Data Center), for example CONFLUENCE_API_TOKEN. Never the token itself.")
+                                .helpFor("jive", "The NAME of the environment variable that holds your Jive password or OAuth token, for example JIVE_PASSWORD. Never the secret itself.")
+                                .helpFor("sharepoint", "The NAME of the environment variable that holds a Microsoft Graph access token, for example SHAREPOINT_ACCESS_TOKEN. Leave as is when you use the app login (tenant and client id) below.")
+                                .helpFor("live", "The NAME of the environment variable that holds the API's Bearer token. Never the token itself.").when("source.auth.method", "token", "basic-env"),
+                        f("source.confluence.tvm.url", "Token Vending Machine address", "Only for sign-in 'Kerberos + Token Vending Machine'. The full exchange address, for example https://atlassian-tvm.mycompany.com/exchange/token/confluence/acme.atlassian.net. The app calls it like 'curl -u : --negotiate <address>' and renews the ~15-minute token by itself.",
+                                Type.URL, "", "https://atlassian-tvm.mycompany.com/exchange/token/confluence/acme.atlassian.net", CONFLUENCE, false, null).when("source.auth.method", "tvm"),
+                        f("source.confluence.tvm.client", "Kerberos sign-in via", "curl (recommended) runs the same command you would type: curl -u : --negotiate. java uses the JDK's own Kerberos support (needs a ticket the JVM can see).",
+                                Type.SELECT, "curl", null, CONFLUENCE, true, null,
+                                new Option("curl", "curl --negotiate", "Recommended"),
+                                new Option("java", "Java built-in SPNEGO", "No external program")).when("source.auth.method", "tvm"),
+                        f("source.confluence.tvm.curlPath", "curl program", "Only if curl is not on the PATH. Windows 10+ has curl.exe built in.",
+                                Type.TEXT, "curl", "curl", CONFLUENCE, true, null).when("source.auth.method", "tvm"),
+                        f("source.confluence.tvm.useProxy", "Token service through the web proxy", "Usually off: the Token Vending Machine is an internal address. Turn on only if it must be reached through the proxy below.",
+                                Type.SWITCH, "false", null, CONFLUENCE, true, null).when("source.auth.method", "tvm"),
+                        f("source.confluence.tvm.caCertFile", "Token service certificate file", "Only for curl, if the Token Vending Machine uses a company certificate authority curl does not trust yet.",
+                                Type.PATH, "", "C:\\certs\\company-ca.pem", CONFLUENCE, true, null).when("source.auth.method", "tvm"),
+                        f("source.confluence.browser.path", "Browser program", "Only for 'Sign in with my browser'. Leave empty to use Edge or Chrome automatically. Otherwise the full path, for example C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe.",
+                                Type.PATH, "", "", CONFLUENCE, true, null).when("source.auth.method", "browser"),
+                        f("source.confluence.browser.profileDir", "Browser profile folder", "Only for 'Sign in with my browser'. The app's own browser profile, so your company login can remember you. Empty = ~/.questioncrawler/browser-profile.",
+                                Type.PATH, "", "", CONFLUENCE, true, null).when("source.auth.method", "browser"),
+                        f("source.confluence.browser.loginUrl", "Address to open for signing in", "Only for 'Sign in with my browser'. Empty = the Confluence site itself, which sends you to the company login page.",
+                                Type.URL, "", "", CONFLUENCE, true, null).when("source.auth.method", "browser"),
+                        f("source.confluence.browser.timeoutSeconds", "Time to finish signing in", "Only for 'Sign in with my browser'. How long the app waits for you to finish the login in the browser.",
+                                Type.NUMBER, "300", "300", CONFLUENCE, true, "seconds").when("source.auth.method", "browser"),
+                        f("source.sharepoint.tenantId", "Azure AD tenant id (only for app login)", "Directory (tenant) ID for client-credentials auth. Leave empty when using a pre-minted Bearer access token.",
+                                Type.TEXT, "", "00000000-0000-0000-0000-000000000000", SHAREPOINT, false, null),
+                        f("source.sharepoint.clientId", "App (client) id (only for app login)", "Entra ID app registration application (client) ID. Used with client credentials only.",
+                                Type.TEXT, "", "11111111-1111-1111-1111-111111111111", SHAREPOINT, false, null),
+                        f("source.sharepoint.clientSecretEnv", "Client secret variable name", "NAME of the environment variable that holds the app client secret (never the secret itself). Used only for Azure AD client credentials.",
+                                Type.ENV_NAME, "SHAREPOINT_CLIENT_SECRET", "SHAREPOINT_CLIENT_SECRET", SHAREPOINT, false, null),
+                        f("source.stackexchange.keyEnv", "API key variable name", "Optional. Name of the environment variable that holds a free Stack Exchange application key. A key raises the daily request limit from about 300 to 10,000. The key itself is never stored here.",
+                                Type.ENV_NAME, "STACKEXCHANGE_KEY", "STACKEXCHANGE_KEY", SE, false, null),
+                        f("api.keyEnv", "API access key variable name", "All API requests need an access key. Enter the NAME of the environment variable that holds your key (the key itself is never saved), then set that variable in your terminal.",
+                                Type.ENV_NAME, "INTERNAL_QA_API_KEY", "INTERNAL_QA_API_KEY", LIVE, false, null),
+                        f("api.accessTokenEnv", "Access token variable name", "Only if the API also needs a signed-in user token. Name of the environment variable that holds it.",
+                                Type.ENV_NAME, "", "INTERNAL_QA_ACCESS_TOKEN", LIVE, true, null),
                         f("source.auth.headerName", "Auth header name", "The HTTP header that carries the credential. Almost always Authorization.",
-                                Type.TEXT, "Authorization", "Authorization", AUTH_TOKEN, true, null),
+                                Type.TEXT, "Authorization", "Authorization", AUTH_TOKEN, true, null).when("source.auth.method", "token"),
                         f("source.auth.scheme", "Bearer prefix", "For Bearer/PAT auth only. Ignored for Basic (email + API token).",
-                                Type.TEXT, "Bearer", "Bearer", AUTH_TOKEN, true, null),
-                        f("source.allowedHosts", "Allowed hosts", "The app only ever talks to these hosts. Filled in automatically from the address above (SharePoint also adds graph.microsoft.com).",
-                                Type.TAGS, "", "contoso.sharepoint.com,graph.microsoft.com", LIVE_WIKI, true, null),
-                        f("source.allowedPathPrefixes", "Allowed paths", "The app only requests addresses that start with one of these paths. Confluence Cloud default is /wiki/rest/api/; Jive default is /api/core/v3/; SharePoint Graph default is /v1.0/.",
-                                Type.TAGS, "/", "/v1.0/", LIVE_WIKI, true, null),
-                        f("source.caCertFile", "Company certificate file", "Only needed if your company uses its own security certificate authority. Path to a .pem/.crt file.",
-                                Type.PATH, "", "C:\\certs\\company-ca.pem", REMOTE, true, null),
+                                Type.TEXT, "Bearer", "Bearer", AUTH_TOKEN, true, null).when("source.auth.method", "token"))),
+                new Section("topic", "3. What to collect",
+                        "Which spaces, places or tags, and how far back.", "tags", List.of(
+                        f("source.confluence.spaces", "Spaces to collect", "Every page in these spaces is collected. Press 'Show my spaces' below and tick them, or type space keys (ENG) or paste a space address (https://acme.atlassian.net/wiki/spaces/ENG/overview). Press Enter after each.",
+                                Type.TAGS, "", "ENG", CONFLUENCE, false, null),
+                        f("source.confluence.pageIds", "Only these pages (optional)", "Advanced. Instead of whole spaces, collect exactly these pages (the number in the page address, for example .../pages/123456789/Title). Leave empty to collect the spaces above.",
+                                Type.TAGS, "", "123456789", CONFLUENCE, true, null),
+                        f("source.confluence.ancestorPageId", "Ancestor page id", "Advanced, optional. Instead of whole spaces, only collect the pages under this page id (a subtree).",
+                                Type.TEXT, "", "123456", CONFLUENCE, true, null),
+                        f("source.jive.places", "Place ids", "Comma-separated Jive place/space ids to include (numeric ids). Strongly recommended so sync stays bounded.",
+                                Type.TAGS, "", "1006", JIVE, false, null),
+                        f("source.sharepoint.contentMode", "What to collect", "Site pages (default), list items, or both. Separate from Confluence/Jive content types.",
+                                Type.SELECT, "pages", null, SHAREPOINT, false, null,
+                                new Option("pages", "Site pages", "SharePoint site pages via Graph"),
+                                new Option("listItems", "List items", "Items from the configured list ids"),
+                                new Option("both", "Pages and list items", "Pages first, then configured lists")),
+                        f("source.sharepoint.listIds", "List ids", "Optional comma-separated Graph list ids when collecting list items (content mode listItems or both).",
+                                Type.TAGS, "", "", SHAREPOINT, false, null).when("source.sharepoint.contentMode", "listItems", "both"),
+                        f("sync.tags", "Tags / labels", "Press Enter after each one. Stack Exchange: question tags. Confluence: page labels. Jive: content tags. SharePoint: words in page titles. Type all (or *) to collect everything in the chosen space, place or site.",
+                                Type.TAGS, "", "all", ALL, false, null)
+                                .helpFor("confluence", "Confluence page labels. Keep all to collect every page in the chosen spaces, or name labels (press Enter after each) to collect only pages that carry them.")
+                                .helpFor("jive", "Jive content tags. Keep all to collect everything in the chosen places, or name tags (press Enter after each).")
+                                .helpFor("sharepoint", "Words that must appear in the page title or description. Keep all to collect every page of the site.")
+                                .helpFor("stackexchange", "Question tags exactly as the site writes them, for example artificial-intelligence (press Enter after each). Use “Find tags on the site” below to look them up."),
+                        f("sync.tagMode", "With several tags or labels, collect items that have", "Any of them (wider) or all of them (narrower).", Type.SELECT, "ANY", null, ALL, false, null,
+                                new Option("ANY", "Any of them", "At least one"),
+                                new Option("ALL", "All of them", "Every one")),
+                        f("sync.partialTags", "Match part of a tag", "Also accept tags that merely contain your text. Leave off for exact matching.",
+                                Type.SWITCH, "false", null, ALL, true, null),
+                        f("sync.maxQuestionAge", "Only collect items newer than", "Limits the download to recent questions or pages, for example 30d, 6m or 1y. Empty means everything.",
+                                Type.AGE, "", "1y", ALL, false, null),
+                        f("source.confluence.contentTypes", "Content types", "Usually just page. Add blogpost only if you want blog posts too.",
+                                Type.TAGS, "page", "page", CONFLUENCE, true, null),
+                        f("source.jive.contentTypes", "Content types", "Jive object types to collect. Defaults cover documents, discussions, and questions.",
+                                Type.TAGS, "document,discussion,question", "document,discussion,question", JIVE, true, null),
+                        f("source.confluence.collectComments", "Also collect page comments", "Downloads footer/inline page comments as thread comments. Uses more API requests. Failures are non-fatal.",
+                                Type.SWITCH, "false", null, CONFLUENCE, false, null),
+                        f("source.jive.collectComments", "Also collect comments", "Downloads content comments as thread comments. Uses more API requests. Failures are non-fatal.",
+                                Type.SWITCH, "false", null, JIVE, false, null),
+                        f("api.collectComments", "Also collect comments", "Downloads the comments under questions and answers as extra context. Uses more API requests.",
+                                Type.SWITCH, "false", null, LIVE, false, null),
+                        f("source.sharepoint.collectComments", "Also collect comments", "Reserved; SharePoint page comments are not collected in this version.",
+                                Type.SWITCH, "false", null, SHAREPOINT, true, null))),
+                new Section("network", "4. Company network",
+                        "Only needed inside a company network: a web proxy and your company's certificate. Leave empty if you do not use them.", "globe", List.of(
                         f("network.proxyHost", "Web proxy address", "Only if your company reaches the internet through a web proxy. Enter the host name, for example webproxy.mycompany.com (leave empty if there is none). If the HTTPS_PROXY environment variable is already set, you can leave this empty.",
                                 Type.TEXT, "", "webproxy.mycompany.com", REMOTE, false, null),
                         f("network.proxyPort", "Web proxy port", "The proxy's port number, usually 8080 or 3128.",
                                 Type.NUMBER, "", "8080", REMOTE, false, null),
+                        f("source.caCertFile", "Company certificate file", "Only needed if your company uses its own security certificate authority. Path to a .pem/.crt file.",
+                                Type.PATH, "", "C:\\certs\\company-ca.pem", REMOTE, false, null),
                         f("network.noProxy", "Addresses that skip the proxy", "Host names that should be reached directly, not through the proxy. Local addresses always skip it.",
                                 Type.TAGS, "", "intranet.mycompany.com", REMOTE, true, null),
                         f("network.proxyUserEnv", "Proxy user variable name", "Only if the proxy asks you to sign in (a user name and password). Name of the environment variable that holds the user name. Proxies that use Windows sign-in need a local helper such as CNTLM.",
@@ -237,20 +271,13 @@ public final class ConfigService {
                                 new Option("off", "No", "Never follow redirects")),
                         f("source.timeoutSeconds", "Wait at most", "How long to wait for the site to answer before giving up.",
                                 Type.NUMBER, "30", null, REMOTE, true, "seconds"),
+                        f("source.allowedHosts", "Allowed hosts", "The app only ever talks to these hosts. Filled in automatically from the address above (SharePoint also adds graph.microsoft.com).",
+                                Type.TAGS, "", "contoso.sharepoint.com,graph.microsoft.com", LIVE_WIKI, true, null),
+                        f("source.allowedPathPrefixes", "Allowed paths", "The app only requests addresses that start with one of these paths. Confluence Cloud default is /wiki/rest/api/; Jive default is /api/core/v3/; SharePoint Graph default is /v1.0/.",
+                                Type.TAGS, "/", "/v1.0/", LIVE_WIKI, true, null),
                         f("source.allowInsecureHttp", "Allow unencrypted http", "For local testing only. Never turn this on for a real site.",
                                 Type.SWITCH, "false", null, REMOTE, true, null))),
-                new Section("topic", "What should we collect?",
-                        "Tags are the labels people put on questions. We collect every question that has your tags.", "tags", List.of(
-                        f("sync.tags", "Tags", "Press Enter after each tag. For Stack Exchange these are question tags; for Confluence they are page labels; for Jive they are content tags; for SharePoint they match page title/description text or list keywords (case-insensitive). Type all (or *) only with a bounded site/space/place or a time window — unbounded whole-site sync is refused.",
-                                Type.TAGS, "", "artificial-intelligence", ALL, false, null),
-                        f("sync.tagMode", "A question must have", "With several tags: any of them, or all of them.", Type.SELECT, "ANY", null, ALL, false, null,
-                                new Option("ANY", "Any of the tags", "Wider: questions matching at least one tag"),
-                                new Option("ALL", "All of the tags", "Narrower: questions matching every tag")),
-                        f("sync.partialTags", "Match part of a tag", "Also accept tags that merely contain your text. Leave off for exact matching.",
-                                Type.SWITCH, "false", null, ALL, true, null),
-                        f("sync.maxQuestionAge", "Only collect questions newer than", "Limits the download to recent questions, for example 30d, 6m or 1y. Empty means everything.",
-                                Type.AGE, "", "1y", ALL, false, null))),
-                new Section("collection", "How should collecting behave?",
+                new Section("collection", "How collecting behaves",
                         "Sensible defaults are already set. Change these only if you know you need to.", "refresh", List.of(
                         f("sync.scheduler.enabled", "Refresh automatically", "Keeps the knowledge fresh while this application is running. Off by default.",
                                 Type.SWITCH, "false", null, ALL, false, null),
@@ -263,8 +290,24 @@ public final class ConfigService {
                                 Type.NUMBER, "60", null, ALL, true, "minutes"),
                         f("sync.concurrency", "Parallel downloads", "How many questions are downloaded at the same time (1-16).", Type.NUMBER, "4", null, ALL, true, null),
                         f("sync.maxAttempts", "Retries per request", "How many times to retry a request that failed temporarily.", Type.NUMBER, "5", null, ALL, true, null),
+                        f("source.confluence.bodyExpand", "Page body format", "Prefer storage XHTML (converted to Markdown). Fall back to view HTML if needed.",
+                                Type.SELECT, "body.storage", null, CONFLUENCE, true, null,
+                                new Option("body.storage", "Storage (XHTML)", "Recommended"),
+                                new Option("body.view", "View (rendered HTML)", "Fallback")),
+                        f("source.confluence.pageSize", "Search page size", "How many pages Confluence returns per search request (1–50).",
+                                Type.NUMBER, "25", null, CONFLUENCE, true, null),
+                        f("source.jive.pageSize", "List page size", "How many content items Jive returns per request (1–100).",
+                                Type.NUMBER, "25", null, JIVE, true, null),
+                        f("source.sharepoint.pageSize", "List page size", "How many pages/items Graph returns per request (1–100).",
+                                Type.NUMBER, "25", null, SHAREPOINT, true, null),
+                        f("source.confluence.includeSpaceTag", "Add space:KEY tags", "Adds a synthetic space:ENG-style tag on each page for filtering and classification.",
+                                Type.SWITCH, "true", null, CONFLUENCE, true, null),
+                        f("source.jive.includePlaceTag", "Add place:ID tags", "Adds a synthetic place:1006-style tag on each item for filtering and classification.",
+                                Type.SWITCH, "true", null, JIVE, true, null),
+                        f("source.sharepoint.includeSiteTag", "Add site:NAME tags", "Adds a synthetic site:Engineering-style tag on each item for filtering and classification.",
+                                Type.SWITCH, "true", null, SHAREPOINT, true, null),
                         f("source.fixture.pageSize", "Demo page size", "Only for the demo data: how many questions are shown per page of results.", Type.NUMBER, "2", null, List.of("fixture"), true, null))),
-                new Section("storage", "Where is everything saved?",
+                new Section("storage", "Where everything is saved",
                         "All collected knowledge is stored as ordinary files in one folder. There is no database.", "folder", List.of(
                         f("storage.root", "Knowledge folder", "Use a folder approved by your organization. Keep it outside the source-code folder.",
                                 Type.PATH, "", "C:\\Users\\you\\.questioncrawler\\data", ALL, false, null),
@@ -284,43 +327,11 @@ public final class ConfigService {
 
     public static List<Preset> presets() {
         return List.of(
-                new Preset("demo", "Try it with demo data", "Sample questions built into the app. No internet, no account. Best for seeing how everything works.", "sparkles",
+                new Preset("demo", "Demo data", "Sample questions built into the app. No internet, no account. Best for seeing how everything works.", "sparkles",
                         Map.of("source.type", "fixture", "sync.tags", "orbit", "sync.maxQuestionAge", "")),
-                new Preset("stackoverflow", "Stack Overflow: Artificial Intelligence", "Collect real questions from stackoverflow.com about artificial intelligence, from the last year.", "globe",
+                new Preset("stackoverflow", "Stack Overflow / Stack Exchange", "Any public Stack Exchange site: stackoverflow.com, serverfault.com, superuser.com… Starts with the tag artificial-intelligence from the last year as an example; change both below.", "globe",
                         Map.of("source.type", "stackexchange", "source.siteUrl", "https://stackoverflow.com/", "sync.tags", "artificial-intelligence", "sync.tagMode", "ANY", "sync.maxQuestionAge", "1y")),
-                new Preset("stackexchange", "Another Stack Exchange site", "Server Fault, Super User, Ask Ubuntu or any public Stack Exchange community.", "layers",
-                        Map.of("source.type", "stackexchange", "source.siteUrl", "https://serverfault.com/", "sync.tags", "", "sync.maxQuestionAge", "1y")),
-                new Preset("confluence", "Confluence wiki", "Collect Confluence Cloud or Server/DC pages via the REST API. Set the site address, email + token env (Cloud) or PAT (Server), and space keys or labels. Separate from Jive/SharePoint.", "book",
-                        Map.ofEntries(
-                                Map.entry("source.type", "confluence"),
-                                Map.entry("source.baseUrl", ""),
-                                Map.entry("source.confluence.edition", "cloud"),
-                                Map.entry("source.confluence.email", "you@example.com"),
-                                Map.entry("source.confluence.spaces", "ENG"),
-                                Map.entry("source.auth.method", "basic-env"),
-                                Map.entry("source.auth.tokenEnv", "CONFLUENCE_API_TOKEN"),
-                                Map.entry("sync.tags", "runbook"),
-                                Map.entry("sync.maxQuestionAge", "1y"),
-                                Map.entry("sync.concurrency", "2"),
-                                Map.entry("source.followRedirects", "same-host"),
-                                Map.entry("source.allowedPathPrefixes", "/wiki/rest/api/"))),
-                new Preset("confluence-tvm", "Confluence (company sign-in)", "Read Confluence Cloud pages with the REST API v2, using a short-lived token from your company Token Vending Machine (Kerberos) and the web proxy. Nothing secret to store.", "book",
-                        Map.ofEntries(
-                                Map.entry("source.type", "confluence"),
-                                Map.entry("source.baseUrl", ""),
-                                Map.entry("source.confluence.edition", "cloud"),
-                                Map.entry("source.confluence.apiVersion", "v2"),
-                                Map.entry("source.auth.method", "tvm"),
-                                Map.entry("source.confluence.tvm.url", ""),
-                                Map.entry("source.confluence.tvm.client", "curl"),
-                                Map.entry("source.confluence.spaces", ""),
-                                Map.entry("source.confluence.pageIds", ""),
-                                Map.entry("sync.tags", "all"),
-                                Map.entry("sync.maxQuestionAge", "1y"),
-                                Map.entry("sync.concurrency", "2"),
-                                Map.entry("source.followRedirects", "same-host"),
-                                Map.entry("source.allowedPathPrefixes", "/wiki/api/v2/"))),
-                new Preset("confluence-browser", "Confluence (sign in with my browser)", "Read Confluence pages when the site sends you to your company login page. The app opens that page in Edge/Chrome, you sign in as usual, and it carries on. Nothing for admins to change; nothing secret to store.", "book",
+                new Preset("confluence", "Confluence", "Wiki pages from Confluence Cloud or Server/Data Center. Enter the site address, choose how you sign in (your usual company login works), then pick the spaces.", "book",
                         Map.ofEntries(
                                 Map.entry("source.type", "confluence"),
                                 Map.entry("source.baseUrl", ""),
@@ -333,7 +344,7 @@ public final class ConfigService {
                                 Map.entry("sync.concurrency", "2"),
                                 Map.entry("source.followRedirects", "same-host"),
                                 Map.entry("source.allowedPathPrefixes", "/wiki/api/v2/"))),
-                new Preset("jive", "Jive community", "Collect Jive documents/discussions via Core REST v3. Set the community address, username + password env (or OAuth Bearer), and place ids. Separate from Confluence/SharePoint.", "users",
+                new Preset("jive", "Jive", "Documents, discussions and questions from a Jive community. Enter the community address, how you sign in, and the places to collect.", "users",
                         Map.ofEntries(
                                 Map.entry("source.type", "jive"),
                                 Map.entry("source.baseUrl", ""),
@@ -346,7 +357,7 @@ public final class ConfigService {
                                 Map.entry("sync.concurrency", "2"),
                                 Map.entry("source.followRedirects", "same-host"),
                                 Map.entry("source.allowedPathPrefixes", "/api/core/v3/"))),
-                new Preset("sharepoint", "SharePoint site", "Collect SharePoint Online site pages via Microsoft Graph. Set the site URL and either a Bearer token env or Azure AD client credentials (tenant, client id, secret env). Separate from Confluence/Jive.", "folder",
+                new Preset("sharepoint", "SharePoint", "Site pages (and optionally list items) from SharePoint Online. Enter the site address and how you sign in.", "folder",
                         Map.ofEntries(
                                 Map.entry("source.type", "sharepoint"),
                                 Map.entry("source.baseUrl", "https://contoso.sharepoint.com/sites/Engineering"),
@@ -457,7 +468,7 @@ public final class ConfigService {
                         + (space != null ? ", and the space " + space + " (if no space is chosen yet)." : "."),
                         "Nothing to do: it is corrected when you save. To collect only this one page, put its id in “Only these pages”."));
             } else if (type.equals("confluence") && url.isBlank()) {
-                issues.add(new Issue("source.baseUrl", "error", "Enter the Confluence site address.", "For Cloud use https://your-site.atlassian.net — not a page URL inside the wiki."));
+                issues.add(new Issue("source.baseUrl", "error", "Enter the Confluence site address.", "For example https://your-site.atlassian.net. Pasting the address of any page or space also works."));
             } else if (type.equals("jive") && url.isBlank()) {
                 issues.add(new Issue("source.baseUrl", "error", "Enter the Jive community address.", "Use the site origin, for example https://community.example.com — not a single content URL."));
             } else if (type.equals("sharepoint") && url.isBlank()

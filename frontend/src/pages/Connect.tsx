@@ -11,6 +11,7 @@ import { PageHeader } from '../components/PageHeader'
 import { useOverview } from '../components/OverviewContext'
 import { RequestTemplate, RequirementsCard, RouteCard, RouteMap, StageDetail, Verdict, useReveal } from '../components/RouteMap'
 import { Banner, Button, Card, Skeleton, useToast } from '../components/ui'
+import { isShown } from '../lib/fields'
 import { go, useRemote } from '../lib/useRemote'
 import type { ConfigField, ConnectionReport, Issue, Preset } from '../types/api'
 
@@ -48,7 +49,9 @@ export default function ConnectPage() {
 
   const sections = cfg.data.sections
   const source = draft['source.type'] ?? 'fixture'
-  const fieldsFor = (id: string): ConfigField[] => (sections.find((s) => s.id === id)?.fields ?? []).filter((f) => (f.showForSources.length === 0 || f.showForSources.includes(source)) && !f.advanced)
+  const fieldsFor = (id: string): ConfigField[] => (sections.find((s) => s.id === id)?.fields ?? []).filter((f) => isShown(f, draft) && !f.advanced)
+  const field = (f: ConfigField) => <SettingField key={f.key} field={f} value={draft[f.key] ?? ''} onChange={(v) => set(f.key, v)} issues={issuesFor(f.key)} source={source} />
+  const more = (id: string, what: string) => <p className="muted small">More {what} options (rarely needed): <a href={`#/settings/${id}`}>Settings</a>.</p>
   const set = (key: string, v: string) => setDraft({ ...draft, [key]: v })
   const issuesFor = (key: string) => issues.filter((i) => i.key === key)
   const blocking = issues.some((i) => i.level === 'error')
@@ -72,14 +75,13 @@ export default function ConnectPage() {
     } catch (e) { toast('bad', e instanceof Error ? e.message : 'Could not save') } finally { setSaving(false) }
   }
   const stage = report?.stages.find((s) => s.id === selected) ?? report?.stages[0]
-  const activePreset = presets.kind === 'ok' ? presets.data.find((p) => p.values['source.type'] === source && (p.values['source.siteUrl'] ?? '') === (source === 'stackexchange' ? draft['source.siteUrl'] : '')
-    && (source !== 'confluence' || (p.values['source.auth.method'] ?? 'basic-env') === (draft['source.auth.method'] ?? 'basic-env'))) : undefined
+  const activePreset = presets.kind === 'ok' ? presets.data.find((p) => p.values['source.type'] === source) : undefined
 
   return (
     <div className="stack" style={{ gap: 28 }}>
       <PageHeader eyebrow="Connect a source" title="Where do the questions live?" subtitle="Choose a site, say what you want from it, and we’ll show you step by step whether we can reach it, and what is needed if not." />
 
-      <Section num={1} title="Pick a starting point" hint="You can change this any time.">
+      <Section num={1} title="Which system?" hint="Where the questions or pages live. You can change this any time.">
         <div className="choice-grid">
           {presets.kind === 'ok' && presets.data.map((p) => (
             <button type="button" key={p.id} className={`choice ${activePreset?.id === p.id ? 'on' : ''}`} onClick={() => applyPreset(p)} aria-pressed={activePreset?.id === p.id}>
@@ -89,25 +91,41 @@ export default function ConnectPage() {
         </div>
       </Section>
 
-      <Section num={2} title="Describe what to collect" hint="Plain choices, with an explanation under each.">
-        {['source', 'topic'].flatMap((id) => fieldsFor(id)).filter((f) => f.key !== 'source.type').map((f) => (
-          <SettingField key={f.key} field={f} value={draft[f.key] ?? ''} onChange={(v) => set(f.key, v)} issues={issuesFor(f.key)} />
-        ))}
-        {source === 'live' && <ApiDocsPanel values={draft} onUse={(patch) => { setDraft({ ...draft, ...patch }); toast('ok', 'Settings filled in from the documentation') }} />}
-        {(source === 'live' || source === 'stackexchange') && <TagFinder values={draft} chosen={(draft['sync.tags'] ?? '').split(',').map((x) => x.trim()).filter(Boolean)}
-          onUseAll={() => { setDraft({ ...draft, 'sync.tags': 'all' }); toast('ok', 'Every tag is selected: all questions on the site will be collected') }}
-          onAdd={(tag) => { const cur = (draft['sync.tags'] ?? '').split(',').map((x) => x.trim()).filter(Boolean); setDraft({ ...draft, 'sync.tags': [...cur, tag].join(',') }); toast('ok', `Added ${tag}`) }} />}
-        {(source === 'live' || source === 'stackexchange') && <CollectTestPanel values={draft} />}
-        {source === 'live' && <RawAnswerPanel values={draft} onUse={(patch) => setDraft({ ...draft, ...patch })} />}
-        {source === 'fixture' && <Banner tone="info" title="Demo data needs nothing else">Sample questions are built into the app. Choose a real site above whenever you’re ready.</Banner>}
-        {source === 'confluence' && <ConfluenceSpacePicker values={draft} chosen={(draft['source.confluence.spaces'] ?? '').split(',').map((x) => x.trim()).filter(Boolean)}
-          onChange={(keys) => setDraft({ ...draft, 'source.confluence.spaces': keys.join(',') })} />}
-        {source === 'confluence' && <Banner tone="info" title="Confluence pages become local threads">Tags mean Confluence labels. Read-only. If the site sends you to your company login page, choose “Sign in with my browser”: the app opens that page in Edge/Chrome, you sign in as usual, and it carries on. Token Vending Machine sign-in: choose “Kerberos + Token Vending Machine”, API v2, and enter the TVM address and the web proxy (no secret to store; the 15-minute token is renewed automatically). Otherwise set an API token env var (Cloud: email + CONFLUENCE_API_TOKEN; Server/DC: CONFLUENCE_PAT). Jive and SharePoint are separate sources.</Banner>}
-        {source === 'jive' && <Banner tone="info" title="Jive content becomes local threads">Tags mean Jive content tags. Set place ids and credentials via env vars (Basic: username + JIVE_PASSWORD; OAuth: JIVE_ACCESS_TOKEN). Confluence and SharePoint are separate sources.</Banner>}
-        {source === 'sharepoint' && <Banner tone="info" title="SharePoint pages become local threads">Set the site URL and Graph credentials via env vars (Bearer: SHAREPOINT_ACCESS_TOKEN, or Azure AD client credentials with tenant/client/secret env). Confluence and Jive are separate sources.</Banner>}
-      </Section>
+      {source === 'fixture' ? (
+        <Banner tone="info" title="Demo data needs nothing else">Sample questions are built into the app: no address, no sign-in, no network settings. Go to Collect, then Explore. Choose a real system above whenever you’re ready.</Banner>
+      ) : (<>
+        <Section num={2} title="Where is it?" hint={source === 'stackexchange' ? 'The public site’s address.' : 'The address of your site. For Confluence you can paste any page or space address.'}>
+          {fieldsFor('source').filter((f) => f.key !== 'source.type').map(field)}
+          {source === 'live' && <ApiDocsPanel values={draft} onUse={(patch) => { setDraft({ ...draft, ...patch }); toast('ok', 'Settings filled in from the documentation') }} />}
+          {more('source', 'address')}
+        </Section>
 
-      <Section num={3} title="Can we reach it?" hint="We test the whole path and explain each step in plain language. Nothing is changed or downloaded.">
+        <Section num={3} title={source === 'stackexchange' ? 'Sign-in (optional)' : 'How do you sign in?'} hint={source === 'stackexchange' ? 'Public sites need no account. An application key only raises the daily limit.' : 'Choose the way you already sign in. Only what that way needs is asked; passwords and tokens are never stored.'}>
+          {fieldsFor('signin').map(field)}
+          {source === 'confluence' && draft['source.auth.method'] === 'browser' && <Banner tone="info" title="Nothing else to fill in">When the app needs Confluence it opens your company login page in Edge or Chrome. Sign in as usual; the window closes by itself. You can try it in step 4 with “Sign in with my browser”.</Banner>}
+          {more('signin', 'sign-in')}
+        </Section>
+
+        <Section num={4} title="What to collect" hint={source === 'confluence' ? 'Pick the spaces; every page in them is collected. Labels narrow it down.' : source === 'jive' ? 'Pick the places; tags narrow it down.' : 'Which tags, and how far back.'}>
+          {source === 'confluence' && <ConfluenceSpacePicker values={draft} chosen={(draft['source.confluence.spaces'] ?? '').split(',').map((x) => x.trim()).filter(Boolean)}
+            onChange={(keys) => setDraft({ ...draft, 'source.confluence.spaces': keys.join(',') })} />}
+          {fieldsFor('topic').map(field)}
+          {(source === 'live' || source === 'stackexchange') && <TagFinder values={draft} chosen={(draft['sync.tags'] ?? '').split(',').map((x) => x.trim()).filter(Boolean)}
+            onUseAll={() => { setDraft({ ...draft, 'sync.tags': 'all' }); toast('ok', 'Every tag is selected: all questions on the site will be collected') }}
+            onAdd={(tag) => { const cur = (draft['sync.tags'] ?? '').split(',').map((x) => x.trim()).filter(Boolean); setDraft({ ...draft, 'sync.tags': [...cur, tag].join(',') }); toast('ok', `Added ${tag}`) }} />}
+          {(source === 'live' || source === 'stackexchange') && <CollectTestPanel values={draft} />}
+          {source === 'live' && <RawAnswerPanel values={draft} onUse={(patch) => setDraft({ ...draft, ...patch })} />}
+          {more('topic', 'collection')}
+        </Section>
+
+        <details className="card card-pad section network-step" open={!!(draft['network.proxyHost'] || draft['source.caCertFile'])}>
+          <summary className="section-head"><span className="section-num">5</span><div><h3>Company network <span className="muted small">(only if needed)</span></h3>
+            <p className="card-sub">A web proxy or your company’s certificate. Open this only if Check access says the site cannot be reached or the connection is not trusted.</p></div></summary>
+          <div className="stack" style={{ marginTop: 14 }}>{fieldsFor('network').map(field)}{more('network', 'network')}</div>
+        </details>
+      </>)}
+
+      <Section num={source === 'fixture' ? 2 : 6} title="Can we reach it?" hint="We test the whole path and explain each step in plain language. Nothing is changed or downloaded.">
         <div className="row">
           <Button variant="primary" size="lg" icon={<ShieldCheck size={18} />} busy={checking} onClick={runCheck}>{report ? 'Check again' : 'Check access'}</Button>
           {report && <span className="muted small">Last checked {new Date(report.checkedAt).toLocaleTimeString()}</span>}

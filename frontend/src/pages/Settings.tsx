@@ -1,14 +1,15 @@
-import { FileText, FolderOpen, Layers, Plug, RefreshCw, RotateCcw, Save, Tags, Trash2 } from 'lucide-react'
+import { FileText, FolderOpen, Globe, Layers, Lock, Plug, RefreshCw, RotateCcw, Save, Tags, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { deleteByTag, getConfig, reindex, saveConfig, validateConfig } from '../api'
 import { IssueList, SettingField } from '../components/Fields'
 import { PageHeader } from '../components/PageHeader'
 import { useOverview } from '../components/OverviewContext'
 import { Badge, Banner, Button, Card, CopyButton, Skeleton, useToast } from '../components/ui'
+import { isShown } from '../lib/fields'
 import { go, useRemote } from '../lib/useRemote'
 import type { Issue } from '../types/api'
 
-const ICONS: Record<string, React.ReactNode> = { plug: <Plug size={19} />, tags: <Tags size={19} />, refresh: <RefreshCw size={19} />, folder: <FolderOpen size={19} /> }
+const ICONS: Record<string, React.ReactNode> = { plug: <Plug size={19} />, lock: <Lock size={19} />, tags: <Tags size={19} />, globe: <Globe size={19} />, refresh: <RefreshCw size={19} />, folder: <FolderOpen size={19} /> }
 
 export default function SettingsPage({ section }: { section: string | null }) {
   const toast = useToast()
@@ -41,8 +42,8 @@ export default function SettingsPage({ section }: { section: string | null }) {
   const current = section === 'file' ? 'file' : sections.find((s) => s.id === section)?.id ?? sections[0].id
   const source = draft['source.type'] ?? 'fixture'
   const sec = sections.find((s) => s.id === current)
-  const visible = (sec?.fields ?? []).filter((f) => (f.showForSources.length === 0 || f.showForSources.includes(source)) && (advanced || !f.advanced))
-  const hiddenAdvanced = (sec?.fields ?? []).filter((f) => f.advanced && (f.showForSources.length === 0 || f.showForSources.includes(source))).length
+  const visible = (sec?.fields ?? []).filter((f) => isShown(f, draft) && (advanced || !f.advanced))
+  const hiddenAdvanced = (sec?.fields ?? []).filter((f) => f.advanced && isShown(f, draft)).length
   const countFor = (id: string) => issues.filter((i) => i.level !== 'info' && (sections.find((s) => s.id === id)?.fields ?? []).some((f) => f.key === i.key)).length
   const blocking = issues.some((i) => i.level === 'error')
   const save = async () => {
@@ -104,12 +105,10 @@ export default function SettingsPage({ section }: { section: string | null }) {
                 {hiddenAdvanced > 0 && <label className="switch"><input type="checkbox" checked={advanced} onChange={(e) => setAdvanced(e.target.checked)} /><span className="switch-track" /><span className="small">Show {hiddenAdvanced} advanced</span></label>}</div>
               <hr className="divider" />
               <div className="stack" style={{ gap: 30 }}>
-                {visible.map((f) => <SettingField key={f.key} field={f} value={draft[f.key] ?? ''} onChange={(v) => setDraft({ ...draft, [f.key]: v })} issues={issues.filter((i) => i.key === f.key)} />)}
-                {visible.length === 0 && <p className="muted">Nothing to set here for the chosen source.</p>}
-                {current === 'source' && source === 'fixture' && <Banner tone="info" title="Demo data needs nothing else">Choose Stack Overflow / Stack Exchange, Confluence, Jive, SharePoint, or Our internal Q&A site above to see the options for reaching a real site.</Banner>}
-                {current === 'source' && source === 'confluence' && <Banner tone="info" title="Confluence-only settings">These fields are separate from Stack Exchange, Jive, and SharePoint. Put only the token environment variable name here — never the secret. With “Kerberos + Token Vending Machine” there is no secret at all: the app asks your company TVM for a short-lived token.</Banner>}
-                {current === 'source' && source === 'jive' && <Banner tone="info" title="Jive-only settings">These fields are separate from Confluence, Stack Exchange, and SharePoint. Put only the password/token environment variable name here — never the secret.</Banner>}
-                {current === 'source' && source === 'sharepoint' && <Banner tone="info" title="SharePoint-only settings">These fields are separate from Confluence, Jive, and Stack Exchange. Put only environment variable names here — never client secrets or access tokens.</Banner>}
+                {visible.map((f) => <SettingField key={f.key} field={f} value={draft[f.key] ?? ''} onChange={(v) => setDraft({ ...draft, [f.key]: v })} issues={issues.filter((i) => i.key === f.key)} source={source} />)}
+                {visible.length === 0 && source !== 'fixture' && <p className="muted">Nothing to set here for the chosen system.</p>}
+                {current === 'source' && source === 'fixture' && <Banner tone="info" title="Demo data needs nothing else">Choose a real system above to see its address, sign-in and collection settings.</Banner>}
+                {current !== 'source' && current !== 'storage' && current !== 'collection' && source === 'fixture' && <p className="muted">Nothing to set here for demo data.</p>}
               </div>
               {current === 'source' && source !== 'fixture' && <div style={{ marginTop: 26 }}><Banner tone="info" title="Not sure it will work?" action={<Button onClick={() => go('/connect')}>Check access</Button>}>The Connect page tests the whole path to the site and says what is missing.</Banner></div>}
             </Card>

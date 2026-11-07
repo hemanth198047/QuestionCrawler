@@ -16,8 +16,12 @@ export interface Overview {
 // ---- configuration
 export type FieldType = 'TEXT' | 'NUMBER' | 'SWITCH' | 'SELECT' | 'TAGS' | 'PATH' | 'AGE' | 'ENV_NAME' | 'URL'
 export interface ConfigField {
-  key: string; label: string; help: string; type: FieldType; options: { value: string; label: string; hint: string }[]
+  key: string; label: string; help: string; type: FieldType; options: { value: string; label: string; hint: string; sources: string[] }[]
   defaultValue: string; placeholder: string | null; showForSources: string[]; advanced: boolean; unit: string | null
+  /** Shown only while another setting has one of these values, for example { 'source.auth.method': ['tvm'] } */
+  showWhen: Record<string, string[]>
+  /** Help written for one system, used instead of help when that system is chosen */
+  helpBySource: Record<string, string>
 }
 export interface ConfigSection { id: string; title: string; description: string; icon: string; fields: ConfigField[] }
 export interface Issue { key: string; level: 'error' | 'warning' | 'info'; message: string; fix: string | null }

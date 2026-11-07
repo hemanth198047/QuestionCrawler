@@ -235,3 +235,9 @@ button.rm-node:hover { background: var(--bg-sunken); }
 .md-h-focus { background: var(--warn-bg, rgba(255, 200, 0, .18)); border-radius: 6px; transition: background .6s; }
 .linklike { background: none; border: 0; padding: 2px 0; color: var(--brand); cursor: pointer; font: inherit; }
 .linklike:hover { text-decoration: underline; }
+
+/* Connect: the optional company-network step folds away */
+.network-step > summary { list-style: none; cursor: pointer; }
+.network-step > summary::-webkit-details-marker { display: none; }
+.network-step > summary h3::after { content: " ▸"; color: var(--ink-3); }
+.network-step[open] > summary h3::after { content: " ▾"; }

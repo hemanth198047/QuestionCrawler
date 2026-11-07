@@ -13,6 +13,19 @@ Run `npm start` and open http://localhost:5173. The left bar always shows how ma
 | **Settings** | Every setting | Four sections, plain explanations, problems shown beside the field with a fix, *Show advanced*, a live preview of the settings file, plus **Rebuild search index** and delete-by-tag under storage |
 | **Help** | Concepts | Plain-word glossary and common questions; `(i)` hints appear across the app |
 
+## How Connect and Settings are organised
+
+Both follow the same order, and show only what applies to the chosen system and choices:
+
+1. **Your source**: which system (Demo, Stack Overflow / Stack Exchange, Confluence, Jive, SharePoint, internal Q&A), and its address.
+   For Confluence any page or space address can be pasted.
+2. **Signing in**: only the sign-in methods that work for that system (Confluence: *Sign in with my browser* (recommended),
+   *Company token service (Kerberos)*, *Email + API token*, *Access token*). Only the fields of the chosen method are shown.
+3. **What to collect**: spaces (Confluence, with *Show my spaces*), places (Jive), tags/labels, and how far back.
+4. **Company network** (folded away; only if needed): web proxy and company certificate.
+
+Settings adds *How collecting behaves* and *Where everything is saved*. Rarely needed options stay behind *Show advanced*.
+
 ## The Connect screen's six stages
 
 | Stage | Question it answers | Typical "what is needed" |

@@ -2,6 +2,7 @@ import { AlertTriangle, Check, Info, XCircle } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { AGE_STEPS } from '../lib/format'
 import type { ConfigField, Issue } from '../types/api'
+import { optionsFor } from '../lib/fields'
 import { Chip, InfoTip, TagInput } from './ui'
 
 export function IssueList({ issues }: { issues: Issue[] }) {
@@ -19,14 +20,14 @@ export function IssueList({ issues }: { issues: Issue[] }) {
 }
 
 /** Renders one setting from its metadata: label, plain-language help, the right control, and its problems. */
-export function SettingField({ field, value, onChange, issues }: { field: ConfigField; value: string; onChange: (v: string) => void; issues: Issue[] }) {
+export function SettingField({ field, value, onChange, issues, source }: { field: ConfigField; value: string; onChange: (v: string) => void; issues: Issue[]; source?: string }) {
   const hasError = issues.some((i) => i.level === 'error')
   const control = (() => {
     switch (field.type) {
       case 'SELECT':
         return (
           <div className="choice-grid">
-            {field.options.map((o) => (
+            {(source ? optionsFor(field, source) : field.options).map((o) => (
               <button type="button" key={o.value} className={`choice ${value === o.value ? 'on' : ''}`} onClick={() => onChange(o.value)} aria-pressed={value === o.value}>
                 {value === o.value && <span className="choice-check"><Check size={13} /></span>}
                 <strong>{o.label}</strong><span className="hint">{o.hint}</span>
@@ -66,7 +67,7 @@ export function SettingField({ field, value, onChange, issues }: { field: Config
   return (
     <div className={`field ${hasError ? 'field-error' : ''}`}>
       <div className="field-label">{field.label}{field.key === 'sync.tags' && <InfoTip term="tag" />}{field.key === 'sync.maxQuestionAge' && <InfoTip term="window" />}</div>
-      <div className="field-help">{field.help}</div>
+      <div className="field-help">{(source && field.helpBySource?.[source]) || field.help}</div>
       {control}
       <IssueList issues={issues} />
     </div>
