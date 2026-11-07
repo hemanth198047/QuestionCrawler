@@ -1,6 +1,7 @@
 import { BookOpen, Building2, Globe, Layers, MessagesSquare, Play, Save, ShieldCheck, Sparkles } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { checkConnection, getConfig, getLastConnection, getPresets, saveConfig, validateConfig } from '../api'
+import { BrowserSignIn } from '../components/BrowserSignIn'
 import { ConfluenceSpacePicker } from '../components/ConfluenceSpacePicker'
 import { ApiDocsPanel } from '../components/ApiDocsPanel'
 import { CollectTestPanel } from '../components/CollectTestPanel'
@@ -103,6 +104,7 @@ export default function ConnectPage() {
         <Section num={3} title={source === 'stackexchange' ? 'Sign-in (optional)' : 'How do you sign in?'} hint={source === 'stackexchange' ? 'Public sites need no account. An application key only raises the daily limit.' : 'Choose the way you already sign in. Only what that way needs is asked; passwords and tokens are never stored.'}>
           {fieldsFor('signin').map(field)}
           {source === 'confluence' && draft['source.auth.method'] === 'browser' && <Banner tone="info" title="Nothing else to fill in">When the app needs Confluence it opens your company login page in Edge or Chrome. Sign in as usual; the window closes by itself. You can try it in step 4 with “Sign in with my browser”.</Banner>}
+          {source === 'live' && draft['source.auth.method'] === 'browser' && <BrowserSignIn values={draft} what="your internal Q&A site (its API or its documentation)" />}
           {more('signin', 'sign-in')}
         </Section>
 

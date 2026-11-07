@@ -71,6 +71,7 @@ public final class ConfigService {
     private static final List<String> CONFLUENCE = List.of("confluence");
     private static final List<String> JIVE = List.of("jive");
     private static final List<String> SHAREPOINT = List.of("sharepoint");
+    private static final List<String> BROWSER_SOURCES = List.of("confluence", "live");
     private static final List<String> REMOTE = List.of("stackexchange", "live", "confluence", "jive", "sharepoint");
     private static final List<String> AUTH_TOKEN = List.of("live", "confluence", "jive", "sharepoint");
     private static final List<String> LIVE_WIKI = List.of("live", "confluence", "jive", "sharepoint");
@@ -153,7 +154,7 @@ public final class ConfigService {
                         "How the app proves who you are. Only the ways that work for your system are shown. Secrets are never stored: at most the name of an environment variable that holds one.", "lock", List.of(
                         f("source.auth.method", "Sign-in method", "Pick the way you already sign in to this system. Only the choices that work for it are shown. Passwords and tokens are never stored; at most the NAME of an environment variable that holds one.",
                                 Type.SELECT, "none", null, AUTH_TOKEN, false, null,
-                                new Option("browser", "Sign in with my browser", "Recommended for company Confluence: your usual company login page opens in Edge/Chrome, you sign in, the app continues. Nothing to set up", List.of("confluence")),
+                                new Option("browser", "Sign in with my browser", "Recommended when the site sends you to your company login page: it opens in Edge/Chrome, you sign in as usual, the app continues. Nothing to set up", List.of("confluence", "live")),
                                 new Option("tvm", "Company token service (Kerberos)", "Your company's Token Vending Machine gives a short-lived token using your Windows/Kerberos login", List.of("confluence")),
                                 new Option("basic-env", "Email or username + API token / password", "Confluence Cloud: your email and an API token. Jive: a username and password", List.of("confluence", "jive")),
                                 new Option("token", "Access token", "Confluence Server/Data Center personal access token, Jive OAuth token, SharePoint (Microsoft Graph) token, or an internal API token", List.of("confluence", "jive", "sharepoint", "live")),
@@ -184,14 +185,14 @@ public final class ConfigService {
                                 Type.SWITCH, "false", null, CONFLUENCE, true, null).when("source.auth.method", "tvm"),
                         f("source.confluence.tvm.caCertFile", "Token service certificate file", "Only for curl, if the Token Vending Machine uses a company certificate authority curl does not trust yet.",
                                 Type.PATH, "", "C:\\certs\\company-ca.pem", CONFLUENCE, true, null).when("source.auth.method", "tvm"),
-                        f("source.confluence.browser.path", "Browser program", "Only for 'Sign in with my browser'. Leave empty to use Edge or Chrome automatically. Otherwise the full path, for example C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe.",
-                                Type.PATH, "", "", CONFLUENCE, true, null).when("source.auth.method", "browser"),
-                        f("source.confluence.browser.profileDir", "Browser profile folder", "Only for 'Sign in with my browser'. The app's own browser profile, so your company login can remember you. Empty = ~/.questioncrawler/browser-profile.",
-                                Type.PATH, "", "", CONFLUENCE, true, null).when("source.auth.method", "browser"),
-                        f("source.confluence.browser.loginUrl", "Address to open for signing in", "Only for 'Sign in with my browser'. Empty = the Confluence site itself, which sends you to the company login page.",
-                                Type.URL, "", "", CONFLUENCE, true, null).when("source.auth.method", "browser"),
-                        f("source.confluence.browser.timeoutSeconds", "Time to finish signing in", "Only for 'Sign in with my browser'. How long the app waits for you to finish the login in the browser.",
-                                Type.NUMBER, "300", "300", CONFLUENCE, true, "seconds").when("source.auth.method", "browser"),
+                        f("source.browser.path", "Browser program", "Only for 'Sign in with my browser'. Leave empty to use Edge or Chrome automatically. Otherwise the full path, for example C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe.",
+                                Type.PATH, "", "", BROWSER_SOURCES, true, null).when("source.auth.method", "browser"),
+                        f("source.browser.profileDir", "Browser profile folder", "Only for 'Sign in with my browser'. The app's own browser profile, so your company login can remember you. Empty = ~/.questioncrawler/browser-profile.",
+                                Type.PATH, "", "", BROWSER_SOURCES, true, null).when("source.auth.method", "browser"),
+                        f("source.browser.loginUrl", "Address to open for signing in", "Only for 'Sign in with my browser'. Empty = the site itself, which sends you to the company login page.",
+                                Type.URL, "", "", BROWSER_SOURCES, true, null).when("source.auth.method", "browser"),
+                        f("source.browser.timeoutSeconds", "Time to finish signing in", "Only for 'Sign in with my browser'. How long the app waits for you to finish the login in the browser.",
+                                Type.NUMBER, "300", "300", BROWSER_SOURCES, true, "seconds").when("source.auth.method", "browser"),
                         f("source.sharepoint.tenantId", "Azure AD tenant id (only for app login)", "Directory (tenant) ID for client-credentials auth. Leave empty when using a pre-minted Bearer access token.",
                                 Type.TEXT, "", "00000000-0000-0000-0000-000000000000", SHAREPOINT, false, null),
                         f("source.sharepoint.clientId", "App (client) id (only for app login)", "Entra ID app registration application (client) ID. Used with client credentials only.",

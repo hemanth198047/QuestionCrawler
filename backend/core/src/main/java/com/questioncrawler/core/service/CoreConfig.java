@@ -138,11 +138,13 @@ public record CoreConfig(
                         Boolean.parseBoolean(p.getProperty("source.confluence.tvm.useProxy", "false").strip()),
                         p.getProperty("source.confluence.tvm.caCertFile", ""),
                         intValue(p, "source.confluence.tvm.refreshBeforeSeconds", 60)),
+                // Browser sign-in settings are shared by every source that uses it (source.browser.*); the older
+                // source.confluence.browser.* names are still read.
                 new ConfluenceOptions.Browser(
-                        p.getProperty("source.confluence.browser.path", ""),
-                        p.getProperty("source.confluence.browser.profileDir", ""),
-                        p.getProperty("source.confluence.browser.loginUrl", ""),
-                        intValue(p, "source.confluence.browser.timeoutSeconds", 300)));
+                        p.getProperty("source.browser.path", p.getProperty("source.confluence.browser.path", "")),
+                        p.getProperty("source.browser.profileDir", p.getProperty("source.confluence.browser.profileDir", "")),
+                        p.getProperty("source.browser.loginUrl", p.getProperty("source.confluence.browser.loginUrl", "")),
+                        intValue(p, "source.browser.timeoutSeconds", intValue(p, "source.confluence.browser.timeoutSeconds", 300))));
         boolean jiveSource = type.equals("jive");
         JiveOptions jive = new JiveOptions(
                 p.getProperty("source.jive.apiRoot", ""),
@@ -308,8 +310,8 @@ public record CoreConfig(
         if (source.authMethod().equalsIgnoreCase("tvm") && !sourceType.equals("confluence")) {
             problems.add("source.auth.method=tvm (Token Vending Machine) is only supported for source.type=confluence");
         }
-        if (source.authMethod().equalsIgnoreCase("browser") && !sourceType.equals("confluence")) {
-            problems.add("source.auth.method=browser (sign in with my browser) is only supported for source.type=confluence");
+        if (source.authMethod().equalsIgnoreCase("browser") && !sourceType.equals("confluence") && !sourceType.equals("live")) {
+            problems.add("source.auth.method=browser (sign in with my browser) is supported for Confluence and the internal Q&A site");
         }
         if (maxQuestionAge != null && !com.questioncrawler.core.util.AgeSpec.isValid(maxQuestionAge)) {
             problems.add("sync.maxQuestionAge must look like 30d, 12h, 2w, 6m or 1y (was '" + maxQuestionAge + "')");
@@ -494,12 +496,39 @@ public record CoreConfig(
      */
     private SourceAdapter createInternalApiAdapter(Function<String, String> env) {
         com.questioncrawler.core.source.SourceSettings working = source;
+        // Sign in with my browser: the company login page opens when the site (API or documentation) needs it.
+        com.questioncrawler.core.source.BrowserLogin login = null;
+        com.questioncrawler.core.source.BrowserLogin.Prober probe = null;
+        HttpSourceClient.TokenSource session = null;
+        if (source.authMethod().equalsIgnoreCase("browser")) {
+            String site = !source.baseUrl().isBlank() ? source.baseUrl() : source.api().swaggerUrl();
+            if (site == null || site.isBlank()) {
+                throw new IllegalStateException("Enter the site or API documentation address before signing in.");
+            }
+            java.net.URI u = java.net.URI.create(site);
+            String origin = u.getScheme() + "://" + u.getRawAuthority();
+            var b = confluence.browser();
+            String start = b.loginUrl().isBlank() ? origin + "/" : b.loginUrl();
+            String probeUrl = !source.baseUrl().isBlank() ? trimSlash(source.baseUrl()) + "/info" : source.api().swaggerUrl();
+            HttpSourceClient probeClient = new HttpSourceClient(source, env); // a request with a Cookie header skips the normal sign-in
+            login = com.questioncrawler.core.source.BrowserLogin.forSite(origin, start, b, env);
+            probe = cookie -> {
+                try {
+                    return com.questioncrawler.core.source.BrowserLogin.letIn(probeClient.exchange(probeUrl, Map.of("Cookie", cookie)));
+                } catch (com.questioncrawler.core.source.SourceException e) {
+                    return false; // still on the way through the login pages
+                }
+            };
+            var l = login;
+            var pr = probe;
+            session = () -> l.cookieHeader(pr);
+        }
         com.questioncrawler.core.api.ApiCapabilities[] learned = new com.questioncrawler.core.api.ApiCapabilities[1];
         java.util.function.Supplier<com.questioncrawler.core.api.ApiCapabilities> provider = null;
         String suggestedPath = null;
         if (source.api().hasDocs()) {
             try {
-                var discovery = com.questioncrawler.core.api.ApiDocsLoader.load(working, env);
+                var discovery = com.questioncrawler.core.api.ApiDocsLoader.load(working, env, session);
                 learned[0] = discovery.capabilities();
                 String base = working.baseUrl();
                 String suggested = discovery.catalog().suggestedBaseUrl();
@@ -531,8 +560,9 @@ public record CoreConfig(
                     : "Enter it in the settings, or make the API documentation readable ")
                     + "(run 'Check access' on the Connect screen to see why it cannot be read).");
         }
-        return new com.questioncrawler.core.source.StackExchangeAdapter(working, new HttpSourceClient(working, env), env,
+        var adapter = new com.questioncrawler.core.source.StackExchangeAdapter(working, new HttpSourceClient(working, env, session), env,
                 com.questioncrawler.core.util.Sleeper.REAL, provider);
+        return login == null ? adapter : adapter.withBrowser(login, probe);
     }
 
     public SyncOptions syncOptions(List<String> tagOverride, TagMode modeOverride, Boolean partialOverride, SyncMode mode) {
@@ -604,5 +634,9 @@ public record CoreConfig(
         } catch (NumberFormatException e) {
             throw new IllegalArgumentException("Configuration value " + key + " must be an integer: " + v);
         }
+    }
+
+    private static String trimSlash(String s) {
+        return s.endsWith("/") ? s.substring(0, s.length() - 1) : s;
     }
 }

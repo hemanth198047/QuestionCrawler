@@ -24,6 +24,11 @@ public final class ApiDocsLoader {
     private ApiDocsLoader() {}
 
     public static SwaggerDiscovery.Discovery load(SourceSettings settings, Function<String, String> env) throws SourceException {
+        return load(settings, env, null);
+    }
+
+    /** As {@link #load(SourceSettings, Function)}; {@code session} supplies the browser sign-in for documentation behind the company login. */
+    public static SwaggerDiscovery.Discovery load(SourceSettings settings, Function<String, String> env, HttpSourceClient.TokenSource session) throws SourceException {
         ApiOptions api = settings.api();
         if (api.swaggerFile() != null) {
             Path file = Path.of(api.swaggerFile());
@@ -36,7 +41,7 @@ public final class ApiDocsLoader {
         if (api.swaggerUrl() == null) {
             throw new SourceException(SourceException.Kind.FATAL, "No API documentation address or file was given.");
         }
-        HttpSourceClient client = new HttpSourceClient(settings, env);
+        HttpSourceClient client = new HttpSourceClient(settings, env, session);
         String key = settings.apiKeyEnv() == null || settings.apiKeyEnv().isBlank() ? null : env.apply(settings.apiKeyEnv());
         SwaggerDiscovery.Fetcher fetcher = url -> {
             try {

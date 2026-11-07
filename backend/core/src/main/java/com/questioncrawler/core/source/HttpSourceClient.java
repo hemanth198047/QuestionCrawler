@@ -168,7 +168,7 @@ public final class HttpSourceClient {
                 .header("Accept-Encoding", "gzip")
                 .header("User-Agent", "QuestionCrawler/0.1")
                 .GET();
-        applyAuth(request, extraHeaders);
+        applyAuth(request, extraHeaders, uri);
         extraHeaders.forEach(request::setHeader);
         HttpResponse<InputStream> response;
         try {
@@ -221,7 +221,7 @@ public final class HttpSourceClient {
         return uri;
     }
 
-    private void applyAuth(HttpRequest.Builder request, Map<String, String> extraHeaders) throws SourceException {
+    private void applyAuth(HttpRequest.Builder request, Map<String, String> extraHeaders, URI uri) throws SourceException {
         String method = settings.authMethod();
         if (method.equalsIgnoreCase("none") || method.isBlank()) {
             return;
@@ -230,10 +230,12 @@ public final class HttpSourceClient {
             if (extraHeaders.keySet().stream().anyMatch(k -> k.equalsIgnoreCase("Cookie"))) {
                 return; // the caller is testing a specific session
             }
-            if (bearer == null) {
-                throw new SourceException(SourceException.Kind.FATAL, "source.auth.method=browser is only supported for Confluence");
+            String cookie = bearer != null ? bearer.token() : BrowserLogin.sessionFor(uri.getHost());
+            if (cookie == null || cookie.isBlank()) {
+                throw new SourceException(SourceException.Kind.AUTH_FAILED,
+                        "Not signed in yet: press 'Sign in with my browser' on the Connect screen (your company login page opens), then try again.");
             }
-            request.header("Cookie", bearer.token());
+            request.header("Cookie", cookie);
             return;
         }
         if (method.equalsIgnoreCase("tvm")) {

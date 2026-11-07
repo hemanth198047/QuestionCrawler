@@ -36,7 +36,7 @@ import java.util.function.Function;
  *
  * <p>Jive ({@code source.type=jive}) and SharePoint are separate {@code source.type} values — do not extend this adapter for them.
  */
-public final class ConfluenceAdapter implements SourceAdapter {
+public final class ConfluenceAdapter implements SourceAdapter, BrowserSignIn {
 
     private static final DateTimeFormatter CQL_LASTMODIFIED = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
             .withZone(ZoneOffset.UTC);
@@ -110,6 +110,7 @@ public final class ConfluenceAdapter implements SourceAdapter {
     }
 
     /** Opens the browser sign-in now if there is no session yet (no-op for other sign-in methods). Returns a status line. */
+    @Override
     public String signIn() throws SourceException {
         if (browser == null) {
             return "this sign-in method does not use the browser";
@@ -119,6 +120,7 @@ public final class ConfluenceAdapter implements SourceAdapter {
     }
 
     /** The browser session's Cookie header, or null (never shown; used by the connection check). */
+    @Override
     public String sessionCookie() {
         return browser == null ? null : browser.current();
     }

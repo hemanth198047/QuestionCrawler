@@ -88,6 +88,67 @@ class BrowserLoginRealBrowserTest {
         }
     }
 
+    @Test
+    void theInternalQaSiteIsReadAfterARealBrowserSignIn() throws Exception {
+        HttpServer login = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        HttpServer qa = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        String qaOrigin = "http://127.0.0.1:" + qa.getAddress().getPort();
+        String loginOrigin = "http://localhost:" + login.getAddress().getPort();
+        qa.createContext("/", ex -> {
+            String cookie = ex.getRequestHeaders().getFirst("Cookie");
+            String path = ex.getRequestURI().getPath();
+            if (path.equals("/sso/callback")) {
+                ex.getResponseHeaders().add("Set-Cookie", "JSESSIONID=QA-SESSION; Path=/; HttpOnly");
+                ex.getResponseHeaders().add("Location", qaOrigin + "/questions");
+                ex.sendResponseHeaders(302, -1);
+                ex.close();
+                return;
+            }
+            if (cookie == null || !cookie.contains("JSESSIONID=QA-SESSION")) {
+                ex.getResponseHeaders().add("Location", loginOrigin + "/adfs/login?back=" + qaOrigin + "/sso/callback");
+                ex.sendResponseHeaders(302, -1);
+                ex.close();
+                return;
+            }
+            if (path.startsWith("/api/")) {
+                send(ex, "application/json", "{\"items\":[{\"total_questions\":7}]}");
+            } else {
+                send(ex, "text/html", "<h1>Q&A home</h1>");
+            }
+        });
+        login.createContext("/", ex -> {
+            String back = ex.getRequestURI().getQuery().replace("back=", "");
+            send(ex, "text/html", "<form><input type=password></form><script>setTimeout(function(){location.href='" + back + "'}, 1500)</script>");
+        });
+        qa.start();
+        login.start();
+        try {
+            SourceSettings s = new SourceSettings("internal-qa", qaOrigin + "/api/2.3", List.of("127.0.0.1"), List.of("/"), "browser", null,
+                    "Authorization", "Bearer", null, Duration.ofSeconds(5), true, null, null, ProxyConfig.NONE,
+                    new ApiOptions("key", "query", null, "withbody", false, null, null, "same-host"), null, null);
+            ConfluenceOptions.Browser b = new ConfluenceOptions.Browser(System.getenv("QC_BROWSER_E2E"), tmp.resolve("profile2").toString(), "", 60);
+            BrowserLogin signIn = new BrowserLogin(qaOrigin, qaOrigin + "/", new BrowserLogin.ChromeLauncher(b, System::getenv),
+                    Duration.ofSeconds(60), Duration.ofSeconds(1), Clock.systemUTC());
+            var probeClient = new com.questioncrawler.core.source.HttpSourceClient(s, k -> null);
+            BrowserLogin.Prober probe = cookie -> {
+                try {
+                    return BrowserLogin.letIn(probeClient.exchange(qaOrigin + "/api/2.3/info", java.util.Map.of("Cookie", cookie)));
+                } catch (com.questioncrawler.core.source.SourceException e) {
+                    return false;
+                }
+            };
+            var adapter = new com.questioncrawler.core.source.StackExchangeAdapter(s,
+                    new com.questioncrawler.core.source.HttpSourceClient(s, k -> null, () -> signIn.cookieHeader(probe)), k -> null,
+                    com.questioncrawler.core.util.Sleeper.REAL, null).withBrowser(signIn, probe);
+            String ping = adapter.ping();
+            assertTrue(ping.contains("7"), ping);
+            assertEquals(1, signIn.loginCount());
+        } finally {
+            qa.stop(0);
+            login.stop(0);
+        }
+    }
+
     private static void send(HttpExchange ex, String type, String body) throws IOException {
         byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
         ex.getResponseHeaders().add("Content-Type", type);

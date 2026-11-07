@@ -207,6 +207,23 @@ public final class Workspace {
                 diagnostics.withBrowserSession(status, cookie);
             }
         }
+        if (type.equals("live") && "browser".equalsIgnoreCase(authMethod)) {
+            // Sign in through the browser first (opens the company login page if there is no session yet).
+            String status;
+            String cookie = null;
+            try {
+                var adapter = CoreConfig.load(null, v).createAdapter(env);
+                if (adapter instanceof com.questioncrawler.core.source.BrowserSignIn signIn) {
+                    status = signIn.signIn();
+                    cookie = signIn.sessionCookie();
+                } else {
+                    status = "this source does not sign in through the browser";
+                }
+            } catch (com.questioncrawler.core.source.SourceException | RuntimeException e) {
+                status = "FAILED: " + e.getMessage();
+            }
+            diagnostics.withBrowserSession(status, cookie);
+        }
         ConnectionReport report = diagnostics.run(input);
         try {
             knowledgeBase.store().init();
@@ -543,15 +560,21 @@ public final class Workspace {
         if (draft != null) {
             v.putAll(draft);
         }
-        if (!"confluence".equals(v.getOrDefault("source.type", "fixture")) || !"browser".equalsIgnoreCase(v.getOrDefault("source.auth.method", ""))) {
-            return new SignInResult(false, "Choose Confluence and the sign-in 'Sign in with my browser' first.");
+        String type = v.getOrDefault("source.type", "fixture");
+        if (!("confluence".equals(type) || "live".equals(type)) || !"browser".equalsIgnoreCase(v.getOrDefault("source.auth.method", ""))) {
+            return new SignInResult(false, "Choose Confluence or your internal Q&A site, and the sign-in 'Sign in with my browser', first.");
         }
-        if (v.getOrDefault("source.baseUrl", "").isBlank()) {
-            return new SignInResult(false, "Enter the Confluence site address first (for example https://acme.atlassian.net).");
+        if (v.getOrDefault("source.baseUrl", "").isBlank() && ("confluence".equals(type) || v.getOrDefault("api.swaggerUrl", "").isBlank())) {
+            return new SignInResult(false, "confluence".equals(type)
+                    ? "Enter the Confluence site address first (for example https://acme.atlassian.net)."
+                    : "Enter the site address or the API documentation address first.");
         }
         try {
-            var adapter = (com.questioncrawler.core.source.ConfluenceAdapter) CoreConfig.load(null, v).createAdapter(env);
-            return new SignInResult(true, adapter.signIn());
+            var adapter = CoreConfig.load(null, v).createAdapter(env);
+            if (!(adapter instanceof com.questioncrawler.core.source.BrowserSignIn signIn)) {
+                return new SignInResult(false, "This source does not sign in through the browser.");
+            }
+            return new SignInResult(true, signIn.signIn());
         } catch (com.questioncrawler.core.source.SourceException e) {
             return new SignInResult(false, e.getMessage());
         } catch (RuntimeException e) {

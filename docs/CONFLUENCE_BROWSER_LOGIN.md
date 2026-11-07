@@ -1,6 +1,6 @@
-# Confluence: sign in with my browser (company login page / SSO)
+# Sign in with my browser (company login page / SSO): Confluence and the internal Q&A site
 
-Use this when calling Confluence from the app ends in **HTTP 302 to another site for login** (your company SSO:
+Works for **Confluence** and **Our internal Q&A site** (its API and its Swagger documentation). Use it when calling the site from the app ends in **HTTP 302 to another site for login** (your company SSO:
 Azure AD / Entra ID, Okta, ADFS, PingFederate, a gateway…), and after logging in in a browser you are sent back to
 Confluence. Nothing has to be changed by administrators: the app uses the same login you use every day.
 
@@ -38,10 +38,11 @@ sync.maxQuestionAge=1y
 # network.proxyHost / network.proxyPort if the app's own API calls must go through the web proxy
 
 # Optional
-# source.confluence.browser.path=C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe   # default: Edge or Chrome, found automatically
-# source.confluence.browser.profileDir=                                                          # default: ~/.questioncrawler/browser-profile
-# source.confluence.browser.loginUrl=                                                            # default: the Confluence site
-# source.confluence.browser.timeoutSeconds=300                                                   # how long to wait for you to sign in
+# Shared by every source that signs in with the browser (the older source.confluence.browser.* names still work)
+# source.browser.path=C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe   # default: Edge or Chrome, found automatically
+# source.browser.profileDir=                                                          # default: ~/.questioncrawler/browser-profile
+# source.browser.loginUrl=                                                            # default: the site itself
+# source.browser.timeoutSeconds=300                                                   # how long to wait for you to sign in
 ```
 
 | Setting | What to put | Where to get it |
@@ -52,6 +53,23 @@ sync.maxQuestionAge=1y
 | `network.proxyHost` / `Port` | Your web proxy, only if needed | The `--proxy` value you use with curl |
 
 No secret is stored anywhere.
+
+## Our internal Q&A site
+
+Choose **Connect → Our internal Q&A site**, enter the API documentation (Swagger) address and/or the API address, and in
+step 3 choose **Sign in with my browser**, then press the button to try it.
+
+```properties
+source.type=live
+api.swaggerUrl=https://qa.mycompany.com/swagger/index.html
+source.baseUrl=https://qa.mycompany.com/api/2.3
+source.auth.method=browser
+api.keyEnv=INTERNAL_QA_API_KEY   # only if the API also needs its own access key
+```
+
+The window opens at the site's home page; after you sign in, the app checks the session against the API (`/info`) or
+the documentation and continues. Reading the documentation, *Test the collection* and *Try an address* on Connect reuse
+the same session. When the session expires during a collection, the window opens again and the collection continues.
 
 ## Command line
 

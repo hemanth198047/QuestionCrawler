@@ -63,6 +63,8 @@ public final class BrowserLogin {
     public record Cookie(String name, String value, String domain, String path) {}
 
     private static final Map<String, BrowserLogin> BY_SITE = new ConcurrentHashMap<>();
+    /** Every sign-in made in this app, so helper requests can reuse a session for the same host. */
+    private static final java.util.Set<BrowserLogin> ALL = ConcurrentHashMap.newKeySet();
 
     private final String host;
     private final String startUrl;
@@ -70,8 +72,8 @@ public final class BrowserLogin {
     private final Duration timeout;
     private final Duration pollEvery;
     private final Clock clock;
-    private String header;
-    private Instant signedInAt;
+    private volatile String header;
+    private volatile Instant signedInAt;
     private int logins;
     private String lastStatus = "not signed in yet";
 
@@ -82,6 +84,7 @@ public final class BrowserLogin {
         this.timeout = timeout;
         this.pollEvery = pollEvery;
         this.clock = clock;
+        ALL.add(this);
     }
 
     /**
@@ -91,9 +94,73 @@ public final class BrowserLogin {
     public static BrowserLogin forSite(String siteBase, ConfluenceOptions options, Function<String, String> env) {
         ConfluenceOptions.Browser b = options.browser();
         String start = b.loginUrl().isBlank() ? trimSlash(siteBase) + (options.cloud() ? "/wiki/" : "/") : b.loginUrl();
-        String key = siteBase.toLowerCase(Locale.ROOT) + "|" + start + "|" + b.path() + "|" + b.profileDir();
-        return BY_SITE.computeIfAbsent(key, k -> new BrowserLogin(siteBase, start,
+        return forSite(siteBase, start, b, env);
+    }
+
+    /** One shared sign-in for any site (Confluence, the internal Q&A site, ...), opened at {@code startUrl}. */
+    public static BrowserLogin forSite(String siteBase, String startUrl, ConfluenceOptions.Browser b, Function<String, String> env) {
+        String key = siteBase.toLowerCase(Locale.ROOT) + "|" + startUrl + "|" + b.path() + "|" + b.profileDir();
+        return BY_SITE.computeIfAbsent(key, k -> new BrowserLogin(siteBase, startUrl,
                 new ChromeLauncher(b, env), Duration.ofSeconds(b.timeoutSeconds()), Duration.ofSeconds(2), Clock.systemUTC()));
+    }
+
+    /**
+     * The Cookie header of a session someone already signed in to for this host, or null. Lets helper requests (reading
+     * the API documentation, trying an address on the Connect screen) reuse the browser sign-in without opening a window.
+     */
+    public static String sessionFor(String host) {
+        if (host == null) {
+            return null;
+        }
+        String best = null;
+        Instant bestAt = null;
+        for (BrowserLogin login : ALL) { // no locking: a sign-in window may be open and waiting on another login
+            String h = login.header;
+            Instant at = login.signedInAt;
+            if (h != null && at != null && domainMatches(host.toLowerCase(Locale.ROOT), login.host) && (bestAt == null || at.isAfter(bestAt))) {
+                best = h;
+                bestAt = at;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * True when a response shows the site let the session in: no redirect to a login page, no 401/403, and not a login
+     * form (an API error such as "missing key" or "not found" still proves the company login was passed).
+     */
+    public static boolean letIn(HttpSourceClient.Response r) {
+        if (r == null || Redirects.isRedirect(r.status())) {
+            return false;
+        }
+        int s = r.status();
+        if (s == 401 || s == 403 || s == 407 || s >= 500) {
+            return false;
+        }
+        // Past the company login: content, or an answer from the site itself (even "missing key" or "not found").
+        return !looksLikeLoginPage(r.body());
+    }
+
+    /** An HTML page with a password field or a SAML/OAuth form: the company login, not content. */
+    public static boolean looksLikeLoginPage(String body) {
+        if (body == null) {
+            return false;
+        }
+        String b = body.toLowerCase(Locale.ROOT);
+        return b.contains("type=\"password\"") || b.contains("type='password'") || b.contains("samlrequest") || b.contains("samlresponse")
+                || (b.contains("<form") && (b.contains("login") || b.contains("sign in") || b.contains("signin")));
+    }
+
+    /** True when a response means "sign in first": 401, a redirect, or a login page instead of content. */
+    public static boolean needsSignIn(HttpSourceClient.Response r) {
+        if (r == null) {
+            return false;
+        }
+        if (r.status() == 401 || Redirects.isRedirect(r.status())) {
+            return true;
+        }
+        String type = r.contentType() == null ? "" : r.contentType().toLowerCase(Locale.ROOT);
+        return r.status() >= 200 && r.status() < 300 && type.contains("html") && looksLikeLoginPage(r.body());
     }
 
     /** The Cookie header of the current session, signing in through the browser first when there is none. */
@@ -133,8 +200,8 @@ public final class BrowserLogin {
             while (clock.instant().isBefore(deadline)) {
                 String candidate = headerFor(session.cookies());
                 if (!candidate.isEmpty() && prober.accepted(candidate)) {
+                    signedInAt = clock.instant(); // before header: readers that see the header also see when
                     header = candidate;
-                    signedInAt = clock.instant();
                     logins++;
                     lastStatus = "signed in";
                     return;

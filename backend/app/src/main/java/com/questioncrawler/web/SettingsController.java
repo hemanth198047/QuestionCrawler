@@ -89,7 +89,7 @@ public class SettingsController {
     }
 
     /** Signs in to Confluence through the person's browser (company login page); returns when the site accepts the session. */
-    @PostMapping("/confluence/sign-in")
+    @PostMapping({"/sign-in", "/confluence/sign-in"})
     public Workspace.SignInResult confluenceSignIn(@RequestBody(required = false) Map<String, String> values) {
         return workspace.confluenceSignIn(values == null ? Map.of() : values);
     }

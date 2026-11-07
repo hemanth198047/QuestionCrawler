@@ -44,7 +44,7 @@ import java.util.regex.Pattern;
  * </ul>
  * Comments are not collected (they cost extra quota). Content is CC BY-SA licensed: keep the attribution links.
  */
-public final class StackExchangeAdapter implements SourceAdapter {
+public final class StackExchangeAdapter implements SourceAdapter, BrowserSignIn {
 
     private static final int IDS_PER_CALL = 100; // documented cap on {ids} parameters
     private volatile int pageSize = 100;
@@ -87,6 +87,33 @@ public final class StackExchangeAdapter implements SourceAdapter {
      * @param capabilityProvider learns what the API supports from its Swagger documentation (called once, lazily); may be null,
      *                           in which case the standard Stack Exchange 2.3 feature set is assumed.
      */
+    private BrowserLogin browser;
+    private BrowserLogin.Prober browserProbe;
+
+    /**
+     * Uses browser sign-in (the company login page in Edge/Chrome): a request that is sent to the login page (redirect,
+     * 401 or a login form) signs in again through the browser and is retried once.
+     */
+    public StackExchangeAdapter withBrowser(BrowserLogin login, BrowserLogin.Prober probe) {
+        this.browser = login;
+        this.browserProbe = probe;
+        return this;
+    }
+
+    @Override
+    public String signIn() throws SourceException {
+        if (browser == null) {
+            return "this sign-in method does not use the browser";
+        }
+        browser.cookieHeader(browserProbe);
+        return browser.status();
+    }
+
+    @Override
+    public String sessionCookie() {
+        return browser == null ? null : browser.current();
+    }
+
     public StackExchangeAdapter(SourceSettings settings, HttpSourceClient client, Function<String, String> env, Sleeper sleeper,
                                 Supplier<ApiCapabilities> capabilityProvider) {
         this.capabilityProvider = capabilityProvider;
@@ -975,7 +1002,7 @@ public final class StackExchangeAdapter implements SourceAdapter {
         if (token != null && !token.isBlank()) {
             url.append(sep).append("access_token=").append(enc(token));
         }
-        HttpSourceClient.Response response = client.exchange(url.toString(), headers);
+        HttpSourceClient.Response response = exchangeSignedIn(url.toString(), headers);
         JsonNode root = parseBody(response, url.toString());
         if (response.status() < 200 || response.status() >= 300) {
             throw mapError(response, root, url.toString());
@@ -989,6 +1016,32 @@ public final class StackExchangeAdapter implements SourceAdapter {
             backoffUntilMillis.accumulateAndGet(System.currentTimeMillis() + backoff * 1000L, Math::max);
         }
         return root;
+    }
+
+    /** One request; with browser sign-in, a request sent to the login page signs in again and is retried once. */
+    private HttpSourceClient.Response exchangeSignedIn(String url, Map<String, String> headers) throws SourceException {
+        if (browser == null) {
+            return client.exchange(url, headers);
+        }
+        String used = browser.current();
+        HttpSourceClient.Response response;
+        try {
+            response = client.exchange(url, headers);
+        } catch (SourceException e) {
+            if (e.getMessage() == null || !e.getMessage().contains("redirected")) {
+                throw e; // a redirect to the login host (not an allowed host) is the expired-session case
+            }
+            response = null;
+        }
+        if (response == null || BrowserLogin.needsSignIn(response)) {
+            browser.invalidate(used == null ? browser.current() : used);
+            response = client.exchange(url, headers);
+            if (BrowserLogin.needsSignIn(response)) {
+                throw new SourceException(SourceException.Kind.AUTH_FAILED,
+                        "The site still sends the request to its sign-in page after signing in again in the browser. Check that you signed in with an account that can read it.");
+            }
+        }
+        return response;
     }
 
     private void awaitBackoff() throws SourceException {
