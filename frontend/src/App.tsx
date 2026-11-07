@@ -11,7 +11,7 @@ import HelpPage from './pages/Help'
 import OrganizePage from './pages/Organize'
 import OverviewPage from './pages/OverviewPage'
 import QuestionPage from './pages/Question'
-import { termsFor } from './lib/terms'
+import { termsFor, termsForKind } from './lib/terms'
 import SettingsPage from './pages/Settings'
 
 function NavItem({ to, icon, label, active, dot, badge }: { to: string; icon: ReactNode; label: string; active: boolean; dot?: boolean; badge?: string }) {
@@ -50,7 +50,17 @@ function Shell() {
         <div className="sidebar-foot">
           <div className="side-card">
             <div className="muted">Knowledge on this computer</div>
-            <strong>{overview ? number(overview.totals.questions) : '–'} <span style={{ fontSize: 14, fontWeight: 550, color: 'var(--ink-3)' }}>{termsFor(overview?.sourceType).items}</span></strong>
+            {!overview || overview.sources.length === 0
+              ? <strong>{overview ? '0' : '–'} <span style={{ fontSize: 14, fontWeight: 550, color: 'var(--ink-3)' }}>{termsFor(overview?.sourceType).items}</span></strong>
+              : <ul className="side-sources">{overview.sources.map((src) => {
+                  const t = termsForKind(src.kind)
+                  return (
+                    <li key={src.system} title={src.current ? 'The source you are connected to now' : 'Collected earlier from another source'}>
+                      <strong>{number(src.count)}</strong> <span>{src.count === 1 ? t.item : t.items}</span>
+                      {t.hasAnswers && src.answers > 0 && <span className="muted"> · {number(src.answers)} {src.answers === 1 ? t.answer : t.answers}</span>}
+                      <div className="side-source-name">{src.label}{src.current ? '' : ' (earlier)'}</div>
+                    </li>)
+                })}</ul>}
             <div className={`fresh ${!fresh || !fresh.lastSuccessfulSyncAt ? 'none' : fresh.stale ? 'stale' : ''}`}>
               <i />{!fresh || !fresh.lastSuccessfulSyncAt ? 'Not collected yet' : fresh.stale ? `Out of date · ${timeAgo(fresh.lastSuccessfulSyncAt)}` : `Updated ${timeAgo(fresh.lastSuccessfulSyncAt)}`}
             </div>

@@ -20,7 +20,14 @@ public record Overview(
         SearchResponse.Freshness freshness,
         boolean syncRunning,
         List<String> notes,
-        String scope) {
+        String scope,
+        List<SourceCount> sources) {
+
+    /**
+     * What is stored per source: {@code kind} is pages, questions or posts (the words of that source), {@code answers} the
+     * answers or replies (0 for pages), {@code current} marks the source that is configured now.
+     */
+    public record SourceCount(String system, String label, String kind, int count, int answers, boolean current) {}
 
     /*
      * scope: what bounds the collection besides tags, in plain words ("Spaces: DGF", "Pages: 123", "Places: 1006"),

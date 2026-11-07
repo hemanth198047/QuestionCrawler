@@ -722,6 +722,7 @@ public final class Workspace {
         int unanswered = 0;
         int hidden = 0;
         Map<String, Integer> byStatus = new TreeMap<>();
+        Map<String, int[]> perSource = new java.util.LinkedHashMap<>();
         List<Overview.CategorySlice> categories = new ArrayList<>();
         List<Overview.RunBrief> runs = new ArrayList<>();
         if (kb.store().isInitialized()) {
@@ -733,6 +734,9 @@ public final class Workspace {
                 }
                 questions++;
                 answers += t.question().answers().size();
+                int[] c = perSource.computeIfAbsent(t.sourceSystem(), k -> new int[2]);
+                c[0]++;
+                c[1] += t.question().answers().size();
                 if (t.question().hasAcceptedAnswer()) accepted++;
                 if (t.question().answers().isEmpty()) unanswered++;
             }
@@ -796,7 +800,21 @@ public final class Workspace {
         String window = config.maxQuestionAge();
         return new Overview(configFile.toString(), configExists, type, label, config.tags(), window, steps, next,
                 new Overview.Totals(questions, answers, accepted, unanswered, hidden, byStatus), categories, runs, kb.freshness(), runner.isRunning(), notes,
-                scopeOf(config));
+                scopeOf(config), sourceCounts(perSource, config, label));
+    }
+
+    /** What is stored per source, the configured one first, each in its own words (pages, questions, posts). */
+    private static List<Overview.SourceCount> sourceCounts(Map<String, int[]> perSource, CoreConfig config, String currentLabel) {
+        String currentSystem = config.sourceType().equals("fixture") ? com.questioncrawler.core.source.FixtureSourceAdapter.SYSTEM_ID : config.source().systemId();
+        List<Overview.SourceCount> out = new ArrayList<>();
+        perSource.forEach((system, c) -> {
+            boolean current = system.equals(currentSystem);
+            var terms = current ? com.questioncrawler.core.util.Terms.of(config.sourceType()) : com.questioncrawler.core.util.Terms.ofSystem(system);
+            out.add(new Overview.SourceCount(system, com.questioncrawler.core.util.Terms.sourceName(system),
+                    terms.items(), c[0], terms.hasAnswers() ? c[1] : 0, current));
+        });
+        out.sort(java.util.Comparator.comparing((Overview.SourceCount s) -> !s.current()).thenComparing(s -> -s.count()));
+        return out;
     }
 
     /** What bounds the collection besides tags, in plain words, or null. */

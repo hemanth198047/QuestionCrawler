@@ -76,16 +76,18 @@ public class KnowledgeController {
         return question(id);
     }
 
+    /** Topic counts; {@code source} (a stored system id such as confluence or stackoverflow) limits them to one source. */
     @GetMapping("/categories")
-    public List<Views.CategorySummary> categories() {
-        return workspace.kb().categories();
+    public List<Views.CategorySummary> categories(@RequestParam(name = "source", required = false) String source) {
+        return workspace.kb().categories(source);
     }
 
     @GetMapping("/categories/{id}")
     public Views.CategoryListing category(@PathVariable("id") String id,
                                           @RequestParam(name = "maxQuestionAge", required = false) String maxQuestionAge,
-                                          @RequestParam(name = "minQuestionAge", required = false) String minQuestionAge) {
-        return workspace.kb().category(id, new AgeFilter(maxQuestionAge, minQuestionAge, null, null))
+                                          @RequestParam(name = "minQuestionAge", required = false) String minQuestionAge,
+                                          @RequestParam(name = "source", required = false) String source) {
+        return workspace.kb().category(id, new AgeFilter(maxQuestionAge, minQuestionAge, null, null), source)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown category " + id));
     }
 

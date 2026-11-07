@@ -6,7 +6,7 @@ import { useOverview } from '../components/OverviewContext'
 import { Badge, Banner, Button, Card, Chip, EmptyState, InfoTip, ProgressBar, Segmented, Skeleton, useToast } from '../components/ui'
 import { dateOnly, duration, number, plainCompleteness, timeAgo } from '../lib/format'
 import { go, useRemote } from '../lib/useRemote'
-import { termsFor, useTerms } from '../lib/terms'
+import { termsFor, termsForKind, useTerms } from '../lib/terms'
 import type { SyncProgress, SyncReport, SyncState } from '../types/api'
 
 const WINDOWS = [
@@ -160,7 +160,7 @@ export default function CollectPage() {
 
   return (
     <div className="stack" style={{ gap: 28 }}>
-      <PageHeader eyebrow="Collect" title={`Download ${terms.items}`} subtitle={isConfluence ? 'Every page in the chosen spaces (narrowed by labels, if you named any). Pick how far back to look.' : isJive ? 'Documents, discussions and questions from the chosen places, with their replies. Pick how far back to look.' : isSharePoint ? 'Pages of the chosen site. Pick how far back to look.' : 'Pick how far back to look and how thorough to be. You can watch it happen, and leave this page: it keeps running.'} />
+      <PageHeader eyebrow="Collect" title={`Download ${terms.items}${terms.hasAnswers ? ` and ${terms.answers}` : ''} from ${({ confluence: 'Confluence', jive: 'Jive', sharepoint: 'SharePoint', fixture: 'the demo data' } as Record<string, string>)[o.sourceType] ?? o.sources.find((x) => x.current)?.label ?? o.sourceLabel}`} subtitle={isConfluence ? 'Every page in the chosen spaces (narrowed by labels, if you named any). Pick how far back to look.' : isJive ? 'Documents, discussions and questions from the chosen places, with their replies. Pick how far back to look.' : isSharePoint ? 'Pages of the chosen site. Pick how far back to look.' : 'Pick how far back to look and how thorough to be. You can watch it happen, and leave this page: it keeps running.'} />
       {noTags && <Banner tone="warn" title={terms.pageLike ? 'Nothing chosen yet' : 'No tags chosen yet'} action={<Button onClick={() => go('/connect')}>{terms.pageLike ? 'Choose what to collect' : 'Choose tags'}</Button>}>{isConfluence ? 'Choose the spaces on Connect (and keep the label “all”, or name labels).' : isJive ? 'Choose the places on Connect (and keep the tag “all”, or name tags).' : isSharePoint ? 'Keep “all” to collect every page of the site, or name words that must appear in page titles.' : 'We need at least one tag to know which questions to collect.'}</Banner>}
 
       <Card>
@@ -169,6 +169,10 @@ export default function CollectPage() {
           <div><span className="muted small">Source</span><strong>{o.sourceLabel}</strong></div>
           <div><span className="muted small">{isConfluence ? 'Labels' : 'Tags'} <InfoTip term="tag" /></span><div className="row" style={{ gap: 6 }}>{o.tags.length ? o.tags.map((t) => <Chip key={t} active={['all', '*'].includes(t.toLowerCase())}>{['all', '*'].includes(t.toLowerCase()) ? (terms.pageLike ? `All (every ${terms.item})` : 'All tags (every question)') : t}</Chip>) : <span className="muted">none yet</span>}</div></div>
           {o.scope && <div><span className="muted small">{isConfluence ? 'Where' : 'Scope'}</span><strong>{o.scope}</strong></div>}
+          {o.sources.length > 0 && <div><span className="muted small">Already on this computer</span><div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>{o.sources.map((x) => {
+            const t = termsForKind(x.kind)
+            return <Chip key={x.system} active={x.current}>{x.label}: {x.count.toLocaleString()} {x.count === 1 ? t.item : t.items}{t.hasAnswers && x.answers > 0 ? `, ${x.answers.toLocaleString()} ${x.answers === 1 ? t.answer : t.answers}` : ''}</Chip>
+          })}</div></div>}
           <div><span className="muted small">{terms.Items} from <InfoTip term="window" /></span>
             <Segmented label="Time window" value={WINDOWS.some((w) => w.value === (win ?? '')) ? (win ?? '') : '__custom'} onChange={(v) => setWin(v)} options={WINDOWS} /></div>
         </div>

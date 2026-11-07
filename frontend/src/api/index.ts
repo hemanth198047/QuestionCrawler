@@ -34,9 +34,13 @@ export function search(p: { q: string; tags: string[]; category: string; top: nu
 export const getQuestion = (id: string, s?: AbortSignal) => get<ThreadView>(`/questions/${encodeURIComponent(id)}`, s)
 export const setOverride = (id: string, categories: string[], note: string) => put<ThreadView>(`/questions/${encodeURIComponent(id)}/categories`, { categories, note })
 export const clearOverride = (id: string) => del<ThreadView>(`/questions/${encodeURIComponent(id)}/categories`)
-export const getCategories = (s?: AbortSignal) => get<CategorySummary[]>('/categories', s)
-export function getCategory(id: string, maxQuestionAge: string, s?: AbortSignal) {
-  const qs = maxQuestionAge ? `?maxQuestionAge=${encodeURIComponent(maxQuestionAge)}` : ''
+/** Topic counts, for one source (its stored system id) or for all when source is empty. */
+export const getCategories = (s?: AbortSignal, source = '') => get<CategorySummary[]>(`/categories${source ? `?source=${encodeURIComponent(source)}` : ''}`, s)
+export function getCategory(id: string, maxQuestionAge: string, s?: AbortSignal, source = '') {
+  const q = new URLSearchParams()
+  if (maxQuestionAge) q.set('maxQuestionAge', maxQuestionAge)
+  if (source) q.set('source', source)
+  const qs = q.toString() ? `?${q.toString()}` : ''
   return get<CategoryListing>(`/categories/${encodeURIComponent(id)}${qs}`, s)
 }
 

@@ -166,9 +166,17 @@ public final class KnowledgeBase {
     }
 
     public List<CategorySummary> categories() {
+        return categories(null);
+    }
+
+    /** Topic counts for one source (its stored system id), or for all sources when {@code source} is null or empty. */
+    public List<CategorySummary> categories(String source) {
         store.ensureReady();
         Map<String, Integer> counts = new TreeMap<>();
         for (ThreadRecord t : retrievableThreads()) {
+            if (source != null && !source.isBlank() && !source.equals(t.sourceSystem())) {
+                continue;
+            }
             for (String c : categoriesOf(t, store.loadOverrides())) {
                 counts.merge(c, 1, Integer::sum);
             }
@@ -186,6 +194,11 @@ public final class KnowledgeBase {
 
     /** Only the question-age part of the filter applies when browsing (answers are not listed here). */
     public Optional<CategoryListing> category(String id, com.questioncrawler.core.search.AgeFilter age) {
+        return category(id, age, null);
+    }
+
+    /** As {@link #category(String, com.questioncrawler.core.search.AgeFilter)}, only items of one source when given. */
+    public Optional<CategoryListing> category(String id, com.questioncrawler.core.search.AgeFilter age, String source) {
         store.ensureReady();
         Taxonomy.Category c = taxonomy.category(id);
         if (c == null) {
@@ -195,6 +208,7 @@ public final class KnowledgeBase {
         List<QuestionRef> refs = new ArrayList<>();
         for (ThreadRecord t : retrievableThreads()) {
             if (categoriesOf(t, overrides).contains(id)
+                    && (source == null || source.isBlank() || source.equals(t.sourceSystem()))
                     && age.acceptsQuestion(Times.parse(t.question().createdAt()).orElse(null), clock.instant())) {
                 var q = t.question();
                 refs.add(new QuestionRef(t.sourceSystem(), q.id(), q.title(), q.url(), q.createdAt(), t.status().name(), q.answers().size(), q.hasAcceptedAnswer(), q.tags()));

@@ -241,3 +241,6 @@ button.rm-node:hover { background: var(--bg-sunken); }
 .network-step > summary::-webkit-details-marker { display: none; }
 .network-step > summary h3::after { content: " ▸"; color: var(--ink-3); }
 .network-step[open] > summary h3::after { content: " ▾"; }
+
+/* Organize: one tab per source */
+.source-tabs { display: flex; flex-wrap: wrap; gap: 8px; }

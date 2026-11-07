@@ -33,6 +33,24 @@ public record Terms(String item, String items, boolean hasAnswers, String answer
         return s.startsWith("confluence") || s.startsWith("sharepoint") ? PAGES : s.startsWith("jive") ? POSTS : QUESTIONS;
     }
 
+    /** A readable name for a stored system id when nothing better is known ("stackoverflow" -> "Stack Overflow"). */
+    public static String sourceName(String systemId) {
+        String s = systemId == null ? "" : systemId.strip();
+        return switch (s.toLowerCase(java.util.Locale.ROOT)) {
+            case "confluence" -> "Confluence";
+            case "jive" -> "Jive";
+            case "sharepoint" -> "SharePoint";
+            case "fixture" -> "Demo data";
+            case "internal-qa" -> "Internal Q&A site";
+            case "stackoverflow" -> "Stack Overflow";
+            case "serverfault" -> "Server Fault";
+            case "superuser" -> "Super User";
+            case "askubuntu" -> "Ask Ubuntu";
+            case "" -> "Unknown source";
+            default -> Character.toUpperCase(s.charAt(0)) + s.substring(1);
+        };
+    }
+
     /** "1 page", "3 pages". */
     public String count(long n) {
         return n + " " + (n == 1 ? item : items);

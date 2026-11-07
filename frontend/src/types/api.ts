@@ -11,7 +11,10 @@ export interface Overview {
   freshness: Freshness; syncRunning: boolean; notes: string[]
   /** What bounds the collection besides tags ("Space: DGF"), or null */
   scope: string | null
+  /** What is stored per source, in that source's words (kind: pages, questions or posts) */
+  sources: SourceCount[]
 }
+export interface SourceCount { system: string; label: string; kind: 'pages' | 'questions' | 'posts'; count: number; answers: number; current: boolean }
 
 // ---- configuration
 export type FieldType = 'TEXT' | 'NUMBER' | 'SWITCH' | 'SELECT' | 'TAGS' | 'PATH' | 'AGE' | 'ENV_NAME' | 'URL'

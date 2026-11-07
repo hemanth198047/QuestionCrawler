@@ -54,6 +54,20 @@ export function termsForSystem(systemId: string | null | undefined): Terms {
   return QUESTIONS
 }
 
+/** Words for a kind as the backend names it (pages, questions, posts). */
+export function termsForKind(kind: string | null | undefined): Terms {
+  return kind === 'pages' ? PAGES : kind === 'posts' ? POSTS : QUESTIONS
+}
+
+/** Words for one stored source system, using what the overview knows about it (falls back to its name). */
+export function useSystemTerms(): (system: string | null | undefined) => Terms {
+  const { overview } = useOverview()
+  return (system) => {
+    const known = overview?.sources?.find((s) => s.system === system)
+    return known ? termsForKind(known.kind) : termsForSystem(system)
+  }
+}
+
 /** Words for the source currently configured. */
 export function useTerms(): Terms {
   const { overview } = useOverview()

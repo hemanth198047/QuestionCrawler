@@ -5,7 +5,11 @@ import { PageHeader } from '../components/PageHeader'
 import { Badge, Banner, Button, Card, Chip, EmptyState, InfoTip, PALETTE, Segmented, Skeleton, TagInput, useToast } from '../components/ui'
 import { AGE_STEPS, dateOnly, friendlyRule, timeAgo } from '../lib/format'
 import { go, useRemote } from '../lib/useRemote'
-import { count, useTerms } from '../lib/terms'
+import { useOverview } from '../components/OverviewContext'
+import { count, termsForKind, useSystemTerms, useTerms, type Terms } from '../lib/terms'
+
+/** Words when several kinds of source are shown together. */
+const MIXED: Terms = { item: 'item', items: 'items', Item: 'Item', Items: 'Items', hasAnswers: true, answer: 'answer', answers: 'answers', Answers: 'Answers', created: 'created', collect: 'Collect', pageLike: false }
 import type { Category, Rule, Taxonomy, TopicProposal, TryResult } from '../types/api'
 
 export default function OrganizePage({ tab, selected }: { tab: string; selected: string | null }) {
@@ -22,10 +26,17 @@ export default function OrganizePage({ tab, selected }: { tab: string; selected:
 
 // ------------------------------------------------------------------ browsing
 function Browse({ selected }: { selected: string | null }) {
-  const T = useTerms()
-  const cats = useRemote((s) => getCategories(s), [])
+  const { overview } = useOverview()
+  const sources = overview?.sources ?? []
+  const [source, setSource] = useState('')
+  // Each source keeps its own words: pages (Confluence, SharePoint), questions (Stack Exchange), posts (Jive).
+  const current = sources.find((x) => x.system === source)
+  const kinds = new Set(sources.map((x) => x.kind))
+  const T: Terms = current ? termsForKind(current.kind) : kinds.size === 1 ? termsForKind(sources[0].kind) : MIXED
+  const termsOf = useSystemTerms()
+  const cats = useRemote((s) => getCategories(s, source), [source])
   const [age, setAge] = useState('')
-  const listing = useRemote((s) => (selected ? getCategory(selected, age, s) : Promise.resolve(null)), [selected, age])
+  const listing = useRemote((s) => (selected ? getCategory(selected, age, s, source) : Promise.resolve(null)), [selected, age, source])
   if (cats.kind === 'loading') return <div className="grid-3"><Skeleton h={130} r={18} /><Skeleton h={130} r={18} /><Skeleton h={130} r={18} /></div>
   if (cats.kind === 'error') return <Banner tone="bad" title="Topics could not be loaded">{cats.message}</Banner>
   const max = Math.max(1, ...cats.data.map((c) => c.questionCount))
@@ -33,6 +44,13 @@ function Browse({ selected }: { selected: string | null }) {
   if (total === 0) return <EmptyState icon={<FolderTree size={30} />} title={`No ${T.items} to organize yet`} action={<Button variant="primary" onClick={() => go('/collect')}>{T.collect}</Button>}>Topics appear here as soon as {T.items} are collected.</EmptyState>
   return (
     <div className="stack" style={{ gap: 24 }}>
+      {sources.length > 1 && (
+        <div className="source-tabs" role="tablist" aria-label="Source">
+          <button type="button" role="tab" aria-selected={source === ''} className={`chip ${source === '' ? 'active' : ''}`} onClick={() => setSource('')}>All sources</button>
+          {sources.map((x) => (
+            <button type="button" role="tab" key={x.system} aria-selected={source === x.system} className={`chip ${source === x.system ? 'active' : ''}`} onClick={() => setSource(x.system)}>
+              {x.label} · {count(x.count, termsForKind(x.kind).item, termsForKind(x.kind).items)}</button>))}
+        </div>)}
       <div className="catgrid">
         {cats.data.map((c, i) => (
           <a key={c.id} href={`#/organize/browse/${c.id}`} className={`catcard ${c.id === selected ? 'on' : ''} ${c.questionCount === 0 ? 'empty' : ''}`}>
@@ -53,13 +71,13 @@ function Browse({ selected }: { selected: string | null }) {
           </div>
           {listing.data.questions.length === 0 ? <p className="muted" style={{ padding: '24px 0' }}>No {T.items} in this topic{age ? ' for that time range' : ''}.</p> : (
             <ul className="qlist">
-              {listing.data.questions.map((q) => (
-                <li key={q.id}><a href={`#/question/${encodeURIComponent(q.id)}`}>
+              {listing.data.questions.map((q) => { const QT = termsOf(q.source); return (
+                <li key={`${q.source}:${q.id}`}><a href={`#/question/${encodeURIComponent(q.source + ':' + q.id)}`}>
                   <strong>{q.title}</strong>
-                  <span className="muted small">{T.created} {timeAgo(q.createdAt)} · {dateOnly(q.createdAt)}{T.hasAnswers ? ` · ${count(q.answerCount, T.answer, T.answers)}` : ''}</span>
-                  <span className="row" style={{ gap: 6 }}>{!T.pageLike && q.hasAcceptedAnswer && <Badge tone="ok">Accepted answer</Badge>}{!T.pageLike && q.answerCount === 0 && <Badge tone="warn">Unanswered</Badge>}{q.status !== 'ACTIVE' && <Badge tone="warn">{q.status.toLowerCase().replace('_', ' ')}</Badge>}</span>
+                  <span className="muted small">{QT.Item} {QT.created} {timeAgo(q.createdAt)} · {dateOnly(q.createdAt)}{QT.hasAnswers ? ` · ${count(q.answerCount, QT.answer, QT.answers)}` : ''}{!current && sources.length > 1 ? ` · ${sources.find((x) => x.system === q.source)?.label ?? q.source}` : ''}</span>
+                  <span className="row" style={{ gap: 6 }}>{!QT.pageLike && q.hasAcceptedAnswer && <Badge tone="ok">Accepted answer</Badge>}{!QT.pageLike && q.answerCount === 0 && <Badge tone="warn">Unanswered</Badge>}{q.status !== 'ACTIVE' && <Badge tone="warn">{q.status.toLowerCase().replace('_', ' ')}</Badge>}</span>
                   <ArrowRight size={16} className="qarrow" /></a></li>
-              ))}
+              ) })}
             </ul>
           )}
         </Card>

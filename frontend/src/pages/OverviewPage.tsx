@@ -6,7 +6,7 @@ import { useOverview } from '../components/OverviewContext'
 import { go } from '../lib/useRemote'
 import { useToast } from '../components/ui'
 import { number, timeAgo } from '../lib/format'
-import { count, termsFor, useTerms } from '../lib/terms'
+import { count, termsFor, termsForKind, useTerms } from '../lib/terms'
 import type { Overview, SetupStep } from '../types/api'
 
 const STEP_ICON: Record<string, React.ReactNode> = {
@@ -46,7 +46,7 @@ function Hero({ o }: { o: Overview }) {
   let cta = { label: 'Start setup', to: '/connect', icon: <Sparkles size={18} /> }
   if (o.nextStep === 'check') { title = 'One quick check before collecting.'; text = 'We’ll look at whether this computer can reach the site, and exactly what is needed if something is in the way.'; cta = { label: 'Check the connection', to: '/connect', icon: <ShieldCheck size={18} /> } }
   else if (o.nextStep === 'collect') { title = `Everything is set. Time to collect your first ${t.items}.`; text = t.hasAnswers && !t.pageLike ? 'We’ll download the questions and answers for your tags and organize them into topics. Start with a small time window.' : `We’ll download the ${t.items} you chose and organize them into topics.`; cta = { label: t.collect, to: '/collect', icon: <Download size={18} /> } }
-  else if (q > 0) { title = 'Your knowledge is ready to ask.'; text = t.hasAnswers ? `${count(q, t.item, t.items)} and ${count(o.totals.answers, t.answer, t.answers)} from ${o.sourceLabel} are stored on this computer. Search by words, error messages, topic or age.` : `${count(q, t.item, t.items)} from ${o.sourceLabel} are stored on this computer. Ask in plain words: the best paragraph is quoted as the answer.`; cta = { label: 'Ask a question', to: '/explore', icon: <Search size={18} /> } }
+  else if (q > 0) { title = 'Your knowledge is ready to ask.'; text = `${storedText(o)} ${o.sources.length === 1 && t.pageLike ? 'Ask in plain words: the best paragraph is quoted as the answer.' : 'Search by words, error messages, topic or age.'}`; cta = { label: 'Ask a question', to: '/explore', icon: <Search size={18} /> } }
   return (
     <Card className="hero rise" pad={false}>
       <div className="hero-copy">
@@ -69,6 +69,18 @@ function Hero({ o }: { o: Overview }) {
       </div>
     </Card>
   )
+}
+
+/** "312 questions and 1,204 answers from Stack Overflow and 115 pages from Confluence are stored on this computer." */
+function storedText(o: Overview): string {
+  const parts = o.sources.map((x) => {
+    const w = termsForKind(x.kind)
+    return `${count(x.count, w.item, w.items)}${w.hasAnswers && x.answers > 0 ? ` and ${count(x.answers, w.answer, w.answers)}` : ''} from ${x.label}`
+  })
+  if (parts.length === 0) return 'Nothing is stored on this computer yet.'
+  const list = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`
+  const total = o.sources.reduce((a, x) => a + x.count, 0)
+  return `${list} ${total === 1 ? 'is' : 'are'} stored on this computer.`
 }
 
 function HowItWorks() {
@@ -113,7 +125,9 @@ export default function OverviewPage() {
       {hasData && (
         <>
           <div className="grid-4">
-            <Stat icon={<BookOpenCheck size={22} />} label={t.Items} value={number(o.totals.questions)} hint={o.window ? `from the past ${o.window}` : 'all collected'} />
+            {o.sources.length > 1
+              ? <Stat icon={<BookOpenCheck size={22} />} label="Stored" value={number(o.totals.questions)} hint={o.sources.map((x) => `${number(x.count)} ${x.count === 1 ? termsForKind(x.kind).item : termsForKind(x.kind).items} · ${x.label}`).join(' — ')} />
+              : <Stat icon={<BookOpenCheck size={22} />} label={t.Items} value={number(o.totals.questions)} hint={o.window ? `from the past ${o.window}` : 'all collected'} />}
             {t.hasAnswers && <Stat tone="info" icon={<MessageCircleQuestion size={22} />} label={t.Answers} value={number(o.totals.answers)} hint={`across all ${t.items}`} />}
             {t.hasAnswers && !t.pageLike && <Stat tone="ok" icon={<CheckCheck size={22} />} label="With accepted answer" value={`${pctAnswered}%`} hint={count(o.totals.accepted, t.item, t.items)} />}
             {t.hasAnswers && !t.pageLike && <Stat tone="warn" icon={<HelpCircle size={22} />} label="Still unanswered" value={number(o.totals.unanswered)} hint="worth a look" />}
