@@ -88,6 +88,12 @@ public class SettingsController {
         return workspace.confluenceSpaces(values == null ? Map.of() : values);
     }
 
+    /** Signs in to Confluence through the person's browser (company login page); returns when the site accepts the session. */
+    @PostMapping("/confluence/sign-in")
+    public Workspace.SignInResult confluenceSignIn(@RequestBody(required = false) Map<String, String> values) {
+        return workspace.confluenceSignIn(values == null ? Map.of() : values);
+    }
+
     @PostMapping("/tags/search")
     public Workspace.TagSearch searchTags(@RequestBody(required = false) TagSearchRequest request) {
         return request == null ? workspace.searchTags(Map.of(), null) : workspace.searchTags(request.values() == null ? Map.of() : request.values(), request.q());

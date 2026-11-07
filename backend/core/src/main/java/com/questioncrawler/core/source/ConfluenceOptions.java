@@ -23,7 +23,8 @@ public record ConfluenceOptions(
         String emailEnv,
         String apiVersion,
         List<String> pageIds,
-        Tvm tvm) {
+        Tvm tvm,
+        Browser browser) {
 
     public static final ConfluenceOptions DEFAULT = new ConfluenceOptions(
             "cloud", "", List.of(), "", List.of("page"), "body.storage", false, 25, true, "", "");
@@ -55,11 +56,37 @@ public record ConfluenceOptions(
         }
     }
 
+    /**
+     * Browser sign-in settings for {@code source.auth.method=browser} (company SSO login page in Edge/Chrome).
+     *
+     * @param path           the browser program; empty = find Edge or Chrome automatically
+     * @param profileDir     the browser profile folder the app uses; empty = ~/.questioncrawler/browser-profile
+     * @param loginUrl       the address to open; empty = the Confluence site (it redirects to the login page by itself)
+     * @param timeoutSeconds how long to wait for the person to finish signing in (default 300)
+     */
+    public record Browser(String path, String profileDir, String loginUrl, int timeoutSeconds) {
+        public static final Browser DEFAULT = new Browser("", "", "", 300);
+
+        public Browser {
+            path = path == null ? "" : path.strip();
+            profileDir = profileDir == null ? "" : profileDir.strip();
+            loginUrl = loginUrl == null ? "" : loginUrl.strip();
+            timeoutSeconds = timeoutSeconds <= 0 ? 300 : timeoutSeconds;
+        }
+    }
+
+    public ConfluenceOptions(String edition, String apiRoot, List<String> spaces, String ancestorPageId, List<String> contentTypes,
+                             String bodyExpand, boolean collectComments, int pageSize, boolean includeSpaceTag, String email, String emailEnv,
+                             String apiVersion, List<String> pageIds, Tvm tvm) {
+        this(edition, apiRoot, spaces, ancestorPageId, contentTypes, bodyExpand, collectComments, pageSize, includeSpaceTag, email, emailEnv,
+                apiVersion, pageIds, tvm, Browser.DEFAULT);
+    }
+
     /** The settings used before REST API v2, TVM and page ids existed. */
     public ConfluenceOptions(String edition, String apiRoot, List<String> spaces, String ancestorPageId, List<String> contentTypes,
                              String bodyExpand, boolean collectComments, int pageSize, boolean includeSpaceTag, String email, String emailEnv) {
         this(edition, apiRoot, spaces, ancestorPageId, contentTypes, bodyExpand, collectComments, pageSize, includeSpaceTag, email, emailEnv,
-                "v1", List.of(), Tvm.NONE);
+                "v1", List.of(), Tvm.NONE, Browser.DEFAULT);
     }
 
     public ConfluenceOptions {
@@ -72,6 +99,7 @@ public record ConfluenceOptions(
         apiVersion = apiVersion == null || apiVersion.isBlank() ? "v1" : apiVersion.strip().toLowerCase();
         pageIds = pageIds == null ? List.of() : List.copyOf(pageIds);
         tvm = tvm == null ? Tvm.NONE : tvm;
+        browser = browser == null ? Browser.DEFAULT : browser;
         pageSize = pageSize <= 0 ? 25 : Math.min(pageSize, "v2".equals(apiVersion) ? 250 : 50);
         email = email == null ? "" : email.strip();
         emailEnv = emailEnv == null ? "" : emailEnv.strip();

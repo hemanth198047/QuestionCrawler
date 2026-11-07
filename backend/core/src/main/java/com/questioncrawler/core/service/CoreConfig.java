@@ -134,7 +134,12 @@ public record CoreConfig(
                         p.getProperty("source.confluence.tvm.curlPath", "curl"),
                         Boolean.parseBoolean(p.getProperty("source.confluence.tvm.useProxy", "false").strip()),
                         p.getProperty("source.confluence.tvm.caCertFile", ""),
-                        intValue(p, "source.confluence.tvm.refreshBeforeSeconds", 60)));
+                        intValue(p, "source.confluence.tvm.refreshBeforeSeconds", 60)),
+                new ConfluenceOptions.Browser(
+                        p.getProperty("source.confluence.browser.path", ""),
+                        p.getProperty("source.confluence.browser.profileDir", ""),
+                        p.getProperty("source.confluence.browser.loginUrl", ""),
+                        intValue(p, "source.confluence.browser.timeoutSeconds", 300)));
         boolean jiveSource = type.equals("jive");
         JiveOptions jive = new JiveOptions(
                 p.getProperty("source.jive.apiRoot", ""),
@@ -289,6 +294,9 @@ public record CoreConfig(
         }
         if (source.authMethod().equalsIgnoreCase("tvm") && !sourceType.equals("confluence")) {
             problems.add("source.auth.method=tvm (Token Vending Machine) is only supported for source.type=confluence");
+        }
+        if (source.authMethod().equalsIgnoreCase("browser") && !sourceType.equals("confluence")) {
+            problems.add("source.auth.method=browser (sign in with my browser) is only supported for source.type=confluence");
         }
         if (maxQuestionAge != null && !com.questioncrawler.core.util.AgeSpec.isValid(maxQuestionAge)) {
             problems.add("sync.maxQuestionAge must look like 30d, 12h, 2w, 6m or 1y (was '" + maxQuestionAge + "')");

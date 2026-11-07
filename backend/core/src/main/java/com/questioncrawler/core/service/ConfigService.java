@@ -114,6 +114,14 @@ public final class ConfigService {
                                 Type.PATH, "", "C:\\certs\\company-ca.pem", CONFLUENCE, true, null),
                         f("source.confluence.spaces", "Spaces to collect", "Every page in these spaces is collected. Press 'Show my spaces' below and tick them, or type space keys (ENG) or paste a space address (https://acme.atlassian.net/wiki/spaces/ENG/overview). Press Enter after each.",
                                 Type.TAGS, "", "ENG", CONFLUENCE, false, null),
+                        f("source.confluence.browser.path", "Browser program", "Only for 'Sign in with my browser'. Leave empty to use Edge or Chrome automatically. Otherwise the full path, for example C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe.",
+                                Type.PATH, "", "", CONFLUENCE, true, null),
+                        f("source.confluence.browser.profileDir", "Browser profile folder", "Only for 'Sign in with my browser'. The app's own browser profile, so your company login can remember you. Empty = ~/.questioncrawler/browser-profile.",
+                                Type.PATH, "", "", CONFLUENCE, true, null),
+                        f("source.confluence.browser.loginUrl", "Address to open for signing in", "Only for 'Sign in with my browser'. Empty = the Confluence site itself, which sends you to the company login page.",
+                                Type.URL, "", "", CONFLUENCE, true, null),
+                        f("source.confluence.browser.timeoutSeconds", "Time to finish signing in", "Only for 'Sign in with my browser'. How long the app waits for you to finish the login in the browser.",
+                                Type.NUMBER, "300", "300", CONFLUENCE, true, "seconds"),
                         f("source.confluence.pageIds", "Only these pages (optional)", "Advanced. Instead of whole spaces, collect exactly these pages (the number in the page address, for example .../pages/123456789/Title). Leave empty to collect the spaces above.",
                                 Type.TAGS, "", "123456789", CONFLUENCE, true, null),
                         f("source.confluence.email", "Atlassian account email", "Cloud only. The email for Basic auth with your API token. Not a secret; the token stays in an environment variable.",
@@ -198,7 +206,8 @@ public final class ConfigService {
                                 new Option("none", "Not needed", "Only for some internal Q&A APIs"),
                                 new Option("basic-env", "Username/email + secret (Basic)", "Confluence Cloud email+token, or Jive username+password from env"),
                                 new Option("token", "Bearer token / PAT / OAuth / Graph", "Confluence Server/DC PAT, Jive OAuth, SharePoint Graph token, or internal Bearer"),
-                                new Option("tvm", "Kerberos + Token Vending Machine (Confluence)", "Short-lived Bearer token from your company TVM; no secret to store")),
+                                new Option("tvm", "Kerberos + Token Vending Machine (Confluence)", "Short-lived Bearer token from your company TVM; no secret to store"),
+                                new Option("browser", "Sign in with my browser (Confluence)", "Opens your company login page in Edge/Chrome, like you do every day; no secret to store")),
                         f("source.auth.tokenEnv", "Token / password variable name", "The NAME of the environment variable that holds the secret (never the secret itself). Suggested: CONFLUENCE_API_TOKEN / CONFLUENCE_PAT, JIVE_PASSWORD / JIVE_ACCESS_TOKEN, SHAREPOINT_ACCESS_TOKEN.",
                                 Type.ENV_NAME, "SHAREPOINT_ACCESS_TOKEN", "SHAREPOINT_ACCESS_TOKEN", AUTH_TOKEN, false, null),
                         f("source.auth.headerName", "Auth header name", "The HTTP header that carries the credential. Almost always Authorization.",
@@ -306,6 +315,19 @@ public final class ConfigService {
                                 Map.entry("source.confluence.tvm.client", "curl"),
                                 Map.entry("source.confluence.spaces", ""),
                                 Map.entry("source.confluence.pageIds", ""),
+                                Map.entry("sync.tags", "all"),
+                                Map.entry("sync.maxQuestionAge", "1y"),
+                                Map.entry("sync.concurrency", "2"),
+                                Map.entry("source.followRedirects", "same-host"),
+                                Map.entry("source.allowedPathPrefixes", "/wiki/api/v2/"))),
+                new Preset("confluence-browser", "Confluence (sign in with my browser)", "Read Confluence pages when the site sends you to your company login page. The app opens that page in Edge/Chrome, you sign in as usual, and it carries on. Nothing for admins to change; nothing secret to store.", "book",
+                        Map.ofEntries(
+                                Map.entry("source.type", "confluence"),
+                                Map.entry("source.baseUrl", ""),
+                                Map.entry("source.confluence.edition", "cloud"),
+                                Map.entry("source.confluence.apiVersion", "v2"),
+                                Map.entry("source.auth.method", "browser"),
+                                Map.entry("source.confluence.spaces", ""),
                                 Map.entry("sync.tags", "all"),
                                 Map.entry("sync.maxQuestionAge", "1y"),
                                 Map.entry("sync.concurrency", "2"),
@@ -460,7 +482,7 @@ public final class ConfigService {
                     issues.add(new Issue("source.confluence.edition", "error", "Choose Cloud or Server / Data Center.", null));
                 }
                 if ("basic-env".equals(authMethod) || "confluence-api-token".equals(authMethod)
-                        || ("cloud".equals(edition) && !"token".equals(authMethod) && !"none".equals(authMethod) && !"tvm".equals(authMethod))) {
+                        || ("cloud".equals(edition) && !"token".equals(authMethod) && !"none".equals(authMethod) && !"tvm".equals(authMethod) && !"browser".equals(authMethod))) {
                     String email = v.getOrDefault("source.confluence.email", "").strip();
                     String emailEnv = v.getOrDefault("source.confluence.emailEnv", "").strip();
                     if (email.isEmpty() && emailEnv.isEmpty() && ("basic-env".equals(authMethod) || "confluence-api-token".equals(authMethod)
@@ -746,7 +768,8 @@ public final class ConfigService {
                 String edition = merged.getOrDefault("source.confluence.edition", "cloud").strip().toLowerCase();
                 merged.put("source.auth.method", "server".equals(edition) ? "token" : "basic-env");
             }
-            if (merged.getOrDefault("source.auth.tokenEnv", "").isBlank() && !"tvm".equals(merged.get("source.auth.method"))) {
+            if (merged.getOrDefault("source.auth.tokenEnv", "").isBlank() && !"tvm".equals(merged.get("source.auth.method"))
+                    && !"browser".equals(merged.get("source.auth.method"))) {
                 String edition = merged.getOrDefault("source.confluence.edition", "cloud").strip().toLowerCase();
                 merged.put("source.auth.tokenEnv", "server".equals(edition) ? "CONFLUENCE_PAT" : "CONFLUENCE_API_TOKEN");
             }

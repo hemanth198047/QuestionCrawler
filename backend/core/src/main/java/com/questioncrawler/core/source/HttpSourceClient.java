@@ -168,8 +168,8 @@ public final class HttpSourceClient {
                 .header("Accept-Encoding", "gzip")
                 .header("User-Agent", "QuestionCrawler/0.1")
                 .GET();
-        applyAuth(request);
-        extraHeaders.forEach(request::header);
+        applyAuth(request, extraHeaders);
+        extraHeaders.forEach(request::setHeader);
         HttpResponse<InputStream> response;
         try {
             response = http.send(request.build(), HttpResponse.BodyHandlers.ofInputStream());
@@ -221,9 +221,19 @@ public final class HttpSourceClient {
         return uri;
     }
 
-    private void applyAuth(HttpRequest.Builder request) throws SourceException {
+    private void applyAuth(HttpRequest.Builder request, Map<String, String> extraHeaders) throws SourceException {
         String method = settings.authMethod();
         if (method.equalsIgnoreCase("none") || method.isBlank()) {
+            return;
+        }
+        if (method.equalsIgnoreCase("browser")) {
+            if (extraHeaders.keySet().stream().anyMatch(k -> k.equalsIgnoreCase("Cookie"))) {
+                return; // the caller is testing a specific session
+            }
+            if (bearer == null) {
+                throw new SourceException(SourceException.Kind.FATAL, "source.auth.method=browser is only supported for Confluence");
+            }
+            request.header("Cookie", bearer.token());
             return;
         }
         if (method.equalsIgnoreCase("tvm")) {
@@ -254,7 +264,7 @@ public final class HttpSourceClient {
         }
         if (!method.equalsIgnoreCase("token")) {
             throw new SourceException(SourceException.Kind.FATAL,
-                    "Unknown source.auth.method '" + method + "' (use none, token, basic-env, or tvm)");
+                    "Unknown source.auth.method '" + method + "' (use none, token, basic-env, tvm, or browser)");
         }
         String scheme = settings.authScheme();
         request.header(settings.authHeaderName(), scheme == null || scheme.isBlank() ? token : scheme + " " + token);

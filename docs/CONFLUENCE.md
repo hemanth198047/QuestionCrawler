@@ -11,6 +11,8 @@ QuestionCrawler can collect **Confluence pages** into the same local knowledge s
 - Labels become tags; answers stay empty (wiki pages are not Q&A)
 - Incremental sync using CQL `lastmodified` when the site supports it
 
+> **Sent to a company login page (HTTP 302 to SSO)?** See [CONFLUENCE_BROWSER_LOGIN.md](CONFLUENCE_BROWSER_LOGIN.md): `source.auth.method=browser`.
+>
 > **Company sign-in (Kerberos + Token Vending Machine, REST API v2 through the web proxy)?** See
 > [CONFLUENCE_TVM.md](CONFLUENCE_TVM.md): `source.auth.method=tvm`, `source.confluence.apiVersion=v2`.
 

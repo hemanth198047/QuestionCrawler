@@ -1,6 +1,6 @@
-import { BookOpen, CheckSquare, List, Search, XSquare } from 'lucide-react'
+import { BookOpen, CheckSquare, List, LogIn, Search, XSquare } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { listConfluenceSpaces } from '../api'
+import { listConfluenceSpaces, signInConfluence } from '../api'
 import type { ConfluenceSpaces } from '../types/api'
 import { Banner, Button, Card } from './ui'
 
@@ -12,6 +12,14 @@ export function ConfluenceSpacePicker({ values, chosen, onChange }: { values: Re
   const [filter, setFilter] = useState('')
   const [hideArchived, setHideArchived] = useState(true)
   const [hidePersonal, setHidePersonal] = useState(true)
+  const [signing, setSigning] = useState(false)
+  const [signedIn, setSignedIn] = useState<{ ok: boolean; message: string } | null>(null)
+  const browserSignIn = values['source.auth.method'] === 'browser'
+
+  const signIn = async () => {
+    setSigning(true); setSignedIn(null)
+    try { setSignedIn(await signInConfluence(values)) } catch (e) { setSignedIn({ ok: false, message: e instanceof Error ? e.message : 'Signing in did not work' }) } finally { setSigning(false) }
+  }
 
   const load = async () => {
     setBusy(true); setError(null)
@@ -39,11 +47,15 @@ export function ConfluenceSpacePicker({ values, chosen, onChange }: { values: Re
           <h3>Choose the spaces to collect</h3>
           <p className="card-sub">Every page in a ticked space is collected, so you never have to list pages one by one. We sign in with your settings above and show only the spaces your account can read.</p>
           <div className="row" style={{ marginTop: 14, flexWrap: 'wrap' }}>
+            {browserSignIn && <Button icon={<LogIn size={16} />} busy={signing} onClick={signIn}>Sign in with my browser</Button>}
             <Button variant="primary" icon={<List size={16} />} busy={busy} onClick={load}>{result ? 'Reload my spaces' : 'Show my spaces'}</Button>
             <span className="muted small">{chosen.length === 0 ? 'No space chosen yet' : `${chosen.length} space${chosen.length === 1 ? '' : 's'} chosen: ${chosen.join(', ')}`}</span>
           </div>
         </div>
       </div>
+      {browserSignIn && signing && <div style={{ marginTop: 14 }}><Banner tone="info" title="Finish signing in in the browser window">A browser window opened at your Confluence site. Sign in there as you usually do (company login, MFA). This page continues by itself once Confluence lets you in, and the window closes.</Banner></div>}
+      {browserSignIn && busy && !signing && <div style={{ marginTop: 14 }}><Banner tone="info">If a browser window opens, sign in there; the list appears afterwards.</Banner></div>}
+      {signedIn && <div style={{ marginTop: 14 }}><Banner tone={signedIn.ok ? 'ok' : 'bad'} title={signedIn.ok ? 'Signed in' : 'Not signed in'}>{signedIn.message}</Banner></div>}
       {error && <div style={{ marginTop: 14 }}><Banner tone="bad">{error}</Banner></div>}
       {result && !result.ok && <div style={{ marginTop: 14 }}><Banner tone="bad" title="Could not list the spaces">{result.problem}</Banner></div>}
       {result && result.ok && (

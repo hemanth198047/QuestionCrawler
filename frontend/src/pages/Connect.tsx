@@ -73,7 +73,7 @@ export default function ConnectPage() {
   }
   const stage = report?.stages.find((s) => s.id === selected) ?? report?.stages[0]
   const activePreset = presets.kind === 'ok' ? presets.data.find((p) => p.values['source.type'] === source && (p.values['source.siteUrl'] ?? '') === (source === 'stackexchange' ? draft['source.siteUrl'] : '')
-    && (source !== 'confluence' || (p.values['source.auth.method'] === 'tvm') === (draft['source.auth.method'] === 'tvm'))) : undefined
+    && (source !== 'confluence' || (p.values['source.auth.method'] ?? 'basic-env') === (draft['source.auth.method'] ?? 'basic-env'))) : undefined
 
   return (
     <div className="stack" style={{ gap: 28 }}>
@@ -102,7 +102,7 @@ export default function ConnectPage() {
         {source === 'fixture' && <Banner tone="info" title="Demo data needs nothing else">Sample questions are built into the app. Choose a real site above whenever you’re ready.</Banner>}
         {source === 'confluence' && <ConfluenceSpacePicker values={draft} chosen={(draft['source.confluence.spaces'] ?? '').split(',').map((x) => x.trim()).filter(Boolean)}
           onChange={(keys) => setDraft({ ...draft, 'source.confluence.spaces': keys.join(',') })} />}
-        {source === 'confluence' && <Banner tone="info" title="Confluence pages become local threads">Tags mean Confluence labels. Read-only. Company sign-in: choose “Kerberos + Token Vending Machine”, API v2, and enter the TVM address and the web proxy (no secret to store; the 15-minute token is renewed automatically). Otherwise set an API token env var (Cloud: email + CONFLUENCE_API_TOKEN; Server/DC: CONFLUENCE_PAT). Jive and SharePoint are separate sources.</Banner>}
+        {source === 'confluence' && <Banner tone="info" title="Confluence pages become local threads">Tags mean Confluence labels. Read-only. If the site sends you to your company login page, choose “Sign in with my browser”: the app opens that page in Edge/Chrome, you sign in as usual, and it carries on. Token Vending Machine sign-in: choose “Kerberos + Token Vending Machine”, API v2, and enter the TVM address and the web proxy (no secret to store; the 15-minute token is renewed automatically). Otherwise set an API token env var (Cloud: email + CONFLUENCE_API_TOKEN; Server/DC: CONFLUENCE_PAT). Jive and SharePoint are separate sources.</Banner>}
         {source === 'jive' && <Banner tone="info" title="Jive content becomes local threads">Tags mean Jive content tags. Set place ids and credentials via env vars (Basic: username + JIVE_PASSWORD; OAuth: JIVE_ACCESS_TOKEN). Confluence and SharePoint are separate sources.</Banner>}
         {source === 'sharepoint' && <Banner tone="info" title="SharePoint pages become local threads">Set the site URL and Graph credentials via env vars (Bearer: SHAREPOINT_ACCESS_TOKEN, or Azure AD client credentials with tenant/client/secret env). Confluence and Jive are separate sources.</Banner>}
       </Section>

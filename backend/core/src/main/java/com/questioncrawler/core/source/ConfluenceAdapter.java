@@ -50,6 +50,7 @@ public final class ConfluenceAdapter implements SourceAdapter {
     private final List<String> notes = new ArrayList<>();
     private boolean lastmodifiedSupported = true;
     private final TvmTokenProvider tvm;
+    private BrowserLogin browser;
     private final java.util.Map<String, String> spaceKeys = new java.util.concurrent.ConcurrentHashMap<>();
     private volatile String v2Base;
     private List<String> resolvedSpaceIds;
@@ -86,9 +87,56 @@ public final class ConfluenceAdapter implements SourceAdapter {
         if ("tvm".equalsIgnoreCase(settings.authMethod()) && options.tvm().configured()) {
             tvm = new TvmTokenProvider(options.tvm(), settings.proxy().orEnvironment(env), settings.timeout());
         }
+        if ("browser".equalsIgnoreCase(settings.authMethod())) {
+            return withBrowserLogin(settings, options, env, BrowserLogin.forSite(settings.baseUrl(), options, env));
+        }
         TvmTokenProvider provider = tvm;
         HttpSourceClient client = new HttpSourceClient(settings, env, provider == null ? null : provider::token);
         return new ConfluenceAdapter(settings, options, client, env, provider);
+    }
+
+    /** An adapter that signs in through {@code login} (the person's browser) and sends its session cookies. */
+    public static ConfluenceAdapter withBrowserLogin(SourceSettings settings, ConfluenceOptions options, Function<String, String> env, BrowserLogin login) {
+        ConfluenceAdapter[] self = new ConfluenceAdapter[1];
+        HttpSourceClient client = new HttpSourceClient(settings, env, () -> login.cookieHeader(self[0]::sessionAccepted));
+        self[0] = new ConfluenceAdapter(settings, options, client, env, null).withBrowser(login);
+        return self[0];
+    }
+
+    /** Uses browser sign-in: the session is checked, and renewed through the browser when the site rejects it. */
+    public ConfluenceAdapter withBrowser(BrowserLogin login) {
+        this.browser = login;
+        return this;
+    }
+
+    /** Opens the browser sign-in now if there is no session yet (no-op for other sign-in methods). Returns a status line. */
+    public String signIn() throws SourceException {
+        if (browser == null) {
+            return "this sign-in method does not use the browser";
+        }
+        browser.cookieHeader(this::sessionAccepted);
+        return browser.status();
+    }
+
+    /** The browser session's Cookie header, or null (never shown; used by the connection check). */
+    public String sessionCookie() {
+        return browser == null ? null : browser.current();
+    }
+
+    /** True when one cheap API call with this Cookie header answers 2xx with JSON (the person is signed in). */
+    boolean sessionAccepted(String cookieHeader) throws SourceException {
+        String probe = apiRoot + (confluence.v2() ? "/spaces?limit=1" : "/space?limit=1");
+        HttpSourceClient.Response r;
+        try {
+            r = client.exchange(probe, java.util.Map.of("Cookie", cookieHeader, "X-Atlassian-Token", "no-check"));
+        } catch (SourceException e) {
+            if (e.kind() == SourceException.Kind.TRANSIENT) {
+                return false; // keep waiting: the network may come back while the person signs in
+            }
+            throw e;
+        }
+        String type = r.contentType() == null ? "" : r.contentType().toLowerCase(Locale.ROOT);
+        return r.status() >= 200 && r.status() < 300 && type.contains("json");
     }
 
     @Override
@@ -687,11 +735,24 @@ public final class ConfluenceAdapter implements SourceAdapter {
     // ---------------------------------------------------------------- HTTP
 
     private JsonNode getJson(String url) throws SourceException {
+        String used = browser == null ? null : browser.current();
         HttpSourceClient.Response response = client.exchange(url);
         if (response.status() == 401 && tvm != null) {
             // TVM tokens live ~15 minutes: get a fresh one and try once more.
             tvm.invalidate();
             response = client.exchange(url);
+        }
+        if (browser != null && (response.status() == 401 || Redirects.isRedirect(response.status()) || looksLikeLoginPage(response))) {
+            // The session expired (the site sends us to the login page): sign in again in the browser, then retry once.
+            browser.invalidate(used == null ? browser.current() : used);
+            response = client.exchange(url);
+        }
+        if (Redirects.isRedirect(response.status()) && response.location() != null) {
+            String where = loginHost(response.location());
+            throw new SourceException(SourceException.Kind.AUTH_FAILED, "Confluence sent the request to a sign-in page (" + where + ")"
+                    + (browser == null
+                    ? ". Your company login runs in a browser: choose the sign-in 'Sign in with my browser' (source.auth.method=browser) and try again."
+                    : " even after signing in again in the browser. Check that you signed in with an account that can read this Confluence site."));
         }
         if (response.status() >= 200 && response.status() < 300) {
             try {
@@ -701,6 +762,24 @@ public final class ConfluenceAdapter implements SourceAdapter {
             }
         }
         throw client.mapStatus(response.status(), response.retryAfter(), URI.create(settings.baseUrl()));
+    }
+
+    /** A 200 that is really an HTML login form (some SSO gateways answer like that instead of redirecting). */
+    private static boolean looksLikeLoginPage(HttpSourceClient.Response r) {
+        if (r.status() < 200 || r.status() >= 300 || r.contentType() == null || !r.contentType().toLowerCase(Locale.ROOT).contains("html")) {
+            return false;
+        }
+        String body = r.body() == null ? "" : r.body().toLowerCase(Locale.ROOT);
+        return body.contains("type=\"password\"") || body.contains("type='password'") || body.contains("saml") || body.contains("login");
+    }
+
+    private static String loginHost(String location) {
+        try {
+            String h = URI.create(location).getHost();
+            return h == null ? "a login page" : h;
+        } catch (IllegalArgumentException e) {
+            return "a login page";
+        }
     }
 
     private static boolean looksLikeCqlReject(SourceException e) {

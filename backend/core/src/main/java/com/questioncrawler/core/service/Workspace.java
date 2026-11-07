@@ -190,6 +190,19 @@ public final class Workspace {
                 diagnostics = new SiteDiagnostics(withToken, clock);
             }
             diagnostics.withConfluence(confluence, tvmStatus);
+            if ("browser".equalsIgnoreCase(authMethod)) {
+                // Sign in through the browser first (opens the company login page if there is no session yet).
+                String status;
+                String cookie = null;
+                try {
+                    var adapter = (com.questioncrawler.core.source.ConfluenceAdapter) CoreConfig.load(null, v).createAdapter(env);
+                    status = adapter.signIn();
+                    cookie = adapter.sessionCookie();
+                } catch (com.questioncrawler.core.source.SourceException | RuntimeException e) {
+                    status = "FAILED: " + e.getMessage();
+                }
+                diagnostics.withBrowserSession(status, cookie);
+            }
         }
         ConnectionReport report = diagnostics.run(input);
         try {
@@ -518,6 +531,30 @@ public final class Workspace {
     }
 
     static final int MAX_CONFLUENCE_SPACES = 10_000;
+
+    public record SignInResult(boolean ok, String message) {}
+
+    /** Signs in to Confluence through the browser now (opens the company login page), using the saved or draft settings. */
+    public SignInResult confluenceSignIn(Map<String, String> draft) {
+        Map<String, String> v = configService.read(configFile);
+        if (draft != null) {
+            v.putAll(draft);
+        }
+        if (!"confluence".equals(v.getOrDefault("source.type", "fixture")) || !"browser".equalsIgnoreCase(v.getOrDefault("source.auth.method", ""))) {
+            return new SignInResult(false, "Choose Confluence and the sign-in 'Sign in with my browser' first.");
+        }
+        if (v.getOrDefault("source.baseUrl", "").isBlank()) {
+            return new SignInResult(false, "Enter the Confluence site address first (for example https://acme.atlassian.net).");
+        }
+        try {
+            var adapter = (com.questioncrawler.core.source.ConfluenceAdapter) CoreConfig.load(null, v).createAdapter(env);
+            return new SignInResult(true, adapter.signIn());
+        } catch (com.questioncrawler.core.source.SourceException e) {
+            return new SignInResult(false, e.getMessage());
+        } catch (RuntimeException e) {
+            return new SignInResult(false, "Signing in did not work: " + e.getMessage());
+        }
+    }
 
     public TagSearch searchTags(Map<String, String> draft, String text) {
         boolean browse = text == null || text.isBlank() || com.questioncrawler.core.source.TagFilter.asksForAll(List.of(text));

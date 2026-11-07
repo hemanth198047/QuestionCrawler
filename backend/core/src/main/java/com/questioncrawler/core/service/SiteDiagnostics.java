@@ -129,11 +129,21 @@ public final class SiteDiagnostics {
 
     private ConfluenceOptions confluenceOptions = ConfluenceOptions.DEFAULT;
     private String tvmStatus;
+    private String signInFactName = "Token Vending Machine";
+    private String sessionCookie;
 
     /** The saved/draft Confluence options (API version v1/v2, API root) used for the Confluence probes. */
     public SiteDiagnostics withConfluence(ConfluenceOptions options, String tvmStatus) {
         this.confluenceOptions = options == null ? ConfluenceOptions.DEFAULT : options;
         this.tvmStatus = tvmStatus;
+        return this;
+    }
+
+    /** Browser sign-in: the status line to show, and the session cookie the probes send to the Confluence host (never shown). */
+    public SiteDiagnostics withBrowserSession(String status, String cookieHeader) {
+        this.signInFactName = "Browser sign-in";
+        this.tvmStatus = status;
+        this.sessionCookie = cookieHeader;
         return this;
     }
 
@@ -517,7 +527,7 @@ public final class SiteDiagnostics {
         }
         boolean tokenConfigured = in.authMethod() != null && in.authMethod().equals("token");
         if (tvmStatus != null) {
-            facts.add(new Fact("Token Vending Machine", tvmStatus));
+            facts.add(new Fact(signInFactName, tvmStatus));
         } else if (tokenConfigured) {
             boolean has = in.tokenEnv() != null && env.apply(in.tokenEnv()) != null && !env.apply(in.tokenEnv()).isBlank();
             facts.add(new Fact("Token variable " + in.tokenEnv(), has ? "set (value not shown)" : "NOT set"));
@@ -1226,6 +1236,9 @@ public final class SiteDiagnostics {
             for (int hops = 0; ; hops++) {
                 HttpRequest.Builder req = HttpRequest.newBuilder(current).timeout(Duration.ofSeconds(Math.max(1, in.timeoutSeconds())))
                         .header("User-Agent", "QuestionCrawler-diagnostics/0.1").header("Accept", "application/json, text/html;q=0.8, */*;q=0.5").header("Accept-Encoding", "gzip").GET();
+                if (sessionCookie != null && current.getHost() != null && current.getHost().equalsIgnoreCase(URI.create(in.target()).getHost())) {
+                    req.header("Cookie", sessionCookie);
+                }
                 if (withToken && in.tokenEnv() != null && env.apply(in.tokenEnv()) != null && !env.apply(in.tokenEnv()).isBlank()) {
                     String secret = env.apply(in.tokenEnv());
                     if ("basic-env".equals(in.authMethod()) || "confluence-api-token".equals(in.authMethod())) {
@@ -1304,6 +1317,9 @@ public final class SiteDiagnostics {
                 in.proxy(),
                 in.api() == null ? ApiOptions.DEFAULT : in.api(),
                 in.authUser(), in.authUserEnv());
+        if ("browser".equalsIgnoreCase(auth)) {
+            return ConfluenceAdapter.create(s, options, env); // the shared browser session (already signed in by the check)
+        }
         return new ConfluenceAdapter(s, options, new HttpSourceClient(s, env), env);
     }
 
