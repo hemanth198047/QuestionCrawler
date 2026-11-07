@@ -25,7 +25,8 @@ export function EvidenceCard({ e, onCategory, pageMode }: { e: Evidence; onCateg
         </div>
         <h3 className="ev-title"><a href={e.answerId
           ? `#/question/${encodeURIComponent(e.questionId)}?answer=${encodeURIComponent(e.answerId)}`
-          : `#/question/${encodeURIComponent(e.questionId)}`}>{e.title}</a></h3>
+          : `#/question/${encodeURIComponent(e.questionId)}${e.section ? `?section=${encodeURIComponent(e.section)}` : ''}`}>{e.title}</a></h3>
+        {e.section && <div className="muted small ev-section" title="The section of the page this passage comes from">§ {e.section}</div>}
         {e.flags.length > 0 && (
           <div className="ev-flag"><ShieldAlert size={16} /> This text contains wording that looks like instructions to an AI assistant. It is shown only as reading material and is never acted on.</div>
         )}
@@ -36,7 +37,7 @@ export function EvidenceCard({ e, onCategory, pageMode }: { e: Evidence; onCateg
           </div>
           <div className="row" style={{ gap: 14 }}>
             <span className="match" title="How many of your search words this passage contains"><span className="match-bar"><i style={{ width: `${cov}%` }} /></span>{cov}% of your words</span>
-            {href ? <a href={href} target="_blank" rel="noreferrer noopener" className="small">Original source <ExternalLink size={12} style={{ verticalAlign: -1 }} /></a> : <span className="muted small">source link unknown</span>}
+            {href ? <a href={safeUrl(e.sectionUrl) ?? href} target="_blank" rel="noreferrer noopener" className="small">{e.section ? 'Original, at this section' : 'Original source'} <ExternalLink size={12} style={{ verticalAlign: -1 }} /></a> : <span className="muted small">source link unknown</span>}
           </div>
         </div>
       </div>

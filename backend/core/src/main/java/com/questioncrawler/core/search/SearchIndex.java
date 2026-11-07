@@ -28,14 +28,16 @@ import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.NIOFSDirectory;
 
 /**
- * Writer side of the embedded Lucene index. One document per question and one per answer, so an
- * answer can be returned as its own evidence with its own URL. The index is DERIVED data: it can be
+ * Writer side of the embedded Lucene index. One document per question SECTION and one per answer, so an
+ * answer can be returned as its own evidence with its own URL, and a long page (Confluence, Jive, SharePoint)
+ * is searchable paragraph by paragraph: each section/passage ({@link PageSections}) is its own document with its
+ * heading path. The index is DERIVED data: it can be
  * deleted and rebuilt from the JSON threads with the reindex command.
  */
 public final class SearchIndex implements AutoCloseable {
 
     /** Bumped when token expansion changes (plain-English stems) or indexed text shape changes (comments). */
-    public static final int INDEX_VERSION = 3;
+    public static final int INDEX_VERSION = 4; // 4: pages are indexed per section/passage with heading paths
 
     static final String F_KEY = "key";
     static final String F_TYPE = "type";
@@ -46,6 +48,7 @@ public final class SearchIndex implements AutoCloseable {
     static final String F_AID = "aid";
     static final String F_TITLE = "title";
     static final String F_BODY = "body";
+    static final String F_HEADING = "heading";
     static final String F_META = "meta";
     static final String F_TAG = "tag";
     static final String F_CAT = "cat";
@@ -63,6 +66,9 @@ public final class SearchIndex implements AutoCloseable {
     static final String S_CATS = "s_cats";
     static final String S_STATUS = "s_status";
     static final String S_AUTHOR = "s_author";
+    static final String S_SECTION = "s_section";
+    static final String S_SECTION_HEADING = "s_section_heading";
+    static final String S_SECTION_INDEX = "s_section_index";
 
     private final Path dir;
     private Directory directory;
@@ -130,9 +136,11 @@ public final class SearchIndex implements AutoCloseable {
         }
         List<String> categoryNames = categoryIds.stream().map(taxonomy::displayName).toList();
         List<Document> docs = new ArrayList<>();
-        docs.add(document(thread, q, null, categoryIds, categoryNames));
+        for (PageSections.Section section : sectionsOf(q)) {
+            docs.add(document(thread, q, null, section, categoryIds, categoryNames));
+        }
         for (Answer a : q.answers()) {
-            docs.add(document(thread, q, a, categoryIds, categoryNames));
+            docs.add(document(thread, q, a, null, categoryIds, categoryNames));
         }
         try {
             writer().updateDocuments(new Term(F_KEY, thread.key()), docs);
@@ -141,10 +149,24 @@ public final class SearchIndex implements AutoCloseable {
         }
     }
 
-    private static Document document(ThreadRecord thread, Question q, Answer answer, List<String> categoryIds, List<String> categoryNames) {
+    /** The page body cut into sections, plus its comments as a final "Comments" section. */
+    static List<PageSections.Section> sectionsOf(Question q) {
+        List<PageSections.Section> sections = new ArrayList<>(PageSections.split(q.body()));
+        String comments = commentsText(q);
+        if (!comments.isBlank()) {
+            for (PageSections.Section c : PageSections.split("# Comments\n\n" + comments)) {
+                sections.add(new PageSections.Section(sections.size(), c.headings(), c.text()));
+            }
+        }
+        return sections;
+    }
+
+    private static Document document(ThreadRecord thread, Question q, Answer answer, PageSections.Section section,
+                                     List<String> categoryIds, List<String> categoryNames) {
         Document d = new Document();
         boolean isAnswer = answer != null;
-        String text = isAnswer ? answer.body() : questionSearchText(q);
+        String text = isAnswer ? answer.body() : section.text();
+        String headingPath = isAnswer || section.headings().isEmpty() ? "" : section.path();
         String meta = String.join(" ", q.tags()) + " " + String.join(" ", categoryIds) + " " + String.join(" ", categoryNames);
 
         d.add(new StringField(F_KEY, thread.key(), Field.Store.NO));
@@ -159,6 +181,7 @@ public final class SearchIndex implements AutoCloseable {
         d.add(new StoredField(F_AID, isAnswer ? answer.id() : ""));
         // Titles are only indexed on the question document so a title hit is not repeated for every answer.
         d.add(new TextField(F_TITLE, isAnswer ? "" : SymbolTokens.expandToString(q.title()), Field.Store.NO));
+        d.add(new TextField(F_HEADING, SymbolTokens.expandToString(headingPath), Field.Store.NO));
         d.add(new TextField(F_BODY, SymbolTokens.expandToString(text), Field.Store.NO));
         d.add(new TextField(F_META, SymbolTokens.expandToString(meta), Field.Store.NO));
         for (String tag : q.tags()) {
@@ -185,22 +208,25 @@ public final class SearchIndex implements AutoCloseable {
         d.add(new StoredField(S_STATUS, thread.status().name()));
         String author = isAnswer ? answer.author() : q.author();
         d.add(new StoredField(S_AUTHOR, author == null ? "" : author));
+        d.add(new StoredField(S_SECTION, headingPath));
+        d.add(new StoredField(S_SECTION_HEADING, isAnswer || section.heading() == null ? "" : section.heading()));
+        d.add(new StoredField(S_SECTION_INDEX, isAnswer ? -1 : section.index()));
         return d;
     }
 
-    /** Question body plus page/question comments so Confluence discussion is searchable. */
-    private static String questionSearchText(Question q) {
+    /** Page/question comments, so Confluence discussion is searchable (as its own section). */
+    private static String commentsText(Question q) {
         if (q.comments() == null || q.comments().isEmpty()) {
-            return q.body() == null ? "" : q.body();
+            return "";
         }
-        StringBuilder sb = new StringBuilder(q.body() == null ? "" : q.body());
+        StringBuilder sb = new StringBuilder();
         for (var c : q.comments()) {
             if (c == null || c.body() == null || c.body().isBlank()) {
                 continue;
             }
-            sb.append('\n').append(c.body());
+            sb.append(c.body().strip()).append("\n\n");
         }
-        return sb.toString();
+        return sb.toString().strip();
     }
 
     public void deleteThread(String key) {

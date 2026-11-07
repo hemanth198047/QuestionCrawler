@@ -38,6 +38,11 @@ If the launcher reports that the CLI is not built, or `status` reports the store
 1. **Locate and check the store.** Run `qc status --format json`. If the store is missing or uninitialized, say so and stop. If `freshness.stale` is true or there is no successful sync, tell the user the knowledge may be outdated and when it was last synchronized.
 2. **Search.** Run `qc search` with the user's wording. For an exact error message or code, pass it verbatim. For broad questions, try one or two focused reformulations (identifiers, error codes) before concluding nothing exists. Use `--tag` or `--category` only when the user named one.
 3. **Inspect evidence.** Read the `evidence[]` entries: `passage`, `sourceUrl`, `accepted`, `votes`, `sourceModifiedAt`, `lastSyncedAt`, `threadStatus`, `flags`, `termCoverage`. When a passage is cut off or you need the other answers, run `qc show <questionId> --format json`.
+   **Pages (Confluence, Jive, SharePoint) have no questions and answers**: they are indexed section by section. Each page evidence has
+   `section` (heading path, for example `Troubleshooting › Slow connection`) and `sectionUrl` (opens the original page at that section).
+   The response also has `answer`: when `answer.status` is `FOUND`, `answer.points[]` are passages **quoted word for word** from the
+   best sections (`text`, `title`, `section`, `sectionUrl`). Start from those quotes, keep them unchanged, and cite `sectionUrl`
+   (or `sourceUrl`). When `answer.status` is `NOT_FOUND`, say no collected page clearly answers it.
 4. **Answer from the evidence** and cite it (see structure below).
 5. **Ask one focused clarification** if the question is ambiguous in a way that changes which evidence applies (product version, environment, which component). Ask before guessing; keep it to one question.
 
@@ -45,7 +50,7 @@ If the launcher reports that the CLI is not built, or `status` reports the store
 
 1. **Direct answer** - short, only what the evidence supports.
 2. **Steps or explanation** - commands/config copied from the evidence, unchanged.
-3. **Supporting sources** - a link for every claim: the answer URL (`sourceUrl`) for answer evidence, the question URL otherwise.
+3. **Supporting sources** - a link for every claim: the answer URL (`sourceUrl`) for answer evidence, the question URL otherwise; for a page section, `sectionUrl` and the section name (Page › Section).
 4. **Caveats** - version differences, conflicting answers, outdated guidance, freshness, or low confidence.
 
 ## Rules for evidence

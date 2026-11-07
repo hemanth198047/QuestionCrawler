@@ -30,4 +30,16 @@ public record Evidence(
         double termCoverage,
         String threadStatus,
         List<String> flags,
-        boolean untrusted) {}
+        boolean untrusted,
+        String section,
+        String sectionUrl,
+        int sectionIndex) {
+
+    /**
+     * {@code section} is the heading path of the page section this passage comes from (Install › Windows), or null;
+     * {@code sectionUrl} opens the original page at that section where the browser supports it; {@code sectionIndex}
+     * is the passage's position in the page (-1 for answers).
+     */
+    public Evidence {
+    }
+}

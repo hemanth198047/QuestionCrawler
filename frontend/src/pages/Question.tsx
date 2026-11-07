@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { clearOverride, getCategories, getQuestion, setOverride } from '../api'
 import { Markdown } from '../components/Markdown'
 import { Badge, Banner, Button, Card, Chip, EmptyState, InfoTip, Skeleton, useToast } from '../components/ui'
-import { dateOnly, friendlyRule, timeAgo } from '../lib/format'
+import { dateOnly, friendlyRule, plainHeading, timeAgo } from '../lib/format'
 import { go, useRemote } from '../lib/useRemote'
 import { safeUrl } from '../lib/url'
 import type { Answer, ThreadView } from '../types/api'
@@ -21,6 +21,45 @@ function AnswerCard({ a }: { a: Answer }) {
       </div>
       <div style={{ marginTop: 14 }}><Markdown text={a.body ?? ''} /></div>
       {comments.length > 0 && <div className="comments"><h4>Comments</h4>{comments.map((c, i) => <p key={i} className="small"><b>{c.author ?? 'unknown'}:</b> {c.body}</p>)}</div>}
+    </Card>
+  )
+}
+
+/** Scroll to (and briefly highlight) the page section a search result came from: the deepest heading of its path. */
+function FocusSection({ section, ready }: { section?: string | null; ready: boolean }) {
+  useEffect(() => {
+    if (!ready || !section) return
+    const own = section.split(' › ').pop() ?? section
+    const t = window.setTimeout(() => {
+      const el = Array.from(document.querySelectorAll<HTMLElement>('[data-heading]')).find((h) => h.dataset.heading === own)
+      if (!el) return
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      el.classList.add('md-h-focus')
+      window.setTimeout(() => el.classList.remove('md-h-focus'), 2500)
+    }, 80)
+    return () => window.clearTimeout(t)
+  }, [section, ready])
+  return null
+}
+
+/** "On this page": the page's headings, so a long wiki page can be read section by section. */
+function PageOutline({ body }: { body: string }) {
+  const headings: { level: number; text: string }[] = []
+  let fence = false
+  for (const line of body.split('\n')) {
+    if (/^\s*(```|~~~)/.test(line)) fence = !fence
+    const m = fence ? null : /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line)
+    if (m) headings.push({ level: m[1].length, text: plainHeading(m[2]) })
+  }
+  if (headings.length < 3) return null
+  const top = Math.min(...headings.map((h) => h.level))
+  const jump = (text: string) => Array.from(document.querySelectorAll<HTMLElement>('[data-heading]')).find((h) => h.dataset.heading === text)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  return (
+    <Card className="rise">
+      <h3>On this page</h3>
+      <div className="stack-sm" style={{ marginTop: 8, gap: 4 }}>
+        {headings.map((h, i) => <button key={i} type="button" className="linklike small" style={{ paddingLeft: (h.level - top) * 14, textAlign: 'left' }} onClick={() => jump(h.text)}>{h.text}</button>)}
+      </div>
     </Card>
   )
 }
@@ -57,7 +96,7 @@ function CategoryEditor({ view, onDone }: { view: ThreadView; onDone: () => void
   )
 }
 
-export default function QuestionPage({ id, focusAnswerId }: { id: string; focusAnswerId?: string | null }) {
+export default function QuestionPage({ id, focusAnswerId, focusSection }: { id: string; focusAnswerId?: string | null; focusSection?: string | null }) {
   const r = useRemote((s) => getQuestion(id, s), [id])
   const [editing, setEditing] = useState(false)
   if (r.kind === 'loading') return <div className="stack"><Skeleton h={50} w={420} /><Skeleton h={220} r={18} /><Skeleton h={160} r={18} /></div>
@@ -70,12 +109,14 @@ export default function QuestionPage({ id, focusAnswerId }: { id: string; focusA
   const sourceSystem = (v.thread.sourceSystem ?? '').toLowerCase()
   const isConfluence = sourceSystem.startsWith('confluence')
   const isJive = sourceSystem.startsWith('jive')
-  const isWiki = isConfluence || isJive
-  const wikiKind = isJive ? 'Jive' : isConfluence ? 'Confluence' : 'Wiki'
+  const isSharePoint = sourceSystem.startsWith('sharepoint')
+  const isWiki = isConfluence || isJive || isSharePoint
+  const wikiKind = isJive ? 'Jive' : isConfluence ? 'Confluence' : isSharePoint ? 'SharePoint' : 'Wiki'
   const showWikiReplies = isJive && answers.length > 0
   return (
     <div className="stack" style={{ gap: 24 }}>
       <FocusAnswer answerId={focusAnswerId} ready={r.kind === 'ok'} />
+      <FocusSection section={focusSection} ready={r.kind === 'ok'} />
       <div><Button variant="ghost" size="sm" icon={<ArrowLeft size={16} />} onClick={() => history.back()}>Back</Button></div>
       <header className="rise">
         <div className="row" style={{ marginBottom: 12 }}>{v.thread.status !== 'ACTIVE' && <Badge tone="warn">{v.thread.status.toLowerCase().replace('_', ' ')}</Badge>}
@@ -106,6 +147,7 @@ export default function QuestionPage({ id, focusAnswerId }: { id: string; focusA
           {!isWiki && answers.map((a, i) => <AnswerCard key={a.id ?? `answer-${i}`} a={a} />)}
         </div>
         <aside className="stack-sm qside">
+          {isWiki && <PageOutline body={q.body ?? ''} />}
           <Card>
             <h4>{isWiki ? 'About this page' : 'About this question'}</h4>
             <dl className="facts one">

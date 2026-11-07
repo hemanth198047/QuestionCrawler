@@ -22,7 +22,7 @@ public final class PlainEnglish {
             "please", "help", "someone", "somehow", "anybody", "anyone", "need", "needs", "needed", "needing",
             "trying", "try", "tried", "looking", "look", "find", "finding", "get", "getting", "got", "make",
             "making", "want", "wanted", "wanna", "kinda", "really", "just", "also", "about", "using", "use",
-            "used", "tell", "show", "explain", "guide", "docs", "documentation");
+            "used", "tell", "show", "explain", "guide", "docs", "documentation", "not", "cannot", "unable");
 
     private static final Map<String, List<String>> SYNONYMS = buildSynonyms();
 
@@ -147,6 +147,10 @@ public final class PlainEnglish {
         Map<String, List<String>> groups = new LinkedHashMap<>();
         addGroup(groups, "sso", "single-sign-on", "singlesignon");
         addGroup(groups, "runbook", "playbook", "ops-guide", "opsguide");
+        // Everyday wiki wording (irregular verb forms are not reached by the light stemmer)
+        addGroup(groups, "keep", "kept", "retain", "retained", "retention");
+        addGroup(groups, "issue", "issues", "problem", "problems");
+        addGroup(groups, "contact", "reach");
         addGroup(groups, "onboarding", "onboard", "new-hire", "newhire", "orientation");
         addGroup(groups, "incident", "outage", "sev", "severity");
         addGroup(groups, "architecture", "design", "overview");
@@ -170,6 +174,21 @@ public final class PlainEnglish {
      * Strips leading chatty wrappers ("how do I…", "where can I find…") so content words focus on the
      * topic. Deterministic — not an LLM rewrite.
      */
+    /**
+     * "won't" → "will not", "can't" → "cannot", "doesn't" → "does not", and drops 's / 're / 'll / 've / 'm / 'd, so a
+     * contraction does not become stray words ("won", "t") that a matching paragraph would have to contain.
+     */
+    public static String expandContractions(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.replaceAll("(?i)\\bwon[’']t\\b", "will not")
+                .replaceAll("(?i)\\bcan[’']t\\b", "cannot")
+                .replaceAll("(?i)\\bshan[’']t\\b", "shall not")
+                .replaceAll("(?i)n[’']t\\b", " not")
+                .replaceAll("(?i)[’'](s|re|ll|ve|m|d)\\b", "");
+    }
+
     public static String stripChattyPrefix(String query) {
         if (query == null || query.isBlank()) {
             return "";

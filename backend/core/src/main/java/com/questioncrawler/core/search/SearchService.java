@@ -43,6 +43,10 @@ public final class SearchService {
     private static final Pattern QUOTED = Pattern.compile("\"([^\"]{2,300})\"");
     private static final float TITLE_BOOST = 3f;
     private static final float META_BOOST = 1.5f;
+    private static final float HEADING_BOOST = 2f;
+    private static final float HEADING_PHRASE_BOOST = 4f;
+    /** How many top-ranked passages (before one-per-page collapsing) the direct answer may quote from. */
+    private static final int ANSWER_CANDIDATES = 8;
     private static final float TITLE_PHRASE_BOOST = 6f;
     private static final float BODY_PHRASE_BOOST = 4f;
     private static final float SYNONYM_BOOST = 0.85f;
@@ -72,7 +76,7 @@ public final class SearchService {
             throw new StoreException("The search index was built by an older version (plain-English stems need a rebuild). Run 'reindex'.");
         }
         String rawQuery = request.query() == null ? "" : request.query();
-        String queryText = PlainEnglish.stripChattyPrefix(rawQuery);
+        String queryText = PlainEnglish.stripChattyPrefix(PlainEnglish.expandContractions(rawQuery));
         List<SymbolTokens.Word> words = SymbolTokens.contentWords(queryText);
         if (words.isEmpty()) {
             queryText = rawQuery;
@@ -89,17 +93,20 @@ public final class SearchService {
 
             String normalizedQuery = normalizeForExact(queryText);
             List<Evidence> scored = new ArrayList<>();
+            Map<Evidence, String> fullText = new java.util.IdentityHashMap<>();
             for (ScoreDoc hit : hits) {
                 var doc = searcher.storedFields().document(hit.doc);
                 String text = doc.get(SearchIndex.S_TEXT);
                 String title = doc.get(SearchIndex.S_TITLE);
+                String section = emptyToNull(doc.get(SearchIndex.S_SECTION));
                 List<String> docTags = split(doc.get(SearchIndex.S_TAGS));
                 List<String> docCategoryNames = split(doc.get(SearchIndex.S_CATS)).stream().map(taxonomy::displayName).toList();
                 // Tags and category names are searchable metadata, so they count as covered terms too.
-                List<String> docTokens = SymbolTokens.expand(title + "\n" + text + "\n" + String.join(" ", docTags)
-                        + "\n" + String.join(" ", docCategoryNames));
+                List<String> docTokens = SymbolTokens.expand(title + "\n" + (section == null ? "" : section) + "\n" + text + "\n"
+                        + String.join(" ", docTags) + "\n" + String.join(" ", docCategoryNames));
                 double coverage = coverage(words, docTokens);
                 double titleCoverage = coverage(words, SymbolTokens.expand(title == null ? "" : title));
+                double headingCoverage = section == null ? 0 : coverage(words, SymbolTokens.expand(section));
                 boolean exact = normalizedQuery.length() >= 6
                         && (normalizeForExact(text).contains(normalizedQuery) || normalizeForExact(title).contains(normalizedQuery));
                 if (exact) {
@@ -113,23 +120,33 @@ public final class SearchService {
                 double adjusted = hit.score
                         * (0.5 + 0.5 * coverage)
                         * (1.0 + 0.25 * titleCoverage) // wiki page titles are strong relevance signals
+                        * (1.0 + 0.30 * headingCoverage) // so are the headings above a section
                         * (accepted ? 1.15 : 1.0)
                         * (1.0 + 0.01 * Math.min(20, Math.max(0, votes == null ? 0 : votes)));
                 List<String> cats = split(doc.get(SearchIndex.S_CATS));
                 String passage = PassageExtractor.extract(text, words, request.maxPassageChars());
                 List<String> flags = InjectionHeuristics.suspicious(text) || InjectionHeuristics.suspicious(title)
                         ? List.of(InjectionHeuristics.FLAG) : List.of();
-                scored.add(new Evidence(0, doc.get(SearchIndex.F_TYPE), doc.get(SearchIndex.F_QID),
+                String sourceUrl = emptyToNull(doc.get(SearchIndex.S_URL));
+                Evidence ev = new Evidence(0, doc.get(SearchIndex.F_TYPE), doc.get(SearchIndex.F_QID),
                         emptyToNull(doc.get(SearchIndex.F_AID)), title, passage,
                         emptyToNull(doc.get(SearchIndex.S_URL)), emptyToNull(doc.get(SearchIndex.S_QURL)),
                         cats, cats.stream().map(taxonomy::displayName).toList(), split(doc.get(SearchIndex.S_TAGS)),
                         accepted, votes, emptyToNull(doc.get(SearchIndex.S_AUTHOR)),
                         emptyToNull(doc.get(SearchIndex.S_CREATED)), emptyToNull(doc.get(SearchIndex.S_QCREATED)),
                         emptyToNull(doc.get(SearchIndex.S_MODIFIED)), emptyToNull(doc.get(SearchIndex.S_SYNCED)),
-                        round(adjusted), round(coverage), doc.get(SearchIndex.S_STATUS), flags, true));
+                        round(adjusted), round(coverage), doc.get(SearchIndex.S_STATUS), flags, true,
+                        section, sectionUrl(sourceUrl, emptyToNull(doc.get(SearchIndex.S_SECTION_HEADING))), sectionIndex(doc));
+                scored.add(ev);
+                fullText.put(ev, text);
             }
             scored.sort((a, b) -> Double.compare(b.score(), a.score()));
-            return assemble(request, scored);
+            SearchResponse response = assemble(request, scored);
+            List<AnswerComposer.Candidate> answerFrom = new ArrayList<>();
+            for (Evidence e : scored.subList(0, Math.min(ANSWER_CANDIDATES, scored.size()))) {
+                answerFrom.add(new AnswerComposer.Candidate(rankIn(response.evidence(), e), fullText.get(e)));
+            }
+            return withAnswer(response, AnswerComposer.compose(rawQuery, words, answerFrom));
         } catch (IOException e) {
             throw new StoreException("Cannot read search index: " + e.getMessage(), e);
         }
@@ -163,6 +180,7 @@ public final class SearchService {
                 BooleanQuery.Builder perTerm = new BooleanQuery.Builder();
                 perTerm.add(new BoostQuery(new TermQuery(new Term(SearchIndex.F_TITLE, t)), titleBoost), BooleanClause.Occur.SHOULD);
                 perTerm.add(new BoostQuery(new TermQuery(new Term(SearchIndex.F_BODY, t)), synonym ? SYNONYM_BOOST : 1f), BooleanClause.Occur.SHOULD);
+                perTerm.add(new BoostQuery(new TermQuery(new Term(SearchIndex.F_HEADING, t)), synonym ? HEADING_BOOST * SYNONYM_BOOST : HEADING_BOOST), BooleanClause.Occur.SHOULD);
                 perTerm.add(new BoostQuery(new TermQuery(new Term(SearchIndex.F_META, t)), metaBoost), BooleanClause.Occur.SHOULD);
                 text.add(perTerm.build(), BooleanClause.Occur.SHOULD);
             }
@@ -181,6 +199,7 @@ public final class SearchService {
             }
             text.add(new BoostQuery(phraseQuery(SearchIndex.F_TITLE, tokens), TITLE_PHRASE_BOOST), BooleanClause.Occur.SHOULD);
             text.add(new BoostQuery(phraseQuery(SearchIndex.F_BODY, tokens), BODY_PHRASE_BOOST), BooleanClause.Occur.SHOULD);
+            text.add(new BoostQuery(phraseQuery(SearchIndex.F_HEADING, tokens), HEADING_PHRASE_BOOST), BooleanClause.Occur.SHOULD);
         }
         text.setMinimumNumberShouldMatch(1);
 
@@ -324,14 +343,48 @@ public final class SearchService {
             chosen.add(withRank(e, chosen.size() + 1));
         }
         return new SearchResponse(request.query(), request.tags(), request.categories(), request.age(), chosen.size(),
-                confidence(chosen), truncated, omitted, null, SearchResponse.NOTICE, chosen);
+                confidence(chosen), truncated, omitted, null, SearchResponse.NOTICE, chosen, null);
+    }
+
+    private static SearchResponse withAnswer(SearchResponse r, AnswerComposer.DirectAnswer answer) {
+        return new SearchResponse(r.query(), r.tagFilter(), r.categoryFilter(), r.ageFilter(), r.resultCount(), r.confidence(),
+                r.truncated(), r.omittedForBudget(), r.freshness(), r.notice(), r.evidence(), answer);
+    }
+
+    /** The same passage as shown in the result list (with its rank), or rank 0 when it was collapsed away. */
+    private static Evidence rankIn(List<Evidence> shown, Evidence e) {
+        for (Evidence s : shown) {
+            if (s.questionId().equals(e.questionId()) && java.util.Objects.equals(s.answerId(), e.answerId())
+                    && s.sectionIndex() == e.sectionIndex()) {
+                return s;
+            }
+        }
+        return e;
+    }
+
+    private static int sectionIndex(org.apache.lucene.document.Document doc) {
+        var f = doc.getField(SearchIndex.S_SECTION_INDEX);
+        return f == null || f.numericValue() == null ? -1 : f.numericValue().intValue();
+    }
+
+    /**
+     * The original page opened at the section: a text fragment link ({@code #:~:text=Heading}) that Edge and Chrome
+     * scroll to and highlight; other browsers simply open the page.
+     */
+    static String sectionUrl(String sourceUrl, String heading) {
+        if (sourceUrl == null || heading == null || heading.isBlank() || sourceUrl.contains("#")) {
+            return sourceUrl;
+        }
+        String encoded = java.net.URLEncoder.encode(heading.strip(), java.nio.charset.StandardCharsets.UTF_8)
+                .replace("+", "%20").replace("-", "%2D").replace(",", "%2C").replace("&", "%26");
+        return sourceUrl + "#:~:text=" + encoded;
     }
 
     private static Evidence withRank(Evidence e, int rank) {
         return new Evidence(rank, e.type(), e.questionId(), e.answerId(), e.title(), e.passage(), e.sourceUrl(), e.questionUrl(),
                 e.categories(), e.categoryNames(), e.tags(), e.accepted(), e.votes(), e.author(), e.createdAt(), e.questionCreatedAt(),
                 e.sourceModifiedAt(), e.lastSyncedAt(),
-                e.score(), e.termCoverage(), e.threadStatus(), e.flags(), e.untrusted());
+                e.score(), e.termCoverage(), e.threadStatus(), e.flags(), e.untrusted(), e.section(), e.sectionUrl(), e.sectionIndex());
     }
 
     /** Heuristic label of how well the best evidence covers the query terms. Not a probability. */
@@ -345,7 +398,7 @@ public final class SearchService {
 
     private SearchResponse empty(SearchRequest request) {
         return new SearchResponse(request.query(), request.tags(), request.categories(), request.age(), 0, "NONE", false, 0, null,
-                SearchResponse.NOTICE, List.of());
+                SearchResponse.NOTICE, List.of(), AnswerComposer.compose(request.query(), List.of(), List.of()));
     }
 
     private static List<String> split(String joined) {

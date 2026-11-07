@@ -1,3 +1,4 @@
+import { plainHeading } from '../lib/format'
 import { Fragment, type ReactNode } from 'react'
 import { Copy } from 'lucide-react'
 
@@ -67,8 +68,8 @@ export function Markdown({ text, compact }: { text: string; compact?: boolean })
       continue
     }
     if (/^\s*$/.test(line)) { i++; continue }
-    const h = /^(#{1,4})\s+(.*)$/.exec(line)
-    if (h) { blocks.push(<p key={key++} className="md-h">{inline(h[2])}</p>); i++; continue }
+    const h = /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line)
+    if (h) { blocks.push(<p key={key++} className="md-h" data-heading={plainHeading(h[2])}>{inline(h[2])}</p>); i++; continue }
     if (/^\s*>/.test(line)) {
       const buf: string[] = []
       while (i < lines.length && /^\s*>/.test(lines[i])) buf.push(lines[i++].replace(/^\s*>\s?/, ''))
@@ -94,8 +95,9 @@ export function Markdown({ text, compact }: { text: string; compact?: boolean })
       continue
     }
     const buf: string[] = []
-    while (i < lines.length && !/^\s*$/.test(lines[i]) && !/^\s*(```|~~~)/.test(lines[i]) && !/^\s*>/.test(lines[i]) && !/^\s*([-*]|\d+\.)\s+/.test(lines[i]) && !/^(#{1,4})\s/.test(lines[i])) buf.push(lines[i++])
+    while (i < lines.length && !/^\s*$/.test(lines[i]) && !/^\s*(```|~~~)/.test(lines[i]) && !/^\s*>/.test(lines[i]) && !/^\s*([-*]|\d+\.)\s+/.test(lines[i]) && !/^(#{1,6})\s/.test(lines[i])) buf.push(lines[i++])
     blocks.push(<p key={key++}>{buf.map((b, n) => <Fragment key={n}>{n > 0 && ' '}{inline(b, `${n}-`)}</Fragment>)}</p>)
   }
   return <div className={`md ${compact ? 'md-compact' : ''}`}>{blocks}</div>
 }
+

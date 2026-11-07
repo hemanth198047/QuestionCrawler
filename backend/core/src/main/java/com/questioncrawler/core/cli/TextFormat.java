@@ -56,6 +56,23 @@ final class TextFormat {
         if (r.truncated()) {
             sb.append("Output budget reached: ").append(r.omittedForBudget()).append(" lower-ranked passage(s) omitted.\n");
         }
+        if (r.answer() != null) {
+            var a = r.answer();
+            if ("FOUND".equals(a.status())) {
+                sb.append("\nBEST ANSWER FROM YOUR PAGES (").append(a.confidence()).append(", quoted word for word, no AI model):\n");
+                int n = 1;
+                for (var p : a.points()) {
+                    sb.append("  (").append(n++).append(") ").append(p.title() == null ? "" : p.title());
+                    if (p.section() != null) sb.append(" › ").append(p.section());
+                    if (p.evidenceRank() > 0) sb.append("   [see result ").append(p.evidenceRank()).append(']');
+                    sb.append('\n');
+                    sb.append("      Source: ").append(p.sectionUrl() != null ? p.sectionUrl() : p.sourceUrl() == null ? "unknown" : p.sourceUrl()).append('\n');
+                    sb.append(wrapUntrusted(p.text(), "      ")).append('\n');
+                }
+            } else {
+                sb.append("\nBEST ANSWER: ").append(a.note()).append('\n');
+            }
+        }
         if (r.evidence().isEmpty()) {
             sb.append("\nNo sufficiently relevant evidence was found in the knowledge store.\n");
             return sb.toString();
@@ -67,6 +84,7 @@ final class TextFormat {
             if (e.accepted()) sb.append("   ACCEPTED");
             sb.append("   votes ").append(e.votes() == null ? "unknown" : e.votes()).append('\n');
             sb.append("    Title: ").append(e.title()).append('\n');
+            if (e.section() != null) sb.append("    Section: ").append(e.section()).append('\n');
             sb.append("    Author: ").append(e.author() == null ? "unknown" : e.author()).append('\n');
             sb.append("    Categories: ").append(String.join(", ", e.categoryNames())).append('\n');
             sb.append("    Source: ").append(e.sourceUrl() == null ? "unknown" : e.sourceUrl()).append('\n');

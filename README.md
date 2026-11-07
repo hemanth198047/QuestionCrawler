@@ -70,6 +70,7 @@ and press *Check access*.
 ## Documentation
 
 - [docs/INTERNAL_API.md](docs/INTERNAL_API.md): connecting to your internal site through its Swagger-documented REST API, and discovering topics
+- [docs/PAGE_ANSWERS.md](docs/PAGE_ANSWERS.md): how questions are answered from pages (paragraphs, not Q&A), quoted word for word, no AI model
 - [docs/CONFLUENCE_BROWSER_LOGIN.md](docs/CONFLUENCE_BROWSER_LOGIN.md): Confluence behind a company login page (SSO): sign in with your own browser
 - [docs/CONFLUENCE_TVM.md](docs/CONFLUENCE_TVM.md): Confluence with company sign-in (Kerberos + Token Vending Machine, REST API v2, web proxy)
 - [docs/UI_GUIDE.md](docs/UI_GUIDE.md): each screen, and the API behind it

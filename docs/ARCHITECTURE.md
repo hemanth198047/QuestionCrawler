@@ -61,6 +61,24 @@ Ranking = BM25 with title and exact-phrase boosts, a small bounded adjustment fo
 (`--top`, `--max-chars`, `--max-passage-chars`). No vectors/embeddings/LLM; semantic retrieval can later be added behind
 `SearchService` (extension point) if an approved service exists.
 
+
+### Pages without questions and answers (Confluence, Jive, SharePoint)
+
+Pages are prose, not Q&A. At index time `PageSections` cuts each page's Markdown at its headings into sections, and long
+sections into ~1,200-character passages at paragraph boundaries (one short paragraph of overlap; code blocks, tables and
+lists are not cut). Each passage is its own Lucene document with its heading path (`Install › Windows › Proxy`) in a
+boosted `heading` field. Comments become a final "Comments" section. The stored page is never changed; only the index is.
+
+`AnswerComposer` then builds a **direct answer without an AI model**: from the top passages it scores sentences, lists,
+tables and code blocks by how many question words they contain, how relevant their passage was, and the kind of question
+(how → steps/lists, what → defining sentences, when/how long → numbers, who → contacts, where → links/locations,
+why → reasons). The best one or two pieces are **quoted word for word** with page, section and a link that opens the
+original page at that section (`#:~:text=Heading`, supported by Edge and Chrome). Below a confidence floor it answers
+"no page clearly answers this". Text flagged as possible instruction injection is never quoted as the answer.
+
+The index format is versioned (`INDEX_VERSION` 4). An older index is rebuilt automatically from the stored threads the
+first time it is searched or synced (nothing is downloaded again).
+
 ## Classification
 
 Rule-based and deterministic. The taxonomy (categories, descriptions, keyword/regex/tag rules, weights, `minScore`) is a

@@ -119,6 +119,9 @@ public final class KnowledgeBase {
         }
         store.init();
         SourceAdapter adapter = adapterOverride != null ? adapterOverride : config.createAdapter();
+        if (store.isInitialized()) {
+            upgradeIndexIfOlder(); // the new index format must exist before new pages are added to it
+        }
         Pipeline pipeline = new Pipeline();
         try {
             return new SyncService(store, adapter, pipeline, retrier, clock).withProgress(progress).run(options);
@@ -131,8 +134,21 @@ public final class KnowledgeBase {
 
     public SearchResponse search(SearchRequest request) {
         store.ensureReady();
+        upgradeIndexIfOlder();
         SearchResponse response = new SearchService(store.paths().indexDir(), taxonomy, clock).search(request);
         return response.withFreshness(freshness());
+    }
+
+    /**
+     * An index built by an older version (for example before pages were indexed section by section) is rebuilt once,
+     * automatically, from the stored pages and answers. Nothing is downloaded again.
+     */
+    private synchronized void upgradeIndexIfOlder() {
+        java.nio.file.Path dir = store.paths().indexDir();
+        if (com.questioncrawler.core.search.SearchIndex.exists(dir)
+                && com.questioncrawler.core.search.SearchIndex.readVersion(dir) != com.questioncrawler.core.search.SearchIndex.INDEX_VERSION) {
+            reindex();
+        }
     }
 
     public Optional<ThreadView> show(String idOrKey) {

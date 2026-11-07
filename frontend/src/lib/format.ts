@@ -71,3 +71,8 @@ export function friendlyRule(raw: string): string {
   if (m[1] === 'regex') return `pattern ${m[3]} ${where}`
   return `“${m[3]}” ${where}`
 }
+
+/** Heading text without Markdown emphasis or links, the same way the search index names a section. */
+export function plainHeading(text: string): string {
+  return text.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*_`]/g, '').replace(/\s+/g, ' ').trim()
+}

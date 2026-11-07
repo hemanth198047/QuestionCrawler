@@ -2,6 +2,7 @@ import { Copy, Filter, Lightbulb, MessageCircleQuestion, Search, SlidersHorizont
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { getCategories, search, type AgeParams } from '../api'
 import { AgeSlider, type AgeValue } from '../components/AgeSlider'
+import { AnswerCard } from '../components/AnswerCard'
 import { EvidenceCard } from '../components/Evidence'
 import { PageHeader } from '../components/PageHeader'
 import { useOverview } from '../components/OverviewContext'
@@ -82,8 +83,8 @@ export default function ExplorePage({ params }: { params: URLSearchParams }) {
     ...(aAge.value ? [{ k: 'aa', label: `answers ${aAge.mode === 'newer' ? 'from the' : 'older than the'} ${ageLabel(aAge.value).toLowerCase().replace('past ', aAge.mode === 'newer' ? 'past ' : '')}`, clear: () => navigate({ aAge: { mode: 'newer', value: '' } }) }] : []),
   ]
   const hasData = (overview?.totals.questions ?? 0) > 0
-  const isWiki = overview?.sourceType === 'confluence' || overview?.sourceType === 'jive'
-  const wikiLabel = overview?.sourceType === 'jive' ? 'Jive' : overview?.sourceType === 'confluence' ? 'Confluence' : 'wiki'
+  const isWiki = overview?.sourceType === 'confluence' || overview?.sourceType === 'jive' || overview?.sourceType === 'sharepoint'
+  const wikiLabel = overview?.sourceType === 'jive' ? 'Jive' : overview?.sourceType === 'confluence' ? 'Confluence' : overview?.sourceType === 'sharepoint' ? 'SharePoint' : 'wiki'
   const examples = SUGGESTIONS[overview?.sourceType ?? 'fixture'] ?? SUGGESTIONS.fixture
 
   return (
@@ -92,7 +93,7 @@ export default function ExplorePage({ params }: { params: URLSearchParams }) {
         eyebrow="Explore"
         title="Ask your knowledge"
         subtitle={isWiki
-          ? `Ask in plain English — for example “how do I configure SSO”. We match your words (and close forms like configure/configuring) against every collected ${wikiLabel} page, with the matching passage and source link. No AI model is used.`
+          ? `Ask in plain English — for example “how do I configure SSO”. We find the paragraph or section of your ${wikiLabel} pages that answers it, quote it word for word as the best answer, and link to the exact section. No AI model is used.`
           : 'Type a question, an error message or a function name. We’ll show the passages that match, with where they came from and how old they are.'}
       />
       {overview && !hasData && <Banner tone="warn" title="There is nothing to search yet" action={<Button onClick={() => go('/collect')}>{isWiki ? 'Collect pages' : 'Collect questions'}</Button>}>{isWiki ? `Sync ${wikiLabel} pages first, then come back.` : 'Collect some questions first, then come back.'}</Banner>}
@@ -147,6 +148,8 @@ export default function ExplorePage({ params }: { params: URLSearchParams }) {
               <Confidence level={result.data.confidence} /></div>
             {result.data.freshness && <span className={`small ${result.data.freshness.stale ? 'stale-note' : 'muted'}`}>{result.data.freshness.lastSuccessfulSyncAt ? `Knowledge updated ${timeAgo(result.data.freshness.lastSuccessfulSyncAt)}` : 'Never updated'}{result.data.freshness.stale ? ' · may be out of date' : ''}</span>}
           </div>
+          {result.data.answer && <AnswerCard answer={result.data.answer} />}
+          {result.data.resultCount > 0 && <h3 className="muted" style={{ margin: '6px 0 0' }}>Where it comes from</h3>}
           {result.data.resultCount === 0 ? (
             <EmptyState icon={<MessageCircleQuestion size={30} />} title="Nothing matches that" action={<>
               {activeFilters.length > 0 && <Button onClick={() => go(`/explore?q=${encodeURIComponent(q)}`)} icon={<Filter size={16} />}>Remove all filters</Button>}
@@ -155,7 +158,7 @@ export default function ExplorePage({ params }: { params: URLSearchParams }) {
                 ? 'Try different words, a space label such as space:ENG, or a wider age range. Related forms (configure/configuring, runbook/playbook) are already expanded — still no AI model.'
                 : 'Try different words, an exact error message, or a wider age range. Related wording is expanded lightly; this is still lexical search, not an AI model.'}</EmptyState>
           ) : (
-            <div className="stack-sm">{result.data.evidence.map((e) => <EvidenceCard key={`${e.questionId}-${e.answerId ?? 'q'}`} e={e} pageMode={isWiki} onCategory={(id) => navigate({ category: id })} />)}</div>
+            <div className="stack-sm">{result.data.evidence.map((e) => <EvidenceCard key={`${e.questionId}-${e.answerId ?? 'q'}-${e.sectionIndex}`} e={e} pageMode={isWiki} onCategory={(id) => navigate({ category: id })} />)}</div>
           )}
           {result.data.truncated && <p className="muted small">{result.data.omittedForBudget} lower-ranked passage(s) were left out to keep this readable.</p>}
           <p className="muted small"><InfoTip term="untrusted" /> Everything shown was written by other people and is displayed as reading material only. Check the original source before relying on it.</p>

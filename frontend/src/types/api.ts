@@ -58,10 +58,18 @@ export interface Evidence {
   accepted: boolean; votes: number | null; author: string | null; createdAt: string | null; questionCreatedAt: string | null
   sourceModifiedAt: string | null; lastSyncedAt: string | null; score: number; termCoverage: number
   threadStatus: string; flags: string[]; untrusted: boolean
+  /** Heading path of the page section this passage comes from (Install › Windows), or null */
+  section: string | null; sectionUrl: string | null; sectionIndex: number
 }
+export interface AnswerPoint {
+  text: string; kind: 'sentence' | 'list' | 'table' | 'code'; evidenceRank: number; questionId: string; answerId: string | null
+  title: string; section: string | null; sourceUrl: string | null; sectionUrl: string | null; match: number
+}
+export interface DirectAnswer { status: 'FOUND' | 'NOT_FOUND'; confidence: 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH'; intent: string; points: AnswerPoint[]; note: string }
 export interface SearchResponse {
   query: string; ageFilter: AgeFilter | null; resultCount: number; confidence: 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH'
   truncated: boolean; omittedForBudget: number; freshness: Freshness | null; notice: string; evidence: Evidence[]
+  answer: DirectAnswer | null
 }
 export interface Comment { id: string | null; author: string | null; body: string; createdAt: string | null }
 export interface Answer { id: string; body: string; url: string | null; accepted: boolean; score: number | null; author: string | null; createdAt: string | null; modifiedAt: string | null; comments: Comment[] }
