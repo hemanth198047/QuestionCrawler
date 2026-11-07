@@ -791,7 +791,30 @@ public final class Workspace {
         }
         String window = config.maxQuestionAge();
         return new Overview(configFile.toString(), configExists, type, label, config.tags(), window, steps, next,
-                new Overview.Totals(questions, answers, accepted, unanswered, hidden, byStatus), categories, runs, kb.freshness(), runner.isRunning(), notes);
+                new Overview.Totals(questions, answers, accepted, unanswered, hidden, byStatus), categories, runs, kb.freshness(), runner.isRunning(), notes,
+                scopeOf(config));
+    }
+
+    /** What bounds the collection besides tags, in plain words, or null. */
+    private static String scopeOf(CoreConfig config) {
+        if ("confluence".equals(config.sourceType()) && config.confluence() != null && config.confluence().hasBoundedScope()) {
+            var o = config.confluence();
+            List<String> parts = new ArrayList<>();
+            if (!o.pageIds().isEmpty()) {
+                parts.add("Pages: " + String.join(", ", o.pageIds()));
+            }
+            if (!o.ancestorPageId().isEmpty()) {
+                parts.add("Everything under page " + o.ancestorPageId());
+            }
+            if (parts.isEmpty()) {
+                parts.add((o.spaces().size() == 1 ? "Space: " : "Spaces: ") + String.join(", ", o.spaces()));
+            }
+            return String.join(" · ", parts);
+        }
+        if ("jive".equals(config.sourceType()) && config.jive() != null && config.jive().hasBoundedScope()) {
+            return "Places: " + String.join(", ", config.jive().places());
+        }
+        return null;
     }
 
     private static int parseInt(String s, int fallback) {

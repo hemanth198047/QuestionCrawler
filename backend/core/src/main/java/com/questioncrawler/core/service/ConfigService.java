@@ -521,6 +521,10 @@ public final class ConfigService {
                     }
                 }
                 String spaces = v.getOrDefault("source.confluence.spaces", "").strip();
+                if (spaces.isEmpty()) { // a pasted page/space address names its space (added when saving)
+                    String pastedSpace = com.questioncrawler.core.source.ConfluenceOptions.spaceKeyFrom(v.getOrDefault("source.baseUrl", ""));
+                    spaces = pastedSpace == null ? "" : pastedSpace;
+                }
                 String ancestor = v.getOrDefault("source.confluence.ancestorPageId", "").strip()
                         + v.getOrDefault("source.confluence.pageIds", "").strip();
                 String tags = v.getOrDefault("sync.tags", "").strip();
@@ -528,8 +532,8 @@ public final class ConfigService {
                 if (com.questioncrawler.core.source.TagFilter.asksForAll(java.util.Arrays.asList(tags.split(",")))
                         && spaces.isEmpty() && ancestor.isEmpty() && age.isEmpty()) {
                     issues.add(new Issue("source.confluence.spaces", "error",
-                            "Collecting every Confluence page without a space, ancestor, or time window is refused.",
-                            "Add space keys, an ancestor page id, specific labels instead of 'all', or a max age window."));
+                            "No space is chosen: with the label 'all' that would be every page of the whole site, which is refused.",
+                            "Press 'Show my spaces' and tick a space (or type its key here), then Save. Or name specific labels instead of 'all', or set a time window."));
                 } else if (spaces.isEmpty() && ancestor.isEmpty() && tags.isEmpty()) {
                     issues.add(new Issue("source.confluence.spaces", "warning",
                             "No spaces or labels yet — collection will have nothing useful to target.",
@@ -625,13 +629,17 @@ public final class ConfigService {
             }
             if (type.equals("confluence")) {
                 String spaces = v.getOrDefault("source.confluence.spaces", "").strip();
+                if (spaces.isEmpty()) { // a pasted page/space address names its space (added when saving)
+                    String pastedSpace = com.questioncrawler.core.source.ConfluenceOptions.spaceKeyFrom(v.getOrDefault("source.baseUrl", ""));
+                    spaces = pastedSpace == null ? "" : pastedSpace;
+                }
                 String ancestor = v.getOrDefault("source.confluence.ancestorPageId", "").strip()
                         + v.getOrDefault("source.confluence.pageIds", "").strip();
                 String age = v.getOrDefault("sync.maxQuestionAge", "").strip();
                 if (spaces.isEmpty() && ancestor.isEmpty() && age.isEmpty()) {
                     issues.add(new Issue("sync.maxQuestionAge", "error",
-                            "Label 'all' on Confluence needs a space, ancestor page, or time window.",
-                            "Set space keys or pick a collection window on the Collect page."));
+                            "No space is chosen: with the label 'all' that would be every page of the whole site, which is refused.",
+                            "Choose a space on Connect ('Show my spaces'), or pick a time window on the Collect page."));
                 }
             }
             if (type.equals("jive")) {

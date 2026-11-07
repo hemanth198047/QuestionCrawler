@@ -164,12 +164,13 @@ export default function CollectPage() {
         <div className="scope">
           <div><span className="muted small">Source</span><strong>{o.sourceLabel}</strong></div>
           <div><span className="muted small">Tags <InfoTip term="tag" /></span><div className="row" style={{ gap: 6 }}>{o.tags.length ? o.tags.map((t) => <Chip key={t} active={['all', '*'].includes(t.toLowerCase())}>{['all', '*'].includes(t.toLowerCase()) ? 'All tags (every question)' : t}</Chip>) : <span className="muted">none yet</span>}</div></div>
+          {o.scope && <div><span className="muted small">{isConfluence ? 'Where' : 'Scope'}</span><strong>{o.scope}</strong></div>}
           <div><span className="muted small">Questions from <InfoTip term="window" /></span>
             <Segmented label="Time window" value={WINDOWS.some((w) => w.value === (win ?? '')) ? (win ?? '') : '__custom'} onChange={(v) => setWin(v)} options={WINDOWS} /></div>
         </div>
         {allTags && (win ?? '') === '' && !isSE && !isConfluence && !isJive && !isSharePoint && <div style={{ marginTop: 14 }}><Banner tone="info" title="Every question, from all time">That can be a lot. To try it out first, choose a shorter time window (for example 1 year); you can widen it later.</Banner></div>}
-        {isConfluence && allTags && (win ?? '') === '' && <div style={{ marginTop: 14 }}><Banner tone="warn" title="Whole-site Confluence sync needs bounds">Use space keys on Connect, or pick a time window here. Unbounded “all” without a space/ancestor/window is refused.</Banner></div>}
-        {isJive && allTags && (win ?? '') === '' && <div style={{ marginTop: 14 }}><Banner tone="warn" title="Whole-site Jive sync needs bounds">Use place ids on Connect, or pick a time window here. Unbounded “all” without a place/window is refused.</Banner></div>}
+        {isConfluence && allTags && (win ?? '') === '' && !o.scope && <div style={{ marginTop: 14 }}><Banner tone="warn" title="No space chosen yet">With the label “all” and no space, every page of the whole Confluence site would be collected, which is refused. Choose a space on Connect (Show my spaces, then Save), or pick a time window here.</Banner></div>}
+        {isJive && allTags && (win ?? '') === '' && !o.scope && <div style={{ marginTop: 14 }}><Banner tone="warn" title="Whole-site Jive sync needs bounds">Use place ids on Connect, or pick a time window here. Unbounded “all” without a place/window is refused.</Banner></div>}
         {isSharePoint && allTags && (win ?? '') === '' && <div style={{ marginTop: 14 }}><Banner tone="warn" title="SharePoint sync needs a site">Set the site URL on Connect (or a Graph site id). A time window here is still recommended for large sites.</Banner></div>}
         {isSE && (win ?? '') === '' && <div style={{ marginTop: 14 }}><Banner tone="warn" title="Everything could be a lot">Popular tags can hold many thousands of questions, and anonymous use is limited to about 300 requests a day. A shorter window is a good first step.</Banner></div>}
 

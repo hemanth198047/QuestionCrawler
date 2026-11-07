@@ -165,6 +165,16 @@ public record CoreConfig(
                 Boolean.parseBoolean(p.getProperty("source.sharepoint.collectComments", "false").strip()),
                 intValue(p, "source.sharepoint.pageSize", 25),
                 Boolean.parseBoolean(p.getProperty("source.sharepoint.includeSiteTag", "true").strip()));
+        if (confluenceSource && !confluence.hasBoundedScope()) {
+            // A pasted page/space address names the space to collect when none is chosen (the same rule as saving).
+            String pastedSpace = ConfluenceOptions.spaceKeyFrom(p.getProperty("source.baseUrl", ""));
+            if (pastedSpace != null) {
+                confluence = new ConfluenceOptions(confluence.edition(), confluence.apiRoot(), List.of(pastedSpace), confluence.ancestorPageId(),
+                        confluence.contentTypes(), confluence.bodyExpand(), confluence.collectComments(), confluence.pageSize(),
+                        confluence.includeSpaceTag(), confluence.email(), confluence.emailEnv(), confluence.apiVersion(), confluence.pageIds(),
+                        confluence.tvm(), confluence.browser());
+            }
+        }
         if (liveApi || confluenceSource || jiveSource || sharepointSource) {
             // The API address (and Swagger, for live) may be on different hosts: allow those, nothing else.
             java.util.LinkedHashSet<String> allowed = new java.util.LinkedHashSet<>(csv(hosts));

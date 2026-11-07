@@ -1006,9 +1006,21 @@ public final class SiteDiagnostics {
                         List.of(new Need("A short time window, or specific tags", "Collecting every tag of a public site is refused without a time window: it would use up the request allowance.", "You")), t0);
             }
             if (in.confluence()) {
+                ConfluenceOptions o = confluenceOptions;
+                if (o.hasBoundedScope()) {
+                    String what = !o.pageIds().isEmpty() || !o.ancestorPageId().isEmpty()
+                            ? (o.pageIds().isEmpty() ? "" : "page" + (o.pageIds().size() == 1 ? " " : "s ") + String.join(", ", o.pageIds()))
+                            + (!o.pageIds().isEmpty() && !o.ancestorPageId().isEmpty() ? " and " : "")
+                            + (o.ancestorPageId().isEmpty() ? "" : "every page under page " + o.ancestorPageId())
+                            : "every page in the space" + (o.spaces().size() == 1 ? " " : "s ") + String.join(", ", o.spaces());
+                    all.add(new Fact("Collected", what));
+                    return stage("scope", title, q, "PASS", "Label 'all': " + what + " will be collected.", all, List.of(), t0);
+                }
                 return stage("scope", title, q, "WARN",
-                        "Label 'all' on Confluence needs a space key, ancestor page, or time window. Unbounded whole-site sync is refused at collect time.",
-                        all, List.of(new Need("A space, ancestor, or time window", "Set source.confluence.spaces or a Collect window.", "You")), t0);
+                        "No space is chosen yet. With the label 'all' and no space, every page of the whole Confluence site would be collected, so collecting is refused.",
+                        all, List.of(new Need("Choose at least one space",
+                                "On Connect press 'Show my spaces' and tick a space (or type its key in 'Spaces to collect'), then Save. "
+                                        + "Alternatively pick a time window on the Collect page, or name specific labels instead of 'all'.", "You")), t0);
             }
             if (in.jive()) {
                 return stage("scope", title, q, "WARN",

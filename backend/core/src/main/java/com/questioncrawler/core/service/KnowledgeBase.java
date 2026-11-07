@@ -101,8 +101,8 @@ public final class KnowledgeBase {
         if (com.questioncrawler.core.source.TagFilter.asksForAll(options.tags()) && config.sourceType().equals("confluence")
                 && options.maxQuestionAge() == null
                 && (config.confluence() == null || !config.confluence().hasBoundedScope())) {
-            throw new IllegalArgumentException("Collecting every Confluence page ('all') without a space, ancestor page, or time window is refused. "
-                    + "Set source.confluence.spaces, an ancestor page id, or a collection window on the Collect page.");
+            throw new IllegalArgumentException("No Confluence space is chosen, so the label 'all' would collect every page of the whole site, which is refused. Choose a space on Connect ('Show my spaces', then Save), "
+                    + "or pick a time window on this page.");
         }
         if (com.questioncrawler.core.source.TagFilter.asksForAll(options.tags()) && config.sourceType().equals("jive")
                 && options.maxQuestionAge() == null

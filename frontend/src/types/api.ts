@@ -9,6 +9,8 @@ export interface Overview {
   categories: { id: string; name: string; count: number }[]
   recentRuns: { runId: string; mode: string; outcome: string; finishedAt: string; added: number; updated: number; failures: number }[]
   freshness: Freshness; syncRunning: boolean; notes: string[]
+  /** What bounds the collection besides tags ("Space: DGF"), or null */
+  scope: string | null
 }
 
 // ---- configuration

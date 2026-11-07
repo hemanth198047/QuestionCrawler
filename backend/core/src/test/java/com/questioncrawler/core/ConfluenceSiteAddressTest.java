@@ -65,4 +65,48 @@ class ConfluenceSiteAddressTest {
         var issues = service.validate(new java.util.LinkedHashMap<>(Map.of("source.type", "confluence", "source.baseUrl", PAGE)));
         assertTrue(issues.stream().anyMatch(i -> i.key().equals("source.baseUrl") && i.level().equals("info")));
     }
+
+    @Test
+    void checkAccessSaysTheChosenSpaceWillBeCollectedInsteadOfWarning() throws Exception {
+        com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", ex -> {
+            byte[] body = "{\"results\":[{\"id\":\"1\",\"key\":\"DGF\"}]}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            ex.getResponseHeaders().add("Content-Type", "application/json");
+            ex.sendResponseHeaders(200, body.length);
+            ex.getResponseBody().write(body);
+            ex.close();
+        });
+        server.start();
+        try {
+            String site = "http://127.0.0.1:" + server.getAddress().getPort();
+            var in = new com.questioncrawler.core.service.SiteDiagnostics.Input("confluence", site, "", List.of("all"), "none", null, null,
+                    null, true, 5, com.questioncrawler.core.source.ProxyConfig.NONE, com.questioncrawler.core.source.ApiOptions.DEFAULT, null, null);
+            ConfluenceOptions withSpace = CoreConfig.load(null, Map.of("source.type", "confluence", "source.baseUrl", site,
+                    "source.confluence.apiVersion", "v2", "source.confluence.spaces", "DGF")).confluence();
+            var scope = new com.questioncrawler.core.service.SiteDiagnostics(k -> null, java.time.Clock.systemUTC())
+                    .withConfluence(withSpace, null).run(in).stages().stream().filter(st -> st.id().equals("scope")).findFirst().orElseThrow();
+            assertEquals("PASS", scope.status(), scope.summary());
+            assertTrue(scope.summary().contains("every page in the space DGF"), scope.summary());
+
+            ConfluenceOptions noSpace = CoreConfig.load(null, Map.of("source.type", "confluence", "source.baseUrl", site,
+                    "source.confluence.apiVersion", "v2")).confluence();
+            var warn = new com.questioncrawler.core.service.SiteDiagnostics(k -> null, java.time.Clock.systemUTC())
+                    .withConfluence(noSpace, null).run(in).stages().stream().filter(st -> st.id().equals("scope")).findFirst().orElseThrow();
+            assertEquals("WARN", warn.status());
+            assertTrue(warn.summary().contains("No space is chosen"), warn.summary());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void aPastedPageAddressCountsAsChoosingItsSpace() {
+        CoreConfig cfg = CoreConfig.load(null, Map.of("storage.root", tmp.resolve("d").toString(), "source.type", "confluence",
+                "source.baseUrl", PAGE, "source.confluence.apiVersion", "v2", "source.auth.method", "browser", "sync.tags", "all"));
+        assertEquals(List.of("DGF"), cfg.confluence().spaces());
+        assertEquals(List.of(), cfg.validate());
+        var issues = new ConfigService(k -> null).validate(new java.util.LinkedHashMap<>(Map.of("source.type", "confluence",
+                "source.baseUrl", PAGE, "source.auth.method", "browser", "source.confluence.apiVersion", "v2", "sync.tags", "all")));
+        assertTrue(issues.stream().noneMatch(i -> i.level().equals("error")), issues.toString());
+    }
 }
