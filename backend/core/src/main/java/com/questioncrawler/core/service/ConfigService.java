@@ -112,15 +112,15 @@ public final class ConfigService {
                                 Type.SWITCH, "false", null, CONFLUENCE, true, null),
                         f("source.confluence.tvm.caCertFile", "Token service certificate file", "Only for curl, if the Token Vending Machine uses a company certificate authority curl does not trust yet.",
                                 Type.PATH, "", "C:\\certs\\company-ca.pem", CONFLUENCE, true, null),
-                        f("source.confluence.pageIds", "Page ids", "Optional. Collect exactly these pages (the number in the page address, for example .../pages/123456789/Title). With API v2 an ancestor page collects its whole subtree.",
-                                Type.TAGS, "", "123456789", CONFLUENCE, false, null),
+                        f("source.confluence.spaces", "Spaces to collect", "Every page in these spaces is collected. Press 'Show my spaces' below and tick them, or type space keys (ENG) or paste a space address (https://acme.atlassian.net/wiki/spaces/ENG/overview). Press Enter after each.",
+                                Type.TAGS, "", "ENG", CONFLUENCE, false, null),
+                        f("source.confluence.pageIds", "Only these pages (optional)", "Advanced. Instead of whole spaces, collect exactly these pages (the number in the page address, for example .../pages/123456789/Title). Leave empty to collect the spaces above.",
+                                Type.TAGS, "", "123456789", CONFLUENCE, true, null),
                         f("source.confluence.email", "Atlassian account email", "Cloud only. The email for Basic auth with your API token. Not a secret; the token stays in an environment variable.",
                                 Type.TEXT, "", "you@example.com", CONFLUENCE, false, null),
                         f("source.confluence.emailEnv", "Email variable name (optional)", "Optional alternative: NAME of an environment variable that holds the Atlassian email instead of typing it above.",
                                 Type.ENV_NAME, "", "CONFLUENCE_EMAIL", CONFLUENCE, true, null),
-                        f("source.confluence.spaces", "Space keys", "Comma-separated Confluence space keys to include (for example ENG,HR). Strongly recommended so sync stays bounded.",
-                                Type.TAGS, "", "ENG", CONFLUENCE, false, null),
-                        f("source.confluence.ancestorPageId", "Ancestor page id", "Optional. Only collect pages under this page id (a subtree).",
+                        f("source.confluence.ancestorPageId", "Ancestor page id", "Advanced, optional. Instead of whole spaces, only collect the pages under this page id (a subtree).",
                                 Type.TEXT, "", "123456", CONFLUENCE, true, null),
                         f("source.confluence.contentTypes", "Content types", "Usually just page. Add blogpost only if you want blog posts too.",
                                 Type.TAGS, "page", "page", CONFLUENCE, true, null),
@@ -729,6 +729,12 @@ public final class ConfigService {
             }
         }
         if (type.equals("confluence")) {
+            String spaces = merged.getOrDefault("source.confluence.spaces", "");
+            if (!spaces.isBlank()) { // pasted space addresses are saved as their keys
+                merged.put("source.confluence.spaces", String.join(",",
+                        com.questioncrawler.core.source.ConfluenceOptions.csv(spaces).stream()
+                                .map(com.questioncrawler.core.source.ConfluenceOptions::spaceKey).filter(k -> !k.isEmpty()).distinct().toList()));
+            }
             String prefixes = merged.getOrDefault("source.allowedPathPrefixes", "").strip();
             if (prefixes.isEmpty() || prefixes.equals("/")) {
                 String edition = merged.getOrDefault("source.confluence.edition", "cloud").strip().toLowerCase();

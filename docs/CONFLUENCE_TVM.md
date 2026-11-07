@@ -39,8 +39,9 @@ source.confluence.tvm.client=curl
 # source.confluence.tvm.useProxy=false         # the TVM is internal: called WITHOUT the proxy
 # source.confluence.tvm.caCertFile=            # company CA for curl, only if needed
 
-# What to read (pick at least one; spaces are the usual choice)
-source.confluence.spaces=ENG
+# What to read: whole spaces (every page in them). Keys or pasted space addresses both work.
+source.confluence.spaces=ENG,OPS,HR
+# Advanced alternatives to whole spaces:
 # source.confluence.pageIds=123456789,987654321
 # source.confluence.ancestorPageId=123456789   # this page's whole subtree
 
@@ -59,7 +60,7 @@ sync.maxQuestionAge=1y
 | `source.baseUrl` | `https://<your-site>.atlassian.net` (no `/wiki`, no page path) | The start of any Confluence page address in your browser |
 | `source.confluence.tvm.url` | The full TVM exchange address | Your platform/identity team's documentation: the address in the `curl -u : --negotiate ...` command. It normally ends in `/exchange/token/confluence/<your-site>.atlassian.net` |
 | `network.proxyHost`, `network.proxyPort` | Proxy host name and port, **without** `https://` | The `--proxy` value in the documented curl call (`https://webproxy-inet.mycompany.com:8080` → host `webproxy-inet.mycompany.com`, port `8080`) |
-| `source.confluence.spaces` | Space keys, comma-separated | The page address: `.../wiki/spaces/`**`ENG`**`/pages/...`, or *Space settings → Space details* |
+| `source.confluence.spaces` | Space keys, comma-separated (or paste space addresses: they are saved as keys) | Easiest: **Connect → Choose the spaces to collect → Show my spaces**, then tick them. Or CLI `questioncrawler spaces`. Or from any page address: `.../wiki/spaces/`**`ENG`**`/pages/...` |
 | `source.confluence.pageIds` | Page ids, comma-separated | The page address: `.../pages/`**`123456789`**`/Title` (or *••• → Page information*: `pageId=` in the address) |
 | `source.confluence.ancestorPageId` | One page id: collect everything under it | As above |
 | `sync.tags` | `all`, or Confluence labels (for example `runbook,how-to`) | The labels at the bottom of a page |
@@ -113,6 +114,19 @@ Then in the app: **Connect → Check access**. The *Sign-in* step shows `Token V
 The JDK's built-in Kerberos (SPNEGO) can call the TVM directly. On Windows it uses your Windows sign-in
 (`sun.security.jgss.native=true` is set for you). On macOS/Linux it reads the `kinit` ticket cache and needs
 `/etc/krb5.conf` (or `-Djava.security.krb5.conf=...`). If it fails, go back to `curl`, which is the documented method.
+
+## Choosing spaces
+
+You do not need page ids. Pick whole spaces and every page in them is collected (and kept up to date):
+
+- **In the app:** Connect → *Choose the spaces to collect* → **Show my spaces**. It signs in with your settings (TVM token
+  included) and lists only the spaces your account can read, with a filter, *Hide personal spaces* / *Hide archived*,
+  and *Tick all shown*. Ticked spaces go into *Spaces to collect*; save, then collect.
+- **From the command line:** `questioncrawler spaces` prints every readable space (key, type, name).
+- **By hand:** type keys (`ENG`) or paste a space address (`https://acme.atlassian.net/wiki/spaces/ENG/overview`).
+
+`sync.tags=all` collects every page of the chosen spaces; use labels in `sync.tags` to collect only labelled pages.
+If page ids or an ancestor page are set, they are used instead of the spaces.
 
 ## What is collected
 

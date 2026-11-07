@@ -359,6 +359,50 @@ public final class ConfluenceAdapter implements SourceAdapter {
         return null;
     }
 
+    // ---------------------------------------------------------------- spaces (for choosing what to collect)
+
+    /** One Confluence space the signed-in account can see. */
+    public record SpaceInfo(String key, String name, String type, String status, String id, String url) {}
+
+    /** The spaces read so far; {@code complete} is false when the listing stopped at {@code max}. */
+    public record SpaceListing(List<SpaceInfo> spaces, boolean complete) {}
+
+    /** Lists the spaces this account can read (v1 or v2 API, following every page up to {@code max}). */
+    public SpaceListing listSpaces(int max) throws SourceException {
+        List<SpaceInfo> out = new ArrayList<>();
+        String url = confluence.v2() ? apiRoot + "/spaces?limit=250&sort=key" : apiRoot + "/space?limit=100";
+        int pages = 0;
+        while (url != null && out.size() < max && pages++ < 1000) {
+            JsonNode root = getJson(url);
+            rememberBase(root);
+            int got = 0;
+            for (JsonNode node : results(root)) {
+                got++;
+                String key = text(node, "key");
+                if (key == null || key.isBlank()) {
+                    continue;
+                }
+                String webui = node.path("_links").path("webui").asText(null);
+                String base = v2Base != null ? v2Base : siteBase + (confluence.cloud() ? "/wiki" : "");
+                String link = webui == null ? base + "/spaces/" + key : webui.startsWith("http") ? webui : base + webui;
+                out.add(new SpaceInfo(key, text(node, "name"), text(node, "type"), text(node, "status"), text(node, "id"), link));
+                if (out.size() >= max) {
+                    break;
+                }
+            }
+            String next = node(root.path("_links").path("next"));
+            if (next != null) {
+                url = absolute(next);
+            } else if (!confluence.v2() && got >= root.path("limit").asInt(100) && got > 0) {
+                url = apiRoot + "/space?limit=100&start=" + (root.path("start").asInt(0) + got);
+            } else {
+                url = null;
+            }
+        }
+        out.sort(java.util.Comparator.comparing(sp -> sp.key().toLowerCase(Locale.ROOT)));
+        return new SpaceListing(out, url == null);
+    }
+
     // ---------------------------------------------------------------- REST API v2 (Cloud)
 
     private Page<QuestionSummary> listQuestionsV2(TagFilter filter, String modifiedSince, String cursor) throws SourceException {

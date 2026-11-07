@@ -1,6 +1,7 @@
 import { BookOpen, Building2, Globe, Layers, MessagesSquare, Play, Save, ShieldCheck, Sparkles } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { checkConnection, getConfig, getLastConnection, getPresets, saveConfig, validateConfig } from '../api'
+import { ConfluenceSpacePicker } from '../components/ConfluenceSpacePicker'
 import { ApiDocsPanel } from '../components/ApiDocsPanel'
 import { CollectTestPanel } from '../components/CollectTestPanel'
 import { RawAnswerPanel } from '../components/RawAnswerPanel'
@@ -99,6 +100,8 @@ export default function ConnectPage() {
         {(source === 'live' || source === 'stackexchange') && <CollectTestPanel values={draft} />}
         {source === 'live' && <RawAnswerPanel values={draft} onUse={(patch) => setDraft({ ...draft, ...patch })} />}
         {source === 'fixture' && <Banner tone="info" title="Demo data needs nothing else">Sample questions are built into the app. Choose a real site above whenever you’re ready.</Banner>}
+        {source === 'confluence' && <ConfluenceSpacePicker values={draft} chosen={(draft['source.confluence.spaces'] ?? '').split(',').map((x) => x.trim()).filter(Boolean)}
+          onChange={(keys) => setDraft({ ...draft, 'source.confluence.spaces': keys.join(',') })} />}
         {source === 'confluence' && <Banner tone="info" title="Confluence pages become local threads">Tags mean Confluence labels. Read-only. Company sign-in: choose “Kerberos + Token Vending Machine”, API v2, and enter the TVM address and the web proxy (no secret to store; the 15-minute token is renewed automatically). Otherwise set an API token env var (Cloud: email + CONFLUENCE_API_TOKEN; Server/DC: CONFLUENCE_PAT). Jive and SharePoint are separate sources.</Banner>}
         {source === 'jive' && <Banner tone="info" title="Jive content becomes local threads">Tags mean Jive content tags. Set place ids and credentials via env vars (Basic: username + JIVE_PASSWORD; OAuth: JIVE_ACCESS_TOKEN). Confluence and SharePoint are separate sources.</Banner>}
         {source === 'sharepoint' && <Banner tone="info" title="SharePoint pages become local threads">Set the site URL and Graph credentials via env vars (Bearer: SHAREPOINT_ACCESS_TOKEN, or Azure AD client credentials with tenant/client/secret env). Confluence and Jive are separate sources.</Banner>}

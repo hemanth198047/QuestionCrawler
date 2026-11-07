@@ -82,6 +82,12 @@ public class SettingsController {
     }
 
     /** Finds tags on the site by a few letters (the site's own spelling and counts). */
+    /** The Confluence spaces the configured account can read (draft settings are used, not saved). */
+    @PostMapping("/confluence/spaces")
+    public Workspace.ConfluenceSpaces confluenceSpaces(@RequestBody(required = false) Map<String, String> values) {
+        return workspace.confluenceSpaces(values == null ? Map.of() : values);
+    }
+
     @PostMapping("/tags/search")
     public Workspace.TagSearch searchTags(@RequestBody(required = false) TagSearchRequest request) {
         return request == null ? workspace.searchTags(Map.of(), null) : workspace.searchTags(request.values() == null ? Map.of() : request.values(), request.q());

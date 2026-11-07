@@ -292,6 +292,40 @@ class ConfluenceTvmV2Test {
         assertEquals(origin + "/wiki/spaces/ENG/pages/1001/Page", q.url());
     }
 
+        // ------------------------------------------------------------------ spaces
+
+    @Test
+    void listsEverySpaceAcrossPagesV2() throws Exception {
+        handler = r -> {
+            assertEquals("/wiki/api/v2/spaces", r.path());
+            if (r.params().containsKey("cursor")) {
+                return new Reply(200, Map.of("results", List.of(Map.of("id", "3", "key", "HR", "name", "People", "type", "global", "status", "current"))));
+            }
+            return new Reply(200, Map.of("results", List.of(
+                            Map.of("id", "1", "key", "ENG", "name", "Engineering", "type", "global", "status", "current",
+                                    "_links", Map.of("webui", "/spaces/ENG")),
+                            Map.of("id", "2", "key", "~ada", "name", "Ada", "type", "personal", "status", "current")),
+                    "_links", Map.of("next", "/wiki/api/v2/spaces?cursor=xyz", "base", origin + "/wiki")));
+        };
+        var adapter = adapter(v2(List.of(), List.of(), ""), fakeTvm(new AtomicInteger(), Clock.systemUTC()));
+        var listing = adapter.listSpaces(1000);
+        assertTrue(listing.complete());
+        assertEquals(List.of("ENG", "HR", "~ada"), listing.spaces().stream().map(ConfluenceAdapter.SpaceInfo::key).toList());
+        assertEquals(origin + "/wiki/spaces/ENG", listing.spaces().get(0).url());
+        assertEquals("personal", listing.spaces().get(2).type());
+    }
+
+    @Test
+    void spaceAddressesArePastedAsKeys() {
+        assertEquals("ENG", ConfluenceOptions.spaceKey("https://acme.atlassian.net/wiki/spaces/ENG/overview"));
+        assertEquals("ENG", ConfluenceOptions.spaceKey("https://acme.atlassian.net/wiki/spaces/ENG/pages/123/Title"));
+        assertEquals("OPS", ConfluenceOptions.spaceKey("https://wiki.corp.com/display/OPS/Home"));
+        assertEquals("~ada", ConfluenceOptions.spaceKey("https://acme.atlassian.net/wiki/spaces/~ada"));
+        assertEquals("HR", ConfluenceOptions.spaceKey(" HR "));
+        var options = v2(List.of("https://acme.atlassian.net/wiki/spaces/ENG/overview", "ENG", "HR"), List.of(), "");
+        assertEquals(List.of("ENG", "HR"), options.spaces());
+    }
+
     // ------------------------------------------------------------------ configuration
 
     @Test

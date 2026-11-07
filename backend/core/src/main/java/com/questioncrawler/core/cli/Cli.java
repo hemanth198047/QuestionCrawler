@@ -37,6 +37,7 @@ public final class Cli {
             Commands:
               init                         Create configuration, taxonomy and the storage folders
               doctor [--connect]           Validate configuration, storage and (optionally) source connectivity
+              spaces                       Confluence: list the spaces this account can read (keys for source.confluence.spaces)
               sync [--full]                Synchronize. First run = initial collection, later runs = incremental.
                                            --full = full reconciliation (re-verifies everything, detects deletions)
               search <text...>             Search the stored knowledge and print evidence
@@ -95,6 +96,7 @@ public final class Cli {
             return switch (command) {
                 case "init" -> init(a);
                 case "doctor" -> doctor(a);
+                case "spaces" -> spaces(a);
                 case "sync" -> sync(a);
                 case "search" -> search(a);
                 case "show" -> show(a);
@@ -184,6 +186,31 @@ public final class Cli {
         Views.DoctorReport report = kb.doctor(a.flag("--connect"));
         if (a.json()) json(report); else out.print(TextFormat.doctor(report));
         return report.ok() ? 0 : 1;
+    }
+
+    /** Lists the Confluence spaces the configured account can read (to choose source.confluence.spaces). */
+    private int spaces(Args a) {
+        KnowledgeBase kb = open(a);
+        if (!"confluence".equals(kb.config().sourceType())) {
+            throw new UsageException("'spaces' needs source.type=confluence");
+        }
+        try {
+            var adapter = (com.questioncrawler.core.source.ConfluenceAdapter) kb.config().createAdapter();
+            var listing = adapter.listSpaces(10_000);
+            if (a.json()) {
+                json(listing);
+            } else {
+                for (var sp : listing.spaces()) {
+                    out.println(String.format("%-20s %-10s %s", sp.key(), sp.type() == null ? "" : sp.type(), sp.name() == null ? "" : sp.name()));
+                }
+                out.println(listing.spaces().size() + " space(s)" + (listing.complete() ? "" : " (stopped early: more exist)")
+                        + ". Put the keys you want in source.confluence.spaces (comma-separated).");
+            }
+            return 0;
+        } catch (com.questioncrawler.core.source.SourceException e) {
+            err.println("Could not list Confluence spaces: " + e.getMessage());
+            return 1;
+        }
     }
 
     private int sync(Args a) {

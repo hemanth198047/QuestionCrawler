@@ -210,4 +210,24 @@ class ConfluenceAdapterTest {
         CoreConfig cfg = CoreConfig.load(file, Map.of());
         assertTrue(cfg.validate().stream().anyMatch(p -> p.toLowerCase().contains("all")));
     }
+
+    @Test
+    void listsSpacesWithClassicApiFollowingStartPaging() throws Exception {
+        handler = r -> {
+            assertTrue(r.path().endsWith("/wiki/rest/api/space"));
+            if ("100".equals(r.params().get("start"))) {
+                return Map.of("results", List.of(Map.of("key", "ZZZ", "name", "Last")), "size", 1, "limit", 100, "start", 100);
+            }
+            List<Map<String, Object>> first = new ArrayList<>();
+            for (int i = 0; i < 100; i++) {
+                first.add(Map.of("key", "S" + i, "name", "Space " + i, "type", "global"));
+            }
+            return Map.of("results", first, "size", 100, "limit", 100, "start", 0);
+        };
+        var adapter = adapter(cloudEng(), Map.of("CONFLUENCE_API_TOKEN", "tok"));
+        var listing = adapter.listSpaces(10_000);
+        assertEquals(101, listing.spaces().size());
+        assertTrue(listing.complete());
+        assertTrue(listing.spaces().stream().anyMatch(sp -> sp.key().equals("ZZZ")));
+    }
 }

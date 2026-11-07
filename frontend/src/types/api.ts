@@ -104,3 +104,5 @@ export interface TagListingState { id: string | null; running: boolean; finished
 export interface TagChunk { state: TagListingState; from: number; tags: TagHit[] }
 export interface CollectionSample { id: string; title: string; tags: string[]; createdAt: string | null; answers: number; bodyCharacters: number }
 export interface CollectionTest { ok: boolean; problem: string | null; tags: string[]; found: number; shown: number; request: string | null; samples: CollectionSample[]; notes: string[]; tagsAll: boolean }
+export interface ConfluenceSpace { key: string; name: string | null; type: string | null; status: string | null; id: string | null; url: string | null }
+export interface ConfluenceSpaces { ok: boolean; problem: string | null; spaces: ConfluenceSpace[]; complete: boolean; chosen: string[] }

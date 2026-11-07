@@ -488,6 +488,37 @@ public final class Workspace {
     }
 
     /** Looks up tags on the site by a few letters, with the site's own spelling and counts. Uses what is currently typed on the Connect screen. */
+    /** The Confluence spaces the configured account can read, so they can be ticked instead of typed. */
+    public record ConfluenceSpaces(boolean ok, String problem, List<com.questioncrawler.core.source.ConfluenceAdapter.SpaceInfo> spaces,
+                                   boolean complete, List<String> chosen) {}
+
+    /** Lists Confluence spaces with the saved settings, or the settings being edited (draft values are NOT saved). */
+    public ConfluenceSpaces confluenceSpaces(Map<String, String> draft) {
+        Map<String, String> v = configService.read(configFile);
+        if (draft != null) {
+            v.putAll(draft);
+        }
+        if (!"confluence".equals(v.getOrDefault("source.type", "fixture"))) {
+            return new ConfluenceSpaces(false, "Choose Confluence as the source first.", List.of(), true, List.of());
+        }
+        if (v.getOrDefault("source.baseUrl", "").isBlank()) {
+            return new ConfluenceSpaces(false, "Enter the Confluence site address first (for example https://acme.atlassian.net).", List.of(), true, List.of());
+        }
+        try {
+            CoreConfig config = CoreConfig.load(null, v);
+            var adapter = (com.questioncrawler.core.source.ConfluenceAdapter) config.createAdapter(env);
+            var listing = adapter.listSpaces(MAX_CONFLUENCE_SPACES);
+            return new ConfluenceSpaces(true, listing.spaces().isEmpty() ? "This account cannot see any Confluence space." : null,
+                    listing.spaces(), listing.complete(), config.confluence().spaces());
+        } catch (com.questioncrawler.core.source.SourceException e) {
+            return new ConfluenceSpaces(false, e.getMessage(), List.of(), true, List.of());
+        } catch (RuntimeException e) {
+            return new ConfluenceSpaces(false, "The spaces could not be listed: " + e.getMessage(), List.of(), true, List.of());
+        }
+    }
+
+    static final int MAX_CONFLUENCE_SPACES = 10_000;
+
     public TagSearch searchTags(Map<String, String> draft, String text) {
         boolean browse = text == null || text.isBlank() || com.questioncrawler.core.source.TagFilter.asksForAll(List.of(text));
         Map<String, String> v = configService.read(configFile);

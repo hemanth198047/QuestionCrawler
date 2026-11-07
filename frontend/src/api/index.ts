@@ -1,5 +1,5 @@
 import type {
-  ApiDocsResult, ApiProbe, CollectionTest, TagChunk, TagListingState, TagSearch, SavedDocs, CategoryListing, CategorySummary, ConfigView, ConnectionReport, DeleteByTagResult, Issue, Overview, Preset, SaveResult, SearchResponse,
+  ApiDocsResult, ApiProbe, ConfluenceSpaces, CollectionTest, TagChunk, TagListingState, TagSearch, SavedDocs, CategoryListing, CategorySummary, ConfigView, ConnectionReport, DeleteByTagResult, Issue, Overview, Preset, SaveResult, SearchResponse,
   SyncReport, SyncState, Taxonomy, TaxonomyView, ThreadView, TopicProposal, TryResult,
 } from '../types/api'
 import { del, get, post, put } from './client'
@@ -54,6 +54,8 @@ export const discoverApiDocs = (values: Record<string, string>) => post<ApiDocsR
 export const discoverTopics = (k: number) => post<TopicProposal>('/topics/discover', { k })
 export const uploadApiDocs = (content: string) => post<SavedDocs>('/api-docs/file', { content })
 export const probeApi = (values: Record<string, string>, path: string) => post<ApiProbe>('/api-docs/probe', { values, path })
+// the Confluence spaces the configured account can read (draft settings, not saved)
+export const listConfluenceSpaces = (values: Record<string, string>) => post<ConfluenceSpaces>('/confluence/spaces', values)
 export const searchTags = (values: Record<string, string>, q: string) => post<TagSearch>('/tags/search', { values, q })
 // every tag of the site: a background job, polled for progress and for the tags read so far
 export const startTagListing = (values: Record<string, string>) => post<TagListingState>('/tags/listing', { values })

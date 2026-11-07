@@ -65,7 +65,7 @@ public record ConfluenceOptions(
     public ConfluenceOptions {
         edition = edition == null || edition.isBlank() ? "cloud" : edition.strip().toLowerCase();
         apiRoot = apiRoot == null ? "" : apiRoot.strip();
-        spaces = spaces == null ? List.of() : List.copyOf(spaces);
+        spaces = spaces == null ? List.of() : spaces.stream().map(ConfluenceOptions::spaceKey).filter(k -> !k.isEmpty()).distinct().toList();
         ancestorPageId = ancestorPageId == null ? "" : ancestorPageId.strip();
         contentTypes = contentTypes == null || contentTypes.isEmpty() ? List.of("page") : List.copyOf(contentTypes);
         bodyExpand = bodyExpand == null || bodyExpand.isBlank() ? "body.storage" : bodyExpand.strip();
@@ -106,6 +106,30 @@ public record ConfluenceOptions(
 
     public boolean hasBoundedScope() {
         return !spaces.isEmpty() || !ancestorPageId.isEmpty() || !pageIds.isEmpty();
+    }
+
+    /**
+     * A space key from what a person pastes: the key itself ("ENG"), or a space/page address such as
+     * https://acme.atlassian.net/wiki/spaces/ENG/overview, .../spaces/ENG/pages/123/Title or (Server) .../display/ENG/Home.
+     */
+    public static String spaceKey(String text) {
+        if (text == null) {
+            return "";
+        }
+        String t = text.strip();
+        for (String marker : new String[] {"/spaces/", "/display/"}) {
+            int at = t.indexOf(marker);
+            if (at >= 0) {
+                String rest = t.substring(at + marker.length());
+                int end = 0;
+                while (end < rest.length() && "/?#".indexOf(rest.charAt(end)) < 0) {
+                    end++;
+                }
+                String key = java.net.URLDecoder.decode(rest.substring(0, end), java.nio.charset.StandardCharsets.UTF_8);
+                return key.strip();
+            }
+        }
+        return t;
     }
 
     public static List<String> csv(String value) {
