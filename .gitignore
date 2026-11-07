@@ -31,6 +31,7 @@ replay_pid*
 # Backend (Gradle / IDE)
 backend/.gradle/
 backend/build/
+backend/*/build/
 backend/out/
 .idea/
 *.iml
