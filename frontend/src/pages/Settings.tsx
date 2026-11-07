@@ -55,7 +55,7 @@ export default function SettingsPage({ section }: { section: string | null }) {
   }
   const runDeleteByTag = async () => {
     const tag = deleteTag.trim()
-    if (!tag) { toast('bad', 'Type a tag to delete'; return }
+    if (!tag) { toast('bad', 'Type a tag to delete'); return }
     setDeleting(true)
     try {
       const r = await deleteByTag(tag)
@@ -107,7 +107,7 @@ export default function SettingsPage({ section }: { section: string | null }) {
                 {visible.map((f) => <SettingField key={f.key} field={f} value={draft[f.key] ?? ''} onChange={(v) => setDraft({ ...draft, [f.key]: v })} issues={issues.filter((i) => i.key === f.key)} />)}
                 {visible.length === 0 && <p className="muted">Nothing to set here for the chosen source.</p>}
                 {current === 'source' && source === 'fixture' && <Banner tone="info" title="Demo data needs nothing else">Choose Stack Overflow / Stack Exchange, Confluence, Jive, SharePoint, or Our internal Q&A site above to see the options for reaching a real site.</Banner>}
-                {current === 'source' && source === 'confluence' && <Banner tone="info" title="Confluence-only settings">These fields are separate from Stack Exchange, Jive, and SharePoint. Put only the token environment variable name here — never the secret.</Banner>}
+                {current === 'source' && source === 'confluence' && <Banner tone="info" title="Confluence-only settings">These fields are separate from Stack Exchange, Jive, and SharePoint. Put only the token environment variable name here — never the secret. With “Kerberos + Token Vending Machine” there is no secret at all: the app asks your company TVM for a short-lived token.</Banner>}
                 {current === 'source' && source === 'jive' && <Banner tone="info" title="Jive-only settings">These fields are separate from Confluence, Stack Exchange, and SharePoint. Put only the password/token environment variable name here — never the secret.</Banner>}
                 {current === 'source' && source === 'sharepoint' && <Banner tone="info" title="SharePoint-only settings">These fields are separate from Confluence, Jive, and Stack Exchange. Put only environment variable names here — never client secrets or access tokens.</Banner>}
               </div>

@@ -96,6 +96,24 @@ public final class ConfigService {
                                 Type.SELECT, "cloud", null, CONFLUENCE, false, null,
                                 new Option("cloud", "Confluence Cloud", "Atlassian Cloud site"),
                                 new Option("server", "Server / Data Center", "Self-hosted Confluence")),
+                        f("source.confluence.apiVersion", "Confluence REST API", "v1 = classic Content API + CQL (Cloud and Server/DC). v2 = Confluence Cloud REST API v2 (/wiki/api/v2/pages?body-format=storage), the one used with a Token Vending Machine token. Read-only either way.",
+                                Type.SELECT, "v1", null, CONFLUENCE, false, null,
+                                new Option("v1", "v1: Content API + CQL", "Cloud or Server/DC"),
+                                new Option("v2", "v2: Cloud REST API v2", "Cloud only; /wiki/api/v2")),
+                        f("source.confluence.tvm.url", "Token Vending Machine address", "Only for sign-in 'Kerberos + Token Vending Machine'. The full exchange address, for example https://atlassian-tvm.mycompany.com/exchange/token/confluence/acme.atlassian.net. The app calls it like 'curl -u : --negotiate <address>' and renews the ~15-minute token by itself.",
+                                Type.URL, "", "https://atlassian-tvm.mycompany.com/exchange/token/confluence/acme.atlassian.net", CONFLUENCE, false, null),
+                        f("source.confluence.tvm.client", "Kerberos sign-in via", "curl (recommended) runs the same command you would type: curl -u : --negotiate. java uses the JDK's own Kerberos support (needs a ticket the JVM can see).",
+                                Type.SELECT, "curl", null, CONFLUENCE, true, null,
+                                new Option("curl", "curl --negotiate", "Recommended"),
+                                new Option("java", "Java built-in SPNEGO", "No external program")),
+                        f("source.confluence.tvm.curlPath", "curl program", "Only if curl is not on the PATH. Windows 10+ has curl.exe built in.",
+                                Type.TEXT, "curl", "curl", CONFLUENCE, true, null),
+                        f("source.confluence.tvm.useProxy", "Token service through the web proxy", "Usually off: the Token Vending Machine is an internal address. Turn on only if it must be reached through the proxy below.",
+                                Type.SWITCH, "false", null, CONFLUENCE, true, null),
+                        f("source.confluence.tvm.caCertFile", "Token service certificate file", "Only for curl, if the Token Vending Machine uses a company certificate authority curl does not trust yet.",
+                                Type.PATH, "", "C:\\certs\\company-ca.pem", CONFLUENCE, true, null),
+                        f("source.confluence.pageIds", "Page ids", "Optional. Collect exactly these pages (the number in the page address, for example .../pages/123456789/Title). With API v2 an ancestor page collects its whole subtree.",
+                                Type.TAGS, "", "123456789", CONFLUENCE, false, null),
                         f("source.confluence.email", "Atlassian account email", "Cloud only. The email for Basic auth with your API token. Not a secret; the token stays in an environment variable.",
                                 Type.TEXT, "", "you@example.com", CONFLUENCE, false, null),
                         f("source.confluence.emailEnv", "Email variable name (optional)", "Optional alternative: NAME of an environment variable that holds the Atlassian email instead of typing it above.",
@@ -179,7 +197,8 @@ public final class ConfigService {
                                 Type.SELECT, "none", null, AUTH_TOKEN, false, null,
                                 new Option("none", "Not needed", "Only for some internal Q&A APIs"),
                                 new Option("basic-env", "Username/email + secret (Basic)", "Confluence Cloud email+token, or Jive username+password from env"),
-                                new Option("token", "Bearer token / PAT / OAuth / Graph", "Confluence Server/DC PAT, Jive OAuth, SharePoint Graph token, or internal Bearer")),
+                                new Option("token", "Bearer token / PAT / OAuth / Graph", "Confluence Server/DC PAT, Jive OAuth, SharePoint Graph token, or internal Bearer"),
+                                new Option("tvm", "Kerberos + Token Vending Machine (Confluence)", "Short-lived Bearer token from your company TVM; no secret to store")),
                         f("source.auth.tokenEnv", "Token / password variable name", "The NAME of the environment variable that holds the secret (never the secret itself). Suggested: CONFLUENCE_API_TOKEN / CONFLUENCE_PAT, JIVE_PASSWORD / JIVE_ACCESS_TOKEN, SHAREPOINT_ACCESS_TOKEN.",
                                 Type.ENV_NAME, "SHAREPOINT_ACCESS_TOKEN", "SHAREPOINT_ACCESS_TOKEN", AUTH_TOKEN, false, null),
                         f("source.auth.headerName", "Auth header name", "The HTTP header that carries the credential. Almost always Authorization.",
@@ -276,6 +295,22 @@ public final class ConfigService {
                                 Map.entry("sync.concurrency", "2"),
                                 Map.entry("source.followRedirects", "same-host"),
                                 Map.entry("source.allowedPathPrefixes", "/wiki/rest/api/"))),
+                new Preset("confluence-tvm", "Confluence (company sign-in)", "Read Confluence Cloud pages with the REST API v2, using a short-lived token from your company Token Vending Machine (Kerberos) and the web proxy. Nothing secret to store.", "book",
+                        Map.ofEntries(
+                                Map.entry("source.type", "confluence"),
+                                Map.entry("source.baseUrl", ""),
+                                Map.entry("source.confluence.edition", "cloud"),
+                                Map.entry("source.confluence.apiVersion", "v2"),
+                                Map.entry("source.auth.method", "tvm"),
+                                Map.entry("source.confluence.tvm.url", ""),
+                                Map.entry("source.confluence.tvm.client", "curl"),
+                                Map.entry("source.confluence.spaces", ""),
+                                Map.entry("source.confluence.pageIds", ""),
+                                Map.entry("sync.tags", "all"),
+                                Map.entry("sync.maxQuestionAge", "1y"),
+                                Map.entry("sync.concurrency", "2"),
+                                Map.entry("source.followRedirects", "same-host"),
+                                Map.entry("source.allowedPathPrefixes", "/wiki/api/v2/"))),
                 new Preset("jive", "Jive community", "Collect Jive documents/discussions via Core REST v3. Set the community address, username + password env (or OAuth Bearer), and place ids. Separate from Confluence/SharePoint.", "users",
                         Map.ofEntries(
                                 Map.entry("source.type", "jive"),
@@ -425,19 +460,40 @@ public final class ConfigService {
                     issues.add(new Issue("source.confluence.edition", "error", "Choose Cloud or Server / Data Center.", null));
                 }
                 if ("basic-env".equals(authMethod) || "confluence-api-token".equals(authMethod)
-                        || ("cloud".equals(edition) && !"token".equals(authMethod) && !"none".equals(authMethod))) {
+                        || ("cloud".equals(edition) && !"token".equals(authMethod) && !"none".equals(authMethod) && !"tvm".equals(authMethod))) {
                     String email = v.getOrDefault("source.confluence.email", "").strip();
                     String emailEnv = v.getOrDefault("source.confluence.emailEnv", "").strip();
                     if (email.isEmpty() && emailEnv.isEmpty() && ("basic-env".equals(authMethod) || "confluence-api-token".equals(authMethod)
                             || "cloud".equals(edition))) {
-                        if ("basic-env".equals(authMethod) || "confluence-api-token".equals(authMethod) || "cloud".equals(edition)) {
+                        {
                             issues.add(new Issue("source.confluence.email", "error", "Confluence Cloud Basic auth needs your Atlassian email.", "Enter the email, or set source.confluence.emailEnv to an environment variable name."));
                         }
                     }
                     checkEnvName(issues, "source.confluence.emailEnv", emailEnv, false);
                 }
+                String apiVersion = v.getOrDefault("source.confluence.apiVersion", "v1").strip().toLowerCase();
+                if (!List.of("v1", "v2").contains(apiVersion)) {
+                    issues.add(new Issue("source.confluence.apiVersion", "error", "Choose v1 or v2.", null));
+                } else if ("v2".equals(apiVersion) && "server".equals(edition)) {
+                    issues.add(new Issue("source.confluence.apiVersion", "error", "REST API v2 exists only on Confluence Cloud.", "Use v1 for Server / Data Center."));
+                }
+                if ("tvm".equals(authMethod)) {
+                    String tvmUrl = v.getOrDefault("source.confluence.tvm.url", "").strip();
+                    URI tvm = tvmUrl.isEmpty() ? null : parseUri(tvmUrl);
+                    if (tvmUrl.isEmpty()) {
+                        issues.add(new Issue("source.confluence.tvm.url", "error", "Enter the Token Vending Machine address.",
+                                "The address you use with curl -u : --negotiate, for example https://atlassian-tvm.mycompany.com/exchange/token/confluence/acme.atlassian.net."));
+                    } else if (tvm == null || tvm.getHost() == null || !"https".equalsIgnoreCase(tvm.getScheme())) {
+                        issues.add(new Issue("source.confluence.tvm.url", "error", "That does not look like an https:// address.", null));
+                    }
+                    if (!"v2".equals(apiVersion)) {
+                        issues.add(new Issue("source.confluence.apiVersion", "warning", "Token Vending Machine tokens are normally used with REST API v2.",
+                                "Choose v2 unless your platform team says the token also works with the classic API."));
+                    }
+                }
                 String spaces = v.getOrDefault("source.confluence.spaces", "").strip();
-                String ancestor = v.getOrDefault("source.confluence.ancestorPageId", "").strip();
+                String ancestor = v.getOrDefault("source.confluence.ancestorPageId", "").strip()
+                        + v.getOrDefault("source.confluence.pageIds", "").strip();
                 String tags = v.getOrDefault("sync.tags", "").strip();
                 String age = v.getOrDefault("sync.maxQuestionAge", "").strip();
                 if (com.questioncrawler.core.source.TagFilter.asksForAll(java.util.Arrays.asList(tags.split(",")))
@@ -540,7 +596,8 @@ public final class ConfigService {
             }
             if (type.equals("confluence")) {
                 String spaces = v.getOrDefault("source.confluence.spaces", "").strip();
-                String ancestor = v.getOrDefault("source.confluence.ancestorPageId", "").strip();
+                String ancestor = v.getOrDefault("source.confluence.ancestorPageId", "").strip()
+                        + v.getOrDefault("source.confluence.pageIds", "").strip();
                 String age = v.getOrDefault("sync.maxQuestionAge", "").strip();
                 if (spaces.isEmpty() && ancestor.isEmpty() && age.isEmpty()) {
                     issues.add(new Issue("sync.maxQuestionAge", "error",
@@ -675,14 +732,15 @@ public final class ConfigService {
             String prefixes = merged.getOrDefault("source.allowedPathPrefixes", "").strip();
             if (prefixes.isEmpty() || prefixes.equals("/")) {
                 String edition = merged.getOrDefault("source.confluence.edition", "cloud").strip().toLowerCase();
-                merged.put("source.allowedPathPrefixes", "server".equals(edition) ? "/rest/api/" : "/wiki/rest/api/");
+                boolean v2 = "v2".equalsIgnoreCase(merged.getOrDefault("source.confluence.apiVersion", "v1").strip());
+                merged.put("source.allowedPathPrefixes", v2 ? "/wiki/api/v2/" : "server".equals(edition) ? "/rest/api/" : "/wiki/rest/api/");
             }
             String auth = merged.getOrDefault("source.auth.method", "").strip();
             if (auth.isEmpty() || "none".equals(auth)) {
                 String edition = merged.getOrDefault("source.confluence.edition", "cloud").strip().toLowerCase();
                 merged.put("source.auth.method", "server".equals(edition) ? "token" : "basic-env");
             }
-            if (merged.getOrDefault("source.auth.tokenEnv", "").isBlank()) {
+            if (merged.getOrDefault("source.auth.tokenEnv", "").isBlank() && !"tvm".equals(merged.get("source.auth.method"))) {
                 String edition = merged.getOrDefault("source.confluence.edition", "cloud").strip().toLowerCase();
                 merged.put("source.auth.tokenEnv", "server".equals(edition) ? "CONFLUENCE_PAT" : "CONFLUENCE_API_TOKEN");
             }

@@ -11,12 +11,16 @@ QuestionCrawler can collect **Confluence pages** into the same local knowledge s
 - Labels become tags; answers stay empty (wiki pages are not Q&A)
 - Incremental sync using CQL `lastmodified` when the site supports it
 
+> **Company sign-in (Kerberos + Token Vending Machine, REST API v2 through the web proxy)?** See
+> [CONFLUENCE_TVM.md](CONFLUENCE_TVM.md): `source.auth.method=tvm`, `source.confluence.apiVersion=v2`.
+
 ## Auth (secrets stay in environment variables)
 
 | Edition | Method | Config | Env var (name only in config) |
 |---|---|---|---|
 | Cloud | Basic (`email:api_token`) | `source.auth.method=basic-env`, `source.confluence.email=…` | `CONFLUENCE_API_TOKEN` |
 | Server / Data Center | Bearer PAT | `source.auth.method=token` | `CONFLUENCE_PAT` |
+| Cloud (company sign-in) | Kerberos → Token Vending Machine → short-lived Bearer | `source.auth.method=tvm`, `source.confluence.tvm.url=…` | none (see [CONFLUENCE_TVM.md](CONFLUENCE_TVM.md)) |
 
 Never put tokens in properties files, fixtures, or logs. Cookie scraping and browser SSO automation are not supported.
 

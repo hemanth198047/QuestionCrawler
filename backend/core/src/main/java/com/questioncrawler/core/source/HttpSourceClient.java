@@ -68,14 +68,27 @@ public final class HttpSourceClient {
     private final SourceSettings settings;
     private final HttpClient http;
     private final Function<String, String> env;
+    private final TokenSource bearer;
+
+    /** Supplies a Bearer token at request time (for example a short-lived token from a Token Vending Machine). */
+    @FunctionalInterface
+    public interface TokenSource {
+        String token() throws SourceException;
+    }
 
     public HttpSourceClient(SourceSettings settings) {
         this(settings, System::getenv);
     }
 
     public HttpSourceClient(SourceSettings settings, Function<String, String> env) {
+        this(settings, env, null);
+    }
+
+    /** As {@link #HttpSourceClient(SourceSettings, Function)}; {@code bearer} serves {@code source.auth.method=tvm}. */
+    public HttpSourceClient(SourceSettings settings, Function<String, String> env, TokenSource bearer) {
         this.settings = settings;
         this.env = env;
+        this.bearer = bearer;
         HttpClient.Builder builder = HttpClient.newBuilder()
                 .connectTimeout(settings.timeout())
                 .followRedirects(HttpClient.Redirect.NEVER);
@@ -213,6 +226,14 @@ public final class HttpSourceClient {
         if (method.equalsIgnoreCase("none") || method.isBlank()) {
             return;
         }
+        if (method.equalsIgnoreCase("tvm")) {
+            if (bearer == null) {
+                throw new SourceException(SourceException.Kind.FATAL,
+                        "source.auth.method=tvm needs source.confluence.tvm.url (the Token Vending Machine address)");
+            }
+            request.header(settings.authHeaderName(), "Bearer " + bearer.token());
+            return;
+        }
         String token = settings.tokenEnv() == null ? null : env.apply(settings.tokenEnv());
         if (token == null || token.isBlank()) {
             throw new SourceException(SourceException.Kind.AUTH_FAILED,
@@ -233,7 +254,7 @@ public final class HttpSourceClient {
         }
         if (!method.equalsIgnoreCase("token")) {
             throw new SourceException(SourceException.Kind.FATAL,
-                    "Unknown source.auth.method '" + method + "' (use none, token, or basic-env)");
+                    "Unknown source.auth.method '" + method + "' (use none, token, basic-env, or tvm)");
         }
         String scheme = settings.authScheme();
         request.header(settings.authHeaderName(), scheme == null || scheme.isBlank() ? token : scheme + " " + token);

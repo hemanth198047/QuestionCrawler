@@ -23,11 +23,16 @@ import java.util.Set;
 import java.util.function.Function;
 
 /**
- * First-class Confluence source: classic Content REST API + CQL search for Cloud and Server/DC.
+ * First-class Confluence source, read-only. Two APIs:
+ * <ul>
+ *   <li>{@code source.confluence.apiVersion=v1} (default): classic Content REST API + CQL search, Cloud and Server/DC.</li>
+ *   <li>{@code source.confluence.apiVersion=v2}: Confluence Cloud REST API v2 ({@code /wiki/api/v2/pages?body-format=storage}).</li>
+ * </ul>
  *
- * <p>Pages are collected as {@link Question} threads (empty answers in v1). Labels map to tags.
- * Auth is {@code basic-env} (Cloud email + API token) or Bearer {@code token} (Server/DC PAT) via
- * {@link HttpSourceClient}. Cookie scraping and HTML UI login are intentionally unsupported.
+ * <p>Pages are collected as {@link Question} threads (empty answers). Labels map to tags.
+ * Auth is {@code basic-env} (Cloud email + API token), Bearer {@code token} (PAT / token from an environment variable), or
+ * {@code tvm} (short-lived Bearer token from a company Token Vending Machine via Kerberos, renewed automatically; see
+ * {@link TvmTokenProvider}). Cookie scraping and HTML UI login are intentionally unsupported.
  *
  * <p>Jive ({@code source.type=jive}) and SharePoint are separate {@code source.type} values — do not extend this adapter for them.
  */
@@ -44,6 +49,14 @@ public final class ConfluenceAdapter implements SourceAdapter {
     private final String siteBase;
     private final List<String> notes = new ArrayList<>();
     private boolean lastmodifiedSupported = true;
+    private final TvmTokenProvider tvm;
+    private final java.util.Map<String, String> spaceKeys = new java.util.concurrent.ConcurrentHashMap<>();
+    private volatile String v2Base;
+    private List<String> resolvedSpaceIds;
+    private List<String> treeIds;
+
+    /** Upper bound for pages listed under an ancestor page (v2), so a mistaken root cannot crawl a whole site. */
+    static final int MAX_TREE_PAGES = 20_000;
 
     public ConfluenceAdapter(SourceSettings settings, ConfluenceOptions confluence, HttpSourceClient client) {
         this(settings, confluence, client, System::getenv);
@@ -51,12 +64,31 @@ public final class ConfluenceAdapter implements SourceAdapter {
 
     public ConfluenceAdapter(SourceSettings settings, ConfluenceOptions confluence, HttpSourceClient client,
                              Function<String, String> env) {
+        this(settings, confluence, client, env, null);
+    }
+
+    /** @param tvm the token provider behind {@code client} when {@code source.auth.method=tvm} (renewed once on HTTP 401), or null */
+    public ConfluenceAdapter(SourceSettings settings, ConfluenceOptions confluence, HttpSourceClient client,
+                             Function<String, String> env, TvmTokenProvider tvm) {
         this.settings = settings;
         this.confluence = confluence == null ? ConfluenceOptions.DEFAULT : confluence;
         this.client = client;
         this.env = env;
+        this.tvm = tvm;
         this.siteBase = trimSlash(settings.baseUrl());
         this.apiRoot = resolveApiRoot(this.siteBase, this.confluence);
+    }
+
+    /** Builds the adapter with its HTTP client, wiring a Token Vending Machine when {@code source.auth.method=tvm}. */
+    public static ConfluenceAdapter create(SourceSettings settings, ConfluenceOptions confluence, Function<String, String> env) {
+        ConfluenceOptions options = confluence == null ? ConfluenceOptions.DEFAULT : confluence;
+        TvmTokenProvider tvm = null;
+        if ("tvm".equalsIgnoreCase(settings.authMethod()) && options.tvm().configured()) {
+            tvm = new TvmTokenProvider(options.tvm(), settings.proxy().orEnvironment(env), settings.timeout());
+        }
+        TvmTokenProvider provider = tvm;
+        HttpSourceClient client = new HttpSourceClient(settings, env, provider == null ? null : provider::token);
+        return new ConfluenceAdapter(settings, options, client, env, provider);
     }
 
     @Override
@@ -76,6 +108,11 @@ public final class ConfluenceAdapter implements SourceAdapter {
 
     @Override
     public String ping() throws SourceException {
+        if (confluence.v2()) {
+            JsonNode root = getJson(apiRoot + "/spaces?limit=1");
+            String auth = tvm != null ? " with a Token Vending Machine token from " + tvm.host() : "";
+            return "Confluence Cloud REST API v2 reachable at " + apiRoot + auth + " (spaces visible: " + (results(root).iterator().hasNext() ? "yes" : "none") + ")";
+        }
         JsonNode root = getJson(apiRoot + "/space?limit=1");
         int size = root.path("size").asInt(root.path("results").size());
         String edition = confluence.cloud() ? "Cloud" : "Server/DC";
@@ -84,6 +121,9 @@ public final class ConfluenceAdapter implements SourceAdapter {
 
     @Override
     public Page<QuestionSummary> listQuestions(TagFilter filter, String modifiedSince, String cursor) throws SourceException {
+        if (confluence.v2()) {
+            return listQuestionsV2(filter, modifiedSince, cursor);
+        }
         String cql = buildCql(filter, modifiedSince);
         StringBuilder url = new StringBuilder(apiRoot).append("/content/search?cql=").append(enc(cql))
                 .append("&limit=").append(confluence.pageSize())
@@ -127,6 +167,9 @@ public final class ConfluenceAdapter implements SourceAdapter {
 
     @Override
     public Question fetchQuestion(String id) throws SourceException {
+        if (confluence.v2()) {
+            return fetchQuestionV2(id);
+        }
         String expand = confluence.bodyExpand() + ",version,space,metadata.labels,history,ancestors";
         JsonNode node;
         try {
@@ -316,14 +359,295 @@ public final class ConfluenceAdapter implements SourceAdapter {
         return null;
     }
 
+    // ---------------------------------------------------------------- REST API v2 (Cloud)
+
+    private Page<QuestionSummary> listQuestionsV2(TagFilter filter, String modifiedSince, String cursor) throws SourceException {
+        if (!confluence.pageIds().isEmpty() || !confluence.ancestorPageId().isEmpty()) {
+            return listTreeV2(filter, cursor);
+        }
+        if (confluence.contentTypes().stream().anyMatch(t -> !t.equalsIgnoreCase("page")) && cursor == null) {
+            notes.add("REST API v2 mode collects pages only; other content types (" + String.join(",", confluence.contentTypes()) + ") are skipped.");
+        }
+        String url;
+        if (cursor != null && cursor.startsWith("next:")) {
+            url = absolute(cursor.substring("next:".length()));
+        } else {
+            StringBuilder b = new StringBuilder(apiRoot).append("/pages?limit=").append(confluence.pageSize())
+                    .append("&status=current&sort=-modified-date");
+            List<String> spaceIds = spaceIdsV2();
+            if (!spaceIds.isEmpty()) {
+                b.append("&space-id=").append(enc(String.join(",", spaceIds)));
+            }
+            url = b.toString();
+        }
+        JsonNode root = getJson(url);
+        rememberBase(root);
+        Instant since = modifiedSince == null ? null : Times.parse(modifiedSince).orElse(null);
+        Instant createdAfter = filter.createdAfter() == null ? null : Times.parse(filter.createdAfter()).orElse(null);
+        List<QuestionSummary> items = new ArrayList<>();
+        boolean reachedOld = false;
+        for (JsonNode node : results(root)) {
+            String id = text(node, "id");
+            if (id == null || id.isBlank()) {
+                continue;
+            }
+            String modified = iso(node.path("version").path("createdAt").asText(null));
+            Instant when = modified == null ? null : Times.parse(modified).orElse(null);
+            if (since != null && when != null && when.isBefore(since)) {
+                reachedOld = true; // sorted newest first: everything after this is older
+                break;
+            }
+            Instant created = Times.parse(iso(node.path("createdAt").asText(null))).orElse(null);
+            if (createdAfter != null && created != null && created.isBefore(createdAfter)) {
+                continue;
+            }
+            if (!filter.isAll() && !filter.matches(labelsV2(id))) {
+                continue;
+            }
+            items.add(new QuestionSummary(id, modified, browseUrlV2(node)));
+        }
+        String next = reachedOld ? null : node(root.path("_links").path("next"));
+        return new Page<>(items, next == null ? null : "next:" + next);
+    }
+
+    /** Explicit page ids and/or every page under the ancestor page: listed once, then served from memory. */
+    private Page<QuestionSummary> listTreeV2(TagFilter filter, String cursor) throws SourceException {
+        if (treeIds == null || cursor == null) {
+            java.util.LinkedHashSet<String> ids = new java.util.LinkedHashSet<>(confluence.pageIds());
+            if (!confluence.ancestorPageId().isEmpty()) {
+                ids.addAll(descendantsV2(confluence.ancestorPageId()));
+            }
+            if (!confluence.spaces().isEmpty()) {
+                notes.add("Page ids / ancestor page are set, so source.confluence.spaces is not used to list pages.");
+            }
+            treeIds = new ArrayList<>(ids);
+        }
+        int from = cursor == null ? 0 : Integer.parseInt(cursor.substring("tree:".length()));
+        int to = Math.min(treeIds.size(), from + confluence.pageSize());
+        List<QuestionSummary> items = new ArrayList<>();
+        for (String id : treeIds.subList(from, to)) {
+            if (!filter.isAll() && !filter.matches(labelsV2(id))) {
+                continue;
+            }
+            items.add(new QuestionSummary(id, null, null));
+        }
+        return new Page<>(items, to < treeIds.size() ? "tree:" + to : null);
+    }
+
+    private List<String> descendantsV2(String rootId) throws SourceException {
+        List<String> out = new ArrayList<>();
+        java.util.ArrayDeque<String> queue = new java.util.ArrayDeque<>(List.of(rootId));
+        Set<String> seen = new java.util.HashSet<>(queue);
+        boolean useDirect = true;
+        while (!queue.isEmpty()) {
+            String parent = queue.poll();
+            String url = apiRoot + "/pages/" + enc(parent) + (useDirect ? "/direct-children" : "/children") + "?limit=250";
+            while (url != null) {
+                JsonNode root;
+                try {
+                    root = getJson(url);
+                } catch (SourceException e) {
+                    if (useDirect && e.kind() == SourceException.Kind.NOT_FOUND && parent.equals(rootId) && out.isEmpty()) {
+                        useDirect = false; // older v2 sites only have /children
+                        url = apiRoot + "/pages/" + enc(parent) + "/children?limit=250";
+                        continue;
+                    }
+                    throw e;
+                }
+                for (JsonNode child : results(root)) {
+                    String id = text(child, "id");
+                    String type = child.path("type").asText("page");
+                    if (id == null || !seen.add(id)) {
+                        continue;
+                    }
+                    if (type.equals("page") || type.equals("folder")) {
+                        queue.add(id);
+                    }
+                    if (type.equals("page")) {
+                        out.add(id);
+                        if (out.size() >= MAX_TREE_PAGES) {
+                            notes.add("Stopped listing under page " + rootId + " after " + MAX_TREE_PAGES + " pages.");
+                            return out;
+                        }
+                    }
+                }
+                String next = node(root.path("_links").path("next"));
+                url = next == null ? null : absolute(next);
+            }
+        }
+        return out;
+    }
+
+    private List<String> spaceIdsV2() throws SourceException {
+        if (resolvedSpaceIds != null) {
+            return resolvedSpaceIds;
+        }
+        if (confluence.spaces().isEmpty()) {
+            resolvedSpaceIds = List.of();
+            return resolvedSpaceIds;
+        }
+        JsonNode root = getJson(apiRoot + "/spaces?limit=250&keys=" + enc(String.join(",", confluence.spaces())));
+        List<String> ids = new ArrayList<>();
+        Set<String> found = new java.util.HashSet<>();
+        for (JsonNode space : results(root)) {
+            String id = text(space, "id");
+            String key = text(space, "key");
+            if (id != null && key != null) {
+                ids.add(id);
+                found.add(key.toUpperCase(Locale.ROOT));
+                spaceKeys.put(id, key);
+            }
+        }
+        List<String> missing = confluence.spaces().stream().filter(k -> !found.contains(k.toUpperCase(Locale.ROOT))).toList();
+        if (ids.isEmpty()) {
+            throw new SourceException(SourceException.Kind.NOT_FOUND,
+                    "None of the Confluence spaces " + confluence.spaces() + " were found (or this account cannot see them)");
+        }
+        if (!missing.isEmpty()) {
+            notes.add("Confluence spaces not found or not visible: " + String.join(", ", missing));
+        }
+        resolvedSpaceIds = List.copyOf(ids);
+        return resolvedSpaceIds;
+    }
+
+    private Question fetchQuestionV2(String id) throws SourceException {
+        String format = "body.view".equals(confluence.bodyExpand()) ? "view" : "storage";
+        JsonNode node = getJson(apiRoot + "/pages/" + enc(id) + "?body-format=" + format + "&include-labels=true&include-version=true");
+        rememberBase(node);
+        String title = text(node, "title");
+        String body = bodyHtml(node);
+        if (body == null) {
+            body = "";
+            notes.add("Page " + id + " had no readable body.storage; stored title and metadata only.");
+        }
+        List<String> tags;
+        JsonNode labels = node.path("labels").path("results");
+        if (labels.isArray()) {
+            tags = new ArrayList<>();
+            for (JsonNode label : labels) {
+                String name = label.path("name").asText(null);
+                if (name != null && !name.isBlank() && !tags.contains(name)) {
+                    tags.add(name);
+                }
+            }
+        } else {
+            tags = new ArrayList<>(labelsV2(id));
+        }
+        if (confluence.includeSpaceTag()) {
+            String key = spaceKeyV2(text(node, "spaceId"));
+            if (key != null && tags.stream().noneMatch(t -> t.equalsIgnoreCase("space:" + key))) {
+                tags.add("space:" + key);
+            }
+        }
+        String author = text(node, "authorId");
+        String created = iso(node.path("createdAt").asText(null));
+        String modified = iso(node.path("version").path("createdAt").asText(null));
+        List<Comment> comments = List.of();
+        if (confluence.collectComments()) {
+            try {
+                comments = fetchCommentsV2(id);
+            } catch (SourceException e) {
+                notes.add("Comments for page " + id + " could not be collected (" + e.kind() + "); page body was kept.");
+            }
+        }
+        return new Question(id, title == null ? "" : title, body, BodyFormat.HTML, browseUrlV2(node), tags, author, null,
+                created, modified, comments, List.of());
+    }
+
+    private List<String> labelsV2(String pageId) throws SourceException {
+        List<String> out = new ArrayList<>();
+        String url = apiRoot + "/pages/" + enc(pageId) + "/labels?limit=250";
+        while (url != null) {
+            JsonNode root = getJson(url);
+            for (JsonNode label : results(root)) {
+                String name = label.path("name").asText(null);
+                if (name != null && !name.isBlank()) {
+                    out.add(name);
+                }
+            }
+            String next = node(root.path("_links").path("next"));
+            url = next == null ? null : absolute(next);
+        }
+        return out;
+    }
+
+    private String spaceKeyV2(String spaceId) {
+        if (spaceId == null || spaceId.isBlank()) {
+            return null;
+        }
+        String known = spaceKeys.get(spaceId);
+        if (known != null) {
+            return known;
+        }
+        try {
+            String key = text(getJson(apiRoot + "/spaces/" + enc(spaceId)), "key");
+            if (key != null && !key.isBlank()) {
+                spaceKeys.put(spaceId, key);
+                return key;
+            }
+        } catch (SourceException e) {
+            // the space tag is optional
+        }
+        return null;
+    }
+
+    private List<Comment> fetchCommentsV2(String pageId) throws SourceException {
+        List<Comment> out = new ArrayList<>();
+        String url = apiRoot + "/pages/" + enc(pageId) + "/footer-comments?body-format=storage&limit=" + Math.min(confluence.pageSize(), 100);
+        while (url != null) {
+            JsonNode root = getJson(url);
+            for (JsonNode node : results(root)) {
+                out.add(new Comment(text(node, "id"), node.path("version").path("authorId").asText(null), bodyHtml(node),
+                        iso(node.path("version").path("createdAt").asText(null))));
+            }
+            String next = node(root.path("_links").path("next"));
+            url = next == null ? null : absolute(next);
+        }
+        return out;
+    }
+
+    private void rememberBase(JsonNode root) {
+        String base = root.path("_links").path("base").asText(null);
+        if (base != null && base.startsWith("http")) {
+            v2Base = trimSlash(base);
+        }
+    }
+
+    private String browseUrlV2(JsonNode node) {
+        String webui = node.path("_links").path("webui").asText(null);
+        String base = v2Base != null ? v2Base : siteBase + (confluence.cloud() ? "/wiki" : "");
+        if (webui != null && webui.startsWith("http")) {
+            return webui;
+        }
+        if (webui != null && !webui.isBlank()) {
+            return base + (webui.startsWith("/") ? webui : "/" + webui);
+        }
+        String id = text(node, "id");
+        return id == null ? base : base + "/pages/viewpage.action?pageId=" + id;
+    }
+
+    /** Turns a "_links.next" path (relative to the site origin) into a full address. */
+    private String absolute(String next) {
+        if (next.startsWith("http://") || next.startsWith("https://")) {
+            return next;
+        }
+        URI base = URI.create(siteBase);
+        String origin = base.getScheme() + "://" + base.getRawAuthority();
+        return origin + (next.startsWith("/") ? next : "/" + next);
+    }
+
+    private static String node(JsonNode n) {
+        return n == null || n.isMissingNode() || n.isNull() || n.asText().isBlank() ? null : n.asText();
+    }
+
     // ---------------------------------------------------------------- HTTP
 
     private JsonNode getJson(String url) throws SourceException {
-        HttpSourceClient.Response response;
-        try {
+        HttpSourceClient.Response response = client.exchange(url);
+        if (response.status() == 401 && tvm != null) {
+            // TVM tokens live ~15 minutes: get a fresh one and try once more.
+            tvm.invalidate();
             response = client.exchange(url);
-        } catch (SourceException e) {
-            throw e;
         }
         if (response.status() >= 200 && response.status() < 300) {
             try {

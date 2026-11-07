@@ -125,7 +125,16 @@ public record CoreConfig(
                 intValue(p, "source.confluence.pageSize", 25),
                 Boolean.parseBoolean(p.getProperty("source.confluence.includeSpaceTag", "true").strip()),
                 p.getProperty("source.confluence.email", ""),
-                p.getProperty("source.confluence.emailEnv", ""));
+                p.getProperty("source.confluence.emailEnv", ""),
+                p.getProperty("source.confluence.apiVersion", "v1"),
+                ConfluenceOptions.csv(p.getProperty("source.confluence.pageIds", "")),
+                new ConfluenceOptions.Tvm(
+                        p.getProperty("source.confluence.tvm.url", ""),
+                        p.getProperty("source.confluence.tvm.client", "curl"),
+                        p.getProperty("source.confluence.tvm.curlPath", "curl"),
+                        Boolean.parseBoolean(p.getProperty("source.confluence.tvm.useProxy", "false").strip()),
+                        p.getProperty("source.confluence.tvm.caCertFile", ""),
+                        intValue(p, "source.confluence.tvm.refreshBeforeSeconds", 60)));
         boolean jiveSource = type.equals("jive");
         JiveOptions jive = new JiveOptions(
                 p.getProperty("source.jive.apiRoot", ""),
@@ -278,6 +287,9 @@ public record CoreConfig(
         if (!List.of("fixture", "live", "stackexchange", "confluence", "jive", "sharepoint").contains(sourceType)) {
             problems.add("source.type must be 'fixture', 'live', 'stackexchange', 'confluence', 'jive' or 'sharepoint' (was '" + sourceType + "')");
         }
+        if (source.authMethod().equalsIgnoreCase("tvm") && !sourceType.equals("confluence")) {
+            problems.add("source.auth.method=tvm (Token Vending Machine) is only supported for source.type=confluence");
+        }
         if (maxQuestionAge != null && !com.questioncrawler.core.util.AgeSpec.isValid(maxQuestionAge)) {
             problems.add("sync.maxQuestionAge must look like 30d, 12h, 2w, 6m or 1y (was '" + maxQuestionAge + "')");
         }
@@ -342,6 +354,29 @@ public record CoreConfig(
             if (sourceType.equals("confluence")) {
                 if (!List.of("cloud", "server").contains(confluence.edition())) {
                     problems.add("source.confluence.edition must be 'cloud' or 'server'");
+                }
+                if (!List.of("v1", "v2").contains(confluence.apiVersion())) {
+                    problems.add("source.confluence.apiVersion must be 'v1' or 'v2'");
+                } else if (confluence.v2() && !confluence.cloud()) {
+                    problems.add("source.confluence.apiVersion=v2 is the Confluence Cloud API; use v1 for Server/Data Center");
+                }
+                if (source.authMethod().equalsIgnoreCase("tvm")) {
+                    String tvmUrl = confluence.tvm().url();
+                    if (tvmUrl.isBlank()) {
+                        problems.add("source.auth.method=tvm needs source.confluence.tvm.url (the Token Vending Machine exchange address)");
+                    } else {
+                        try {
+                            java.net.URI t = java.net.URI.create(tvmUrl);
+                            if (t.getHost() == null || !"https".equalsIgnoreCase(t.getScheme())) {
+                                problems.add("source.confluence.tvm.url must be a full https:// address");
+                            }
+                        } catch (IllegalArgumentException e) {
+                            problems.add("source.confluence.tvm.url is not a valid URL");
+                        }
+                    }
+                    if (!List.of("curl", "java").contains(confluence.tvm().client())) {
+                        problems.add("source.confluence.tvm.client must be 'curl' or 'java'");
+                    }
                 }
                 if (source.authMethod().equalsIgnoreCase("basic-env")
                         || source.authMethod().equalsIgnoreCase("confluence-api-token")) {
@@ -416,7 +451,7 @@ public record CoreConfig(
         }
         if (sourceType.equals("confluence")) {
             // Dedicated adapter — do not route through StackExchangeAdapter or LiveSourceAdapter.
-            return new ConfluenceAdapter(source, confluence, new HttpSourceClient(source, env), env);
+            return ConfluenceAdapter.create(source, confluence, env);
         }
         if (sourceType.equals("jive")) {
             // Dedicated adapter — separate from Confluence / SharePoint / Stack Exchange.

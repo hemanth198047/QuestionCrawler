@@ -127,6 +127,16 @@ public final class SiteDiagnostics {
     private final Function<String, String> env;
     private final Clock clock;
 
+    private ConfluenceOptions confluenceOptions = ConfluenceOptions.DEFAULT;
+    private String tvmStatus;
+
+    /** The saved/draft Confluence options (API version v1/v2, API root) used for the Confluence probes. */
+    public SiteDiagnostics withConfluence(ConfluenceOptions options, String tvmStatus) {
+        this.confluenceOptions = options == null ? ConfluenceOptions.DEFAULT : options;
+        this.tvmStatus = tvmStatus;
+        return this;
+    }
+
     public SiteDiagnostics(Function<String, String> env, Clock clock) {
         this.env = env;
         this.clock = clock;
@@ -506,7 +516,9 @@ public final class SiteDiagnostics {
             return stage("access", title, q, "WARN", "The site sends visitors to a sign-in page (through " + home.chain().size() + " redirect" + (home.chain().size() == 1 ? "" : "s") + "). Reading content requires an approved login.", facts, needs, t0);
         }
         boolean tokenConfigured = in.authMethod() != null && in.authMethod().equals("token");
-        if (tokenConfigured) {
+        if (tvmStatus != null) {
+            facts.add(new Fact("Token Vending Machine", tvmStatus));
+        } else if (tokenConfigured) {
             boolean has = in.tokenEnv() != null && env.apply(in.tokenEnv()) != null && !env.apply(in.tokenEnv()).isBlank();
             facts.add(new Fact("Token variable " + in.tokenEnv(), has ? "set (value not shown)" : "NOT set"));
         }
@@ -625,7 +637,7 @@ public final class SiteDiagnostics {
                 ConfluenceAdapter adapter = confluenceAdapter(in);
                 String ping = adapter.ping();
                 d.officialApi = true;
-                facts.add(new Fact("Official API", "Confluence Content REST API + CQL"));
+                facts.add(new Fact("Official API", confluenceOptions.v2() ? "Confluence Cloud REST API v2 (read-only)" : "Confluence Content REST API + CQL"));
                 facts.add(new Fact("Reachability", ping));
                 facts.add(new Fact("Note", "Tags mean Confluence labels; pages are stored as threads with empty answers."));
                 return stage("data", title, q, "PASS",
@@ -1281,12 +1293,12 @@ public final class SiteDiagnostics {
     private ConfluenceAdapter confluenceAdapter(Input in) {
         URI base = URI.create(in.target());
         String host = base.getHost();
-        ConfluenceOptions options = ConfluenceOptions.DEFAULT;
-        String apiPath = options.defaultApiRootPath() + "/";
+        ConfluenceOptions options = confluenceOptions;
+        String apiPath = URI.create(ConfluenceAdapter.resolveApiRoot(in.target(), options)).getPath() + "/";
         String auth = in.authMethod() == null || in.authMethod().isBlank() ? "basic-env" : in.authMethod();
         SourceSettings s = new SourceSettings("confluence", in.target(),
                 host == null ? List.of() : List.of(host),
-                List.of(apiPath, "/wiki/rest/api/", "/rest/api/"),
+                List.of(apiPath, "/wiki/rest/api/", "/rest/api/", "/wiki/api/v2/"),
                 auth, in.tokenEnv(), "Authorization", "Bearer", in.caCertFile(),
                 Duration.ofSeconds(Math.max(1, in.timeoutSeconds())), in.allowInsecureHttp(), null, null,
                 in.proxy(),
@@ -1295,9 +1307,9 @@ public final class SiteDiagnostics {
         return new ConfluenceAdapter(s, options, new HttpSourceClient(s, env), env);
     }
 
-    private static String confluenceProbeUrl(Input in) {
-        String root = ConfluenceAdapter.resolveApiRoot(in.target(), ConfluenceOptions.DEFAULT);
-        return root + "/space?limit=1";
+    private String confluenceProbeUrl(Input in) {
+        String root = ConfluenceAdapter.resolveApiRoot(in.target(), confluenceOptions);
+        return root + (confluenceOptions.v2() ? "/spaces?limit=1" : "/space?limit=1");
     }
 
     private JiveAdapter jiveAdapter(Input in) {

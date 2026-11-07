@@ -127,6 +127,7 @@ class ConfigServiceTest {
             values.putAll(preset.values());
             assertFalse(service.validate(values).stream().anyMatch(i -> i.level().equals("error")
                     && !i.key().equals("source.baseUrl")
+                    && !i.key().equals("source.confluence.tvm.url")
                     && !i.key().equals("api.swaggerUrl")
                     && !i.key().equals("source.auth.tokenEnv")), preset.id());
         }

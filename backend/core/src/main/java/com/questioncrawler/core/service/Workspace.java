@@ -156,7 +156,42 @@ public final class Workspace {
                 v.getOrDefault("source.auth.tokenEnv", ""), keyEnv,
                 ca.isEmpty() ? null : Path.of(ca), Boolean.parseBoolean(v.getOrDefault("source.allowInsecureHttp", "false")), Math.min(timeout, 30),
                 proxyOf(v), apiOptions, authUser, authUserEnv);
-        ConnectionReport report = new SiteDiagnostics(env, clock).run(input);
+        SiteDiagnostics diagnostics = new SiteDiagnostics(env, clock);
+        if (type.equals("confluence")) {
+            com.questioncrawler.core.source.ConfluenceOptions confluence;
+            try {
+                confluence = CoreConfig.load(null, v).confluence();
+            } catch (RuntimeException e) {
+                confluence = com.questioncrawler.core.source.ConfluenceOptions.DEFAULT;
+            }
+            String tvmStatus = null;
+            if ("tvm".equalsIgnoreCase(authMethod)) {
+                // Get a short-lived token from the Token Vending Machine and let the probes use it as a Bearer token.
+                String token = null;
+                if (!confluence.tvm().configured()) {
+                    tvmStatus = "NOT configured: set source.confluence.tvm.url";
+                } else {
+                    try {
+                        com.questioncrawler.core.source.TvmTokenProvider tvm = new com.questioncrawler.core.source.TvmTokenProvider(
+                                confluence.tvm(), proxyOf(v).orEnvironment(env), java.time.Duration.ofSeconds(Math.min(timeout, 30)));
+                        token = tvm.token();
+                        tvmStatus = "token received from " + tvm.host() + " (value not shown; valid until " + tvm.expiresAt() + ")";
+                    } catch (com.questioncrawler.core.source.SourceException e) {
+                        tvmStatus = "FAILED: " + e.getMessage();
+                    }
+                }
+                String tvmToken = token;
+                String tokenName = "QC_CONFLUENCE_TVM_TOKEN";
+                java.util.function.Function<String, String> baseEnv = env;
+                java.util.function.Function<String, String> withToken = name -> tokenName.equals(name) ? tvmToken : baseEnv.apply(name);
+                input = new SiteDiagnostics.Input(input.sourceType(), input.target(), input.site(), input.tags(), "token", tokenName,
+                        input.keyEnv(), input.caCertFile(), input.allowInsecureHttp(), input.timeoutSeconds(), input.proxy(), input.api(),
+                        input.authUser(), input.authUserEnv());
+                diagnostics = new SiteDiagnostics(withToken, clock);
+            }
+            diagnostics.withConfluence(confluence, tvmStatus);
+        }
+        ConnectionReport report = diagnostics.run(input);
         try {
             knowledgeBase.store().init();
             knowledgeBase.store().writeState(CONNECTION_STATE, report);
