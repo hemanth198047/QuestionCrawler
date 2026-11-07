@@ -102,12 +102,26 @@ public final class AnswerComposer {
             }
         }
         double[] weights = weights(words, tokensOf);
+        // On a Q&A site the question text describes the problem; its answers hold the solution. When answers of a
+        // question are among the candidates, they are preferred over the question's own text (pages are not affected).
+        Set<String> answered = new HashSet<>();
+        java.util.Map<String, Double> threadBest = new java.util.HashMap<>();
+        for (Candidate c : usable) {
+            if ("answer".equals(c.evidence().type())) {
+                answered.add(c.evidence().questionId());
+            }
+            threadBest.merge(c.evidence().questionId(), c.evidence().score(), Math::max);
+        }
         List<Scored> all = new ArrayList<>();
         int flat = 0;
         for (int ci = 0; ci < usable.size(); ci++) {
             Candidate c = usable.get(ci);
             List<Unit> units = unitsOf.get(ci);
-            double relevance = topScore <= 0 ? 0 : Math.min(1, c.evidence().score() / topScore);
+            // An answer is as relevant as the question it answers (its own text rarely repeats the question's words).
+            double ownScore = "answer".equals(c.evidence().type())
+                    ? Math.max(c.evidence().score(), 0.9 * threadBest.getOrDefault(c.evidence().questionId(), 0.0))
+                    : c.evidence().score();
+            double relevance = topScore <= 0 ? 0 : Math.min(1, ownScore / topScore);
             // The page title and the headings above a piece are part of what it answers ("Slow connection" › "Switch gateway").
             List<String> headingTokens = SymbolTokens.expand((c.evidence().title() == null ? "" : c.evidence().title()) + "\n"
                     + (c.evidence().section() == null ? "" : c.evidence().section()));
@@ -119,8 +133,11 @@ public final class AnswerComposer {
                 withHeading.addAll(headingTokens);
                 double inContext = weightedCoverage(words, weights, withHeading);
                 double cov = Math.max(own, 0.45 * own + 0.55 * inContext);
+                boolean isAnswer = "answer".equals(c.evidence().type());
                 double score = 0.55 * cov + 0.30 * relevance + bonus(intent, u) - (u.text().length() < 25 ? 0.1 : 0)
-                        - (needsSignal(intent) && !hasSignal(intent, u) ? 0.15 : 0);
+                        - (needsSignal(intent) && !hasSignal(intent, u) ? 0.15 : 0)
+                        - (!isAnswer && answered.contains(c.evidence().questionId()) ? 0.30 : 0)
+                        + (isAnswer && c.evidence().accepted() ? 0.08 : 0);
                 all.add(new Scored(c, units, i, cov, score));
             }
         }

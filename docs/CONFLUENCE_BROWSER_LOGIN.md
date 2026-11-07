@@ -71,6 +71,27 @@ The window opens at the site's home page; after you sign in, the app checks the 
 the documentation and continues. Reading the documentation, *Test the collection* and *Try an address* on Connect reuse
 the same session. When the session expires during a collection, the window opens again and the collection continues.
 
+### When the address is the website, not the API (Stack Overflow Enterprise)
+
+If the address you have is the **website** (its pages say "Newest Posts"), the app reads the questions and answers from
+the website's own pages with your browser session: **website mode**. It needs no API key.
+
+- *How to read the site* (Connect, step 2): **Automatic** (default) uses the API and switches to the website's pages by
+  itself when the address answers with the website; **Website pages** always reads the pages; **REST API only** never does.
+- It reads `/questions` (or `/questions/tagged/…`) page by page, then each question page with its text, tags, author,
+  dates, votes and **every answer** (accepted answer, votes, author, date; answer pages are followed).
+- A quick update uses the *Active* tab and stops at the last change already collected; a time window stops at the first
+  older question.
+- It reads one page at a time with a short pause, read-only, exactly like you browsing the site.
+
+```properties
+source.type=live
+source.baseUrl=https://stackoverflow.mycompany.com
+source.auth.method=browser
+api.mode=auto        # or website
+sync.tags=all
+```
+
 ## Command line
 
 `questioncrawler doctor --connect`, `questioncrawler spaces` and `questioncrawler sync` open the same browser window when a

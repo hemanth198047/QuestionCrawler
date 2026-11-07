@@ -110,6 +110,7 @@ store per group; (2) put the web app behind your approved authenticating reverse
 |---|---|
 | Jackson (`jackson-databind`) | JSON persistence of all stored records and CLI/API output |
 | Lucene (`lucene-core`, `lucene-analysis-common`) | Embedded full-text index in plain files; avoids a database/server and gives real ranking |
+| jsoup | Website mode: reads questions and answers from a Stack Overflow-style website's pages when its API cannot be used |
 | Spring Boot (`app` only) | REST API, config binding, optional scheduler |
 | React + Vite + TypeScript (frontend only) | UI; no router or state library (hash routing in ~20 lines) |
 | JUnit 5 (tests) | Tests |

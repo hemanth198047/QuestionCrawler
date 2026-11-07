@@ -59,7 +59,7 @@ final class TextFormat {
         if (r.answer() != null) {
             var a = r.answer();
             if ("FOUND".equals(a.status())) {
-                sb.append("\nBEST ANSWER FROM YOUR PAGES (").append(a.confidence()).append(", quoted word for word, no AI model):\n");
+                sb.append("\nBEST ANSWER FROM YOUR COLLECTED KNOWLEDGE (").append(a.confidence()).append(", quoted word for word, no AI model):\n");
                 int n = 1;
                 for (var p : a.points()) {
                     sb.append("  (").append(n++).append(") ").append(p.title() == null ? "" : p.title());

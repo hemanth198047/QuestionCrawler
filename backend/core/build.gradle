@@ -19,6 +19,8 @@ dependencies {
     // Embedded full-text index kept as plain files under <storage-root>/index. No server, no database.
     implementation "org.apache.lucene:lucene-core:${luceneVersion}"
     implementation "org.apache.lucene:lucene-analysis-common:${luceneVersion}"
+    // Reading questions and answers from a Q&A website's pages (website mode, e.g. Stack Overflow Enterprise without its API).
+    implementation 'org.jsoup:jsoup:1.17.2'
 
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'

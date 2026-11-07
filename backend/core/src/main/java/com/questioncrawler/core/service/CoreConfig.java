@@ -272,7 +272,7 @@ public record CoreConfig(
                 new com.questioncrawler.core.source.ApiOptions(p.getProperty("api.keyName", ""), p.getProperty("api.keyIn", "query"),
                         p.getProperty("api.accessTokenEnv", ""), p.getProperty("api.bodyFilter", ""),
                         Boolean.parseBoolean(p.getProperty("api.collectComments", "false").strip()), swagger, p.getProperty("api.swaggerFile", ""),
-                        followRedirects),
+                        followRedirects, p.getProperty("api.mode", "auto")),
                 authUser,
                 authUserEnv);
 
@@ -304,6 +304,9 @@ public record CoreConfig(
 
     public List<String> validate() {
         List<String> problems = new ArrayList<>();
+        if (sourceType.equals("live") && !List.of("auto", "api", "website").contains(source.api().mode())) {
+            problems.add("api.mode must be 'auto', 'api' or 'website' (was '" + source.api().mode() + "')");
+        }
         if (!List.of("fixture", "live", "stackexchange", "confluence", "jive", "sharepoint").contains(sourceType)) {
             problems.add("source.type must be 'fixture', 'live', 'stackexchange', 'confluence', 'jive' or 'sharepoint' (was '" + sourceType + "')");
         }
@@ -526,7 +529,7 @@ public record CoreConfig(
         com.questioncrawler.core.api.ApiCapabilities[] learned = new com.questioncrawler.core.api.ApiCapabilities[1];
         java.util.function.Supplier<com.questioncrawler.core.api.ApiCapabilities> provider = null;
         String suggestedPath = null;
-        if (source.api().hasDocs()) {
+        if (source.api().hasDocs() && !"website".equals(source.api().mode())) {
             try {
                 var discovery = com.questioncrawler.core.api.ApiDocsLoader.load(working, env, session);
                 learned[0] = discovery.capabilities();
@@ -545,7 +548,7 @@ public record CoreConfig(
                 var keyScheme = discovery.catalog().security().stream().filter(x -> "apiKey".equals(x.type()) && x.name() != null).findFirst();
                 if (keyScheme.isPresent() && source.api().keyName().equals("key") && !explicitKeyName) {
                     api = new com.questioncrawler.core.source.ApiOptions(keyScheme.get().name(), keyScheme.get().in(), api.accessTokenEnv(),
-                            api.bodyFilter(), api.collectComments(), api.swaggerUrl(), api.swaggerFile(), api.redirects());
+                            api.bodyFilter(), api.collectComments(), api.swaggerUrl(), api.swaggerFile(), api.redirects(), api.mode());
                 }
                 working = working.withBase(base, api);
             } catch (com.questioncrawler.core.source.SourceException e) {
@@ -554,15 +557,26 @@ public record CoreConfig(
             }
             provider = () -> learned[0];
         }
+        if (working.baseUrl().isBlank() && "website".equals(source.api().mode()) && source.api().swaggerUrl() != null) {
+            working = working.withBase(com.questioncrawler.core.source.HtmlQaAdapter.siteRoot(source.api().swaggerUrl()), working.api());
+        }
         if (working.baseUrl().isBlank()) {
             throw new IllegalStateException("The API address is not known. " + (suggestedPath != null
                     ? "The documentation says the API lives under '" + suggestedPath + "': enter your site's full address in front of it (for example https://your-site" + suggestedPath + "). "
                     : "Enter it in the settings, or make the API documentation readable ")
                     + "(run 'Check access' on the Connect screen to see why it cannot be read).");
         }
-        var adapter = new com.questioncrawler.core.source.StackExchangeAdapter(working, new HttpSourceClient(working, env, session), env,
+        HttpSourceClient client = new HttpSourceClient(working, env, session);
+        var adapter = new com.questioncrawler.core.source.StackExchangeAdapter(working, client, env,
                 com.questioncrawler.core.util.Sleeper.REAL, provider);
-        return login == null ? adapter : adapter.withBrowser(login, probe);
+        // Website mode: read the questions and answers from the site's own pages (for example Stack Overflow Enterprise
+        // when only its website works). "auto" switches to it when the API address answers with the website.
+        var website = new com.questioncrawler.core.source.HtmlQaAdapter(working, client, working.baseUrl(), com.questioncrawler.core.util.Sleeper.REAL);
+        if (login != null) {
+            adapter.withBrowser(login, probe);
+            website.withBrowser(login, probe);
+        }
+        return adapter.withWebsite(website, source.api().mode());
     }
 
     public SyncOptions syncOptions(List<String> tagOverride, TagMode modeOverride, Boolean partialOverride, SyncMode mode) {

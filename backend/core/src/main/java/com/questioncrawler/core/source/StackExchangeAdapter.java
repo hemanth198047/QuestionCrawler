@@ -89,6 +89,97 @@ public final class StackExchangeAdapter implements SourceAdapter, BrowserSignIn 
      */
     private BrowserLogin browser;
     private BrowserLogin.Prober browserProbe;
+    private HtmlQaAdapter website;
+    private String mode = "api";
+    private volatile boolean usingWebsite;
+    private String switchNote;
+
+    /**
+     * Website mode ({@link HtmlQaAdapter}): with mode "website" the site's pages are always read; with "auto" they are read
+     * once the API address turns out to answer with the Q&A website instead of data (for example Stack Overflow
+     * Enterprise behind the company login).
+     */
+    public StackExchangeAdapter withWebsite(HtmlQaAdapter web, String apiMode) {
+        this.website = web;
+        this.mode = apiMode == null ? "auto" : apiMode;
+        this.usingWebsite = web != null && "website".equals(this.mode);
+        return this;
+    }
+
+    /** True when questions are read from the website's pages instead of the API. */
+    public boolean usingWebsite() {
+        return usingWebsite;
+    }
+
+    private interface Call<T> {
+        T run() throws SourceException;
+    }
+
+    /** The API call, or the same thing from the website's pages (always in website mode; in auto mode once the API answers with the website). */
+    private <T> T apiOrWebsite(Call<T> api, Call<T> web) throws SourceException {
+        if (usingWebsite) {
+            return web.run();
+        }
+        try {
+            return api.run();
+        } catch (SourceException e) {
+            if (website == null || !"auto".equals(mode) || !answeredWithWebsite(e)) {
+                throw e;
+            }
+            T result;
+            try {
+                result = web.run();
+            } catch (SourceException webFailed) {
+                throw e; // the website could not be read either: the API's explanation is the useful one
+            }
+            usingWebsite = true;
+            switchNote = "The API address answered with the website, so questions and answers are read from the website's pages "
+                    + "(website mode). To use the REST API instead, set its address (often /api/2.3 on the same site) and API mode 'api'.";
+            return result;
+        }
+    }
+
+    private static boolean answeredWithWebsite(SourceException e) {
+        String m = e.getMessage() == null ? "" : e.getMessage();
+        return m.contains("did not answer with JSON") && (m.contains("web page") || m.contains("text/html") || m.contains("HTML"));
+    }
+
+    @Override
+    public boolean supportsModifiedSince() {
+        return usingWebsite ? website.supportsModifiedSince() : apiSupportsModifiedSince();
+    }
+
+    @Override
+    public Page<QuestionSummary> listQuestions(TagFilter filter, String modifiedSince, String cursor) throws SourceException {
+        return apiOrWebsite(() -> apiListQuestions(filter, modifiedSince, cursor), () -> website.listQuestions(filter, modifiedSince, cursor));
+    }
+
+    @Override
+    public List<String> notes() {
+        List<String> all = new ArrayList<>(apiNotes());
+        if (switchNote != null) {
+            all.add(0, switchNote);
+        }
+        if (usingWebsite && website != null) {
+            all.addAll(website.notes());
+        }
+        return all;
+    }
+
+    @Override
+    public Question fetchQuestion(String id) throws SourceException {
+        return apiOrWebsite(() -> apiFetchQuestion(id), () -> website.fetchQuestion(id));
+    }
+
+    @Override
+    public Page<Answer> listAnswers(String questionId, String cursor) throws SourceException {
+        return apiOrWebsite(() -> apiListAnswers(questionId, cursor), () -> website.listAnswers(questionId, cursor));
+    }
+
+    @Override
+    public String ping() throws SourceException {
+        return apiOrWebsite(this::apiPing, () -> website.ping());
+    }
 
     /**
      * Uses browser sign-in (the company login page in Edge/Chrome): a request that is sent to the login page (redirect,
@@ -133,8 +224,7 @@ public final class StackExchangeAdapter implements SourceAdapter, BrowserSignIn 
         return settings.systemId();
     }
 
-    @Override
-    public boolean supportsModifiedSince() {
+    private boolean apiSupportsModifiedSince() {
         return true;
     }
 
@@ -214,8 +304,7 @@ public final class StackExchangeAdapter implements SourceAdapter, BrowserSignIn 
 
     // ================================================================== listing
 
-    @Override
-    public Page<QuestionSummary> listQuestions(TagFilter filter, String modifiedSince, String cursor) throws SourceException {
+    private Page<QuestionSummary> apiListQuestions(TagFilter filter, String modifiedSince, String cursor) throws SourceException {
         if (filter.partial() && !filter.isAll()) {
             throw new SourceException(SourceException.Kind.FATAL,
                     "Partial tag matching is not supported by the Stack Exchange API; use exact tags (partialTags=false).");
@@ -377,8 +466,7 @@ public final class StackExchangeAdapter implements SourceAdapter, BrowserSignIn 
     }
     private final List<String> notes = java.util.Collections.synchronizedList(new ArrayList<>());
 
-    @Override
-    public List<String> notes() {
+    private List<String> apiNotes() {
         synchronized (notes) {
             return new ArrayList<>(new java.util.LinkedHashSet<>(notes));
         }
@@ -571,8 +659,7 @@ public final class StackExchangeAdapter implements SourceAdapter, BrowserSignIn 
 
     // ================================================================== single question
 
-    @Override
-    public Question fetchQuestion(String id) throws SourceException {
+    private Question apiFetchQuestion(String id) throws SourceException {
         Question cached = questionCache.get(id);
         // An internal API's list may leave out the text of each question: then the single-question endpoint has it.
         boolean needsBody = cached != null && cached.body().isBlank() && (site == null || site.isBlank()) && hasCapability("question");
@@ -604,8 +691,7 @@ public final class StackExchangeAdapter implements SourceAdapter, BrowserSignIn 
         return needsBody && fetched.body().isBlank() ? cached : fetched;
     }
 
-    @Override
-    public Page<Answer> listAnswers(String questionId, String cursor) throws SourceException {
+    private Page<Answer> apiListAnswers(String questionId, String cursor) throws SourceException {
         if (cursor == null && answersPrefetched.contains(questionId)) {
             List<Answer> cached = answerCache.remove(questionId);
             questionCache.remove(questionId);
@@ -929,8 +1015,7 @@ public final class StackExchangeAdapter implements SourceAdapter, BrowserSignIn 
         return items.isArray() && !items.isEmpty() ? items.get(0).path("count").asLong(0) : -1;
     }
 
-    @Override
-    public String ping() throws SourceException {
+    private String apiPing() throws SourceException {
         String where = site == null || site.isBlank() ? "the internal API" : "site '" + site + "'";
         JsonNode root;
         String size;

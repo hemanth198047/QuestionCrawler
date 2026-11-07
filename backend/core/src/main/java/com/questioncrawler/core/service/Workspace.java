@@ -236,7 +236,7 @@ public final class Workspace {
 
     private static com.questioncrawler.core.source.ApiOptions apiOptions(Map<String, String> v) {
         return new com.questioncrawler.core.source.ApiOptions(v.get("api.keyName"), v.get("api.keyIn"), v.get("api.accessTokenEnv"), v.get("api.bodyFilter"),
-                Boolean.parseBoolean(v.getOrDefault("api.collectComments", "false")), v.get("api.swaggerUrl"), v.get("api.swaggerFile"), v.get("source.followRedirects"));
+                Boolean.parseBoolean(v.getOrDefault("api.collectComments", "false")), v.get("api.swaggerUrl"), v.get("api.swaggerFile"), v.get("source.followRedirects"), v.get("api.mode"));
     }
 
     private static com.questioncrawler.core.source.ProxyConfig proxyOf(Map<String, String> v) {
@@ -497,9 +497,9 @@ public final class Workspace {
             List<CollectionSample> samples = new ArrayList<>();
             for (var summary : page.items().stream().limit(3).toList()) {
                 var q = api.fetchQuestion(summary.id());
-                int answers = 0;
+                int answers = q.answers().size(); // website mode reads the answers with the question
                 try {
-                    answers = api.listAnswers(summary.id(), null).items().size();
+                    answers = Math.max(answers, api.listAnswers(summary.id(), null).items().size());
                 } catch (com.questioncrawler.core.source.SourceException e) {
                     // answers are shown when available
                 }

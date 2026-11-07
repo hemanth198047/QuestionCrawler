@@ -837,6 +837,14 @@ public final class SiteDiagnostics {
         String keyVar = in.keyEnv();
         boolean hasKey = keyVar != null && !keyVar.isBlank() && env.apply(keyVar) != null && !env.apply(keyVar).isBlank();
         facts.add(new Fact("Access key variable " + (keyVar == null || keyVar.isBlank() ? "(not named)" : keyVar), hasKey ? "set (value not shown)" : "NOT set"));
+        if ("website".equals(api.mode()) || (!hasKey && !"api".equals(api.mode()))) {
+            String web = websiteCheck(in, base, api);
+            if (web != null) {
+                facts.add(new Fact("Website mode", web));
+                d.restApiReady = true;
+                return stage("data", title, q, "PASS", "Yes: questions and answers are read from the website's own pages with your browser session (website mode).", facts, List.of(), t0);
+            }
+        }
         if (!hasKey) {
             if (status.equals("PASS")) {
                 status = "WARN";
@@ -874,6 +882,13 @@ public final class SiteDiagnostics {
                     }
                 }
             } catch (SourceException e) {
+                String web = "api".equals(api.mode()) ? null : websiteCheck(in, base, api);
+                if (web != null) {
+                    facts.add(new Fact("API test call", friendly(e)));
+                    facts.add(new Fact("Website mode", web));
+                    d.restApiReady = true;
+                    return stage("data", title, q, "PASS", "Yes: the API address answers with the website, so questions and answers are read from the website's pages (website mode).", facts, List.of(), t0);
+                }
                 status = e.kind() == SourceException.Kind.AUTH_FAILED || e.kind() == SourceException.Kind.FORBIDDEN ? "FAIL" : "WARN";
                 summary = "The test call failed: " + friendly(e);
                 if (e.getMessage() != null && e.getMessage().toLowerCase().contains("sign-in page") && !e.getMessage().toLowerCase().contains("bearer token:")) {
@@ -889,6 +904,21 @@ public final class SiteDiagnostics {
         }
         d.restApiReady = status.equals("PASS");
         return stage("data", title, q, status, summary, facts, needs, t0);
+    }
+
+    /** Whether the site's question pages can be read (website mode); a status line, or null when they cannot. */
+    private String websiteCheck(Input in, String base, ApiOptions api) {
+        String address = base != null && !base.isBlank() ? base : api.swaggerUrl();
+        if (address == null || address.isBlank()) {
+            return null;
+        }
+        try {
+            String root = com.questioncrawler.core.source.HtmlQaAdapter.siteRoot(address);
+            SourceSettings s = apiSettings(in, root, api);
+            return new com.questioncrawler.core.source.HtmlQaAdapter(s, new HttpSourceClient(s, env), root, d2 -> { }).ping();
+        } catch (SourceException | RuntimeException e) {
+            return null;
+        }
     }
 
     private SourceSettings apiSettings(Input in, String base, ApiOptions api) {
