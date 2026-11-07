@@ -39,8 +39,6 @@ import org.jsoup.nodes.Element;
 public final class HtmlQaAdapter implements SourceAdapter, BrowserSignIn {
 
     static final int PAGE_SIZE = 50;
-    static final int MAX_LIST_PAGES = 2000;
-    static final int MAX_ANSWER_PAGES = 20;
     private static final Duration PAUSE = Duration.ofMillis(250);
     private static final Pattern QUESTION_LINK = Pattern.compile("/questions/(\\d+)(?:/|$|\\?|#)");
 
@@ -51,6 +49,7 @@ public final class HtmlQaAdapter implements SourceAdapter, BrowserSignIn {
     private final List<String> notes = new ArrayList<>();
     private BrowserLogin browser;
     private BrowserLogin.Prober browserProbe;
+    private List<String> lastPageIds = List.of();
 
     /** @param siteRoot the website address, for example https://stackoverflow.mycompany.com (an API or page address is reduced to it) */
     public HtmlQaAdapter(SourceSettings settings, HttpSourceClient client, String siteRoot, Sleeper sleeper) {
@@ -120,10 +119,6 @@ public final class HtmlQaAdapter implements SourceAdapter, BrowserSignIn {
     @Override
     public Page<QuestionSummary> listQuestions(TagFilter filter, String modifiedSince, String cursor) throws SourceException {
         int pageNo = cursor == null || cursor.isBlank() ? 1 : Integer.parseInt(cursor);
-        if (pageNo > MAX_LIST_PAGES) {
-            notes.add("Stopped listing after " + MAX_LIST_PAGES + " pages of the website.");
-            return new Page<>(List.of(), null);
-        }
         boolean activeTab = modifiedSince != null;
         String path = filter.isAll() ? "/questions" : "/questions/tagged/" + tagPath(filter);
         Document doc = page(root + path + "?tab=" + (activeTab ? "Active" : "Newest") + "&page=" + pageNo + "&pagesize=" + PAGE_SIZE);
@@ -143,6 +138,14 @@ public final class HtmlQaAdapter implements SourceAdapter, BrowserSignIn {
                 break;
             }
             items.add(new QuestionSummary(s.id(), activeTab ? s.time() : null, root + "/questions/" + s.id()));
+        }
+        // No page limit; a site that ignores the page number (same questions again) ends the listing instead of looping.
+        List<String> ids = found.stream().map(Summary::id).toList();
+        boolean repeated = !ids.isEmpty() && ids.equals(lastPageIds);
+        lastPageIds = ids;
+        if (repeated) {
+            notes.add("The website returned the same questions for page " + pageNo + " as for the page before, so listing ended there.");
+            return new Page<>(List.of(), null);
         }
         boolean more = !reachedOld && !found.isEmpty() && hasNextPage(doc, found.size());
         return new Page<>(items, more ? String.valueOf(pageNo + 1) : null);
@@ -170,7 +173,9 @@ public final class HtmlQaAdapter implements SourceAdapter, BrowserSignIn {
         List<Answer> answers = new ArrayList<>();
         Document current = doc;
         Set<String> seen = new LinkedHashSet<>();
-        for (int p = 1; p <= MAX_ANSWER_PAGES && current != null; p++) {
+        Set<String> visited = new java.util.HashSet<>();
+        visited.add(url);
+        while (current != null) { // every answer page, however many; stops when there is no new "next" page
             for (Element a : current.select("div.answer[data-answerid], div.answer[id^=answer-]")) {
                 String aid = a.hasAttr("data-answerid") ? a.attr("data-answerid") : a.id().replace("answer-", "");
                 if (aid.isBlank() || !seen.add(aid)) {
@@ -185,7 +190,7 @@ public final class HtmlQaAdapter implements SourceAdapter, BrowserSignIn {
             }
             Element next = first(current, "#answers .s-pagination a[rel=next]", "#answers a[rel=next]", ".pager-answers a[rel=next]");
             String nextHref = next == null ? null : next.absUrl("href");
-            current = nextHref == null || nextHref.isBlank() ? null : page(nextHref);
+            current = nextHref == null || nextHref.isBlank() || !visited.add(nextHref) ? null : page(nextHref);
         }
         return new Question(id, title == null ? "" : title, body == null ? "" : body.html(), BodyFormat.HTML, url, tags,
                 asker.author(), score, iso(created), iso(modified != null ? modified : created), List.of(), answers);

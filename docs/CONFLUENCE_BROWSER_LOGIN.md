@@ -4,6 +4,17 @@ Works for **Confluence** and **Our internal Q&A site** (its API and its Swagger 
 Azure AD / Entra ID, Okta, ADFS, PingFederate, a gateway…), and after logging in in a browser you are sent back to
 Confluence. Nothing has to be changed by administrators: the app uses the same login you use every day.
 
+## You do not have to choose it
+
+When **Check access** finds that the site sends visitors to a sign-in page and no sign-in is set yet, the app opens the
+browser sign-in by itself and selects *Sign in with my browser* in the form (save to keep it).
+
+- The sign-in window is brought **to the front** when it opens (and again shortly after), because a window opened by the
+  app can appear behind the one you are looking at. While it is open, the app shows *Finish signing in in the browser
+  window* with a **Show the sign-in window** button that brings it forward again.
+- As soon as the site lets you in, the window **closes by itself** and the app returns to where you were.
+- If an earlier sign-in window still holds the app's browser profile, a spare profile is used so a window always opens.
+
 ## How it works
 
 1. The first time the app needs Confluence (Check access, Show my spaces, Collect), it opens **Edge or Chrome** at your

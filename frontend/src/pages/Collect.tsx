@@ -1,12 +1,13 @@
 import { CheckCheck, Download, Eye, FolderSync, Layers, ListChecks, Play, RefreshCw, Search, ShieldCheck, Zap } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { getSyncReports, getSyncState, startSync } from '../api'
+import { getSyncReports, getSyncState, startSync, answerSyncChoice } from '../api'
 import { PageHeader } from '../components/PageHeader'
 import { useOverview } from '../components/OverviewContext'
 import { Badge, Banner, Button, Card, Chip, EmptyState, InfoTip, ProgressBar, Segmented, Skeleton, useToast } from '../components/ui'
 import { dateOnly, duration, number, plainCompleteness, timeAgo } from '../lib/format'
 import { go, useRemote } from '../lib/useRemote'
 import { termsFor, termsForKind, useTerms } from '../lib/terms'
+import { SignInWindowHint } from '../components/SignInWindowHint'
 import type { SyncProgress, SyncReport, SyncState } from '../types/api'
 
 const WINDOWS = [
@@ -60,6 +61,8 @@ function LivePanel({ state, startedAt }: { state: SyncState; startedAt: string |
         <div><b>{number(p?.updated ?? 0)}</b><span>changed</span></div>
         <div className={p && p.failures > 0 ? 'bad' : ''}><b>{number(p?.failures ?? 0)}</b><span>problems</span></div>
       </div>
+      {p?.waitingForChoice && <ContinueChoice collected={p.collected} />}
+      <SignInWindowHint active />
     </Card>
   )
 }
@@ -68,6 +71,24 @@ function windowUsed(r: SyncReport): string {
   const l = r.limitations.find((x) => x.startsWith('Collection window'))
   const m = l ? /\((\w+) ago\)/.exec(l) : null
   return m ? `last ${m[1]}` : 'everything'
+}
+
+/** After every 100,000 questions and answers the collection pauses: continue, or stop and keep what was collected. */
+function ContinueChoice({ collected }: { collected: number }) {
+  const t = useTerms()
+  const [busy, setBusy] = useState(false)
+  const choose = async (proceed: boolean) => { setBusy(true); try { await answerSyncChoice(proceed) } finally { setBusy(false) } }
+  const what = t.hasAnswers ? `${t.items} and ${t.answers}` : t.items
+  return (
+    <div style={{ marginTop: 14 }}>
+      <Banner tone="warn" title={`${number(collected)} ${what} collected so far. Continue?`}
+        action={<div className="row" style={{ gap: 8 }}>
+          <Button size="sm" variant="primary" busy={busy} onClick={() => choose(true)}>Continue collecting</Button>
+          <Button size="sm" busy={busy} onClick={() => choose(false)}>Stop here</Button></div>}>
+        There is no limit: the collection pauses after every 100,000 so you can decide. Stopping keeps everything collected so far; starting Collect again continues where it stopped.
+      </Banner>
+    </div>
+  )
 }
 
 function Result({ r, onEverything }: { r: SyncReport; onEverything: () => void }) {

@@ -50,6 +50,10 @@ public final class BrowserLogin {
 
         boolean alive();
 
+        /** Brings the sign-in window in front of other windows (so the person sees it). */
+        default void bringToFront() {
+        }
+
         @Override
         void close();
     }
@@ -193,11 +197,41 @@ public final class BrowserLogin {
         return header == null ? lastStatus : "signed in through the browser at " + signedInAt + " (cookies for " + host + ", values not shown)";
     }
 
+    private volatile Session openWindow;
+
+    /** Brings an open sign-in window to the front again (the "Show the sign-in window" button). False when none is open. */
+    public static boolean showOpenWindows() {
+        boolean any = false;
+        for (BrowserLogin login : ALL) {
+            Session w = login.openWindow;
+            if (w != null && w.alive()) {
+                w.bringToFront();
+                any = true;
+            }
+        }
+        return any;
+    }
+
+    /** True while a sign-in window is open and waiting for the person. */
+    public static boolean anyWindowOpen() {
+        return ALL.stream().anyMatch(l -> l.openWindow != null && l.openWindow.alive());
+    }
+
     private void login(Prober prober) throws SourceException {
         Instant deadline = clock.instant().plus(timeout);
         lastStatus = "waiting for you to sign in in the browser window";
         try (Session session = launcher.open(startUrl)) {
+            openWindow = session;
+            Instant opened = clock.instant();
+            int fronted = 0;
             while (clock.instant().isBefore(deadline)) {
+                // Bring the window to the front right away and twice more early on: windows opened by a background
+                // program often appear behind the current one, and the person may not notice it.
+                long since = Duration.between(opened, clock.instant()).toMillis();
+                if ((fronted == 0 && since >= 800) || (fronted == 1 && since >= 3000) || (fronted == 2 && since >= 8000)) {
+                    session.bringToFront();
+                    fronted++;
+                }
                 String candidate = headerFor(session.cookies());
                 if (!candidate.isEmpty() && prober.accepted(candidate)) {
                     signedInAt = clock.instant(); // before header: readers that see the header also see when
@@ -209,13 +243,15 @@ public final class BrowserLogin {
                 if (!session.alive()) {
                     lastStatus = "the sign-in window was closed before signing in";
                     throw new SourceException(SourceException.Kind.AUTH_FAILED,
-                            "The sign-in window was closed before Confluence accepted the login. Try again and finish signing in.");
+                            "The sign-in window was closed before the site accepted the login. Try again and finish signing in.");
                 }
                 sleep(pollEvery);
             }
         } catch (IOException e) {
             lastStatus = "the browser could not be opened";
             throw new SourceException(SourceException.Kind.AUTH_FAILED, "Could not open a browser for signing in: " + e.getMessage(), null, e);
+        } finally {
+            openWindow = null; // the window closes as soon as the site lets you in (try-with-resources)
         }
         lastStatus = "sign-in timed out";
         throw new SourceException(SourceException.Kind.AUTH_FAILED,
@@ -285,6 +321,23 @@ public final class BrowserLogin {
             Path profile = options.profileDir().isBlank()
                     ? Path.of(System.getProperty("user.home"), ".questioncrawler", "browser-profile")
                     : Path.of(options.profileDir());
+            try {
+                return launch(exe, profile, os, startUrl);
+            } catch (ProfileBusy busy) {
+                // An earlier sign-in window still holds the app's profile (the new browser handed over to it and quit):
+                // use a spare profile so a window really opens. Your company login may ask once more there.
+                return launch(exe, Path.of(profile + "-" + Long.toString(System.currentTimeMillis(), 36)), os, startUrl);
+            }
+        }
+
+        /** The browser quit at once: another browser already uses this profile folder. */
+        private static final class ProfileBusy extends IOException {
+            ProfileBusy() {
+                super("the app's browser profile is in use by another window");
+            }
+        }
+
+        private Session launch(Path exe, Path profile, String os, String startUrl) throws IOException {
             Files.createDirectories(profile);
             Path portFile = profile.resolve("DevToolsActivePort");
             Files.deleteIfExists(portFile);
@@ -292,7 +345,8 @@ public final class BrowserLogin {
                     "--user-data-dir=" + profile.toAbsolutePath(),
                     "--remote-debugging-port=0",
                     "--remote-debugging-address=127.0.0.1",
-                    "--no-first-run", "--no-default-browser-check", "--new-window"));
+                    "--no-first-run", "--no-default-browser-check", "--new-window",
+                    "--window-size=1100,800", "--window-position=120,80"));
             if (os.contains("linux") && "root".equals(System.getProperty("user.name"))) {
                 cmd.add("--no-sandbox"); // Chrome refuses to run as root otherwise (containers)
             }
@@ -308,7 +362,7 @@ public final class BrowserLogin {
                     }
                 }
                 if (!process.isAlive() && wsUrl == null) {
-                    throw new IOException("the browser stopped right away. If it is already open with the same profile, close that window; or set source.confluence.browser.profileDir to another folder");
+                    throw new ProfileBusy();
                 }
                 try {
                     Thread.sleep(200);
@@ -415,7 +469,39 @@ public final class BrowserLogin {
             }
         }
 
+        @Override
+        public void bringToFront() {
+            try {
+                String target = null;
+                for (JsonNode t : call("Target.getTargets", "{}").path("targetInfos")) {
+                    if ("page".equals(t.path("type").asText())) {
+                        target = t.path("targetId").asText();
+                        break;
+                    }
+                }
+                if (target == null) {
+                    return;
+                }
+                String quoted = Json.MAPPER.writeValueAsString(target);
+                try {
+                    // Minimise and restore: the reliable way to raise a window above others on Windows and macOS.
+                    int window = call("Browser.getWindowForTarget", "{\"targetId\":" + quoted + "}").path("windowId").asInt();
+                    call("Browser.setWindowBounds", "{\"windowId\":" + window + ",\"bounds\":{\"windowState\":\"minimized\"}}");
+                    call("Browser.setWindowBounds", "{\"windowId\":" + window + ",\"bounds\":{\"windowState\":\"normal\"}}");
+                } catch (IOException ignored) {
+                    // older browsers: activating the tab below still helps
+                }
+                call("Target.activateTarget", "{\"targetId\":" + quoted + "}");
+            } catch (IOException ignored) {
+                // bringing to front is a convenience; the window is open either way
+            }
+        }
+
         private JsonNode call(String method) throws IOException {
+            return call(method, null);
+        }
+
+        private JsonNode call(String method, String paramsJson) throws IOException {
             if (!process.isAlive()) {
                 throw new IOException("the browser window is closed");
             }
@@ -423,7 +509,8 @@ public final class BrowserLogin {
             CompletableFuture<JsonNode> answer = new CompletableFuture<>();
             pending.put(id, answer);
             try {
-                socket.sendText("{\"id\":" + id + ",\"method\":\"" + method + "\"}", true).get(10, TimeUnit.SECONDS);
+                socket.sendText("{\"id\":" + id + ",\"method\":\"" + method + "\"" + (paramsJson == null ? "" : ",\"params\":" + paramsJson) + "}", true)
+                        .get(10, TimeUnit.SECONDS);
                 JsonNode reply = answer.get(15, TimeUnit.SECONDS);
                 if (reply.has("error")) {
                     throw new IOException("browser answered " + reply.path("error").path("message").asText("an error"));

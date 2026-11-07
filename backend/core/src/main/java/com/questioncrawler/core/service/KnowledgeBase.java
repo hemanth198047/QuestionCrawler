@@ -94,6 +94,18 @@ public final class KnowledgeBase {
 
     /** Same as {@link #sync(SyncOptions)} but reports live progress (used by the web UI). */
     public SyncReport sync(SyncOptions options, java.util.function.Consumer<com.questioncrawler.core.sync.SyncProgress> progress) {
+        return sync(options, progress, com.questioncrawler.core.sync.ContinueGate.ALWAYS);
+    }
+
+    /** As {@link #sync(SyncOptions, java.util.function.Consumer)}; {@code gate} is asked after every 100,000 questions and answers. */
+    public SyncReport sync(SyncOptions options, java.util.function.Consumer<com.questioncrawler.core.sync.SyncProgress> progress,
+                           com.questioncrawler.core.sync.ContinueGate gate) {
+        return sync(options, progress, gate, com.questioncrawler.core.sync.ContinueGate.EVERY);
+    }
+
+    /** As above, asking every {@code every} questions and answers (tests use a small number). */
+    public SyncReport sync(SyncOptions options, java.util.function.Consumer<com.questioncrawler.core.sync.SyncProgress> progress,
+                           com.questioncrawler.core.sync.ContinueGate gate, long every) {
         if (com.questioncrawler.core.source.TagFilter.asksForAll(options.tags()) && config.sourceType().equals("stackexchange") && options.maxQuestionAge() == null) {
             throw new IllegalArgumentException("Collecting every tag ('all') from a public Stack Exchange site means millions of questions and would use up the "
                     + "request allowance. Choose a time window (for example 7 days) on the Collect page, or name the tags you want.");
@@ -124,7 +136,7 @@ public final class KnowledgeBase {
         }
         Pipeline pipeline = new Pipeline();
         try {
-            return new SyncService(store, adapter, pipeline, retrier, clock).withProgress(progress).run(options);
+            return new SyncService(store, adapter, pipeline, retrier, clock).withProgress(progress).withGate(gate, every).run(options);
         } finally {
             pipeline.close();
         }

@@ -89,6 +89,20 @@ public class SettingsController {
     }
 
     /** Signs in to Confluence through the person's browser (company login page); returns when the site accepts the session. */
+    public record SignInWindow(boolean open) {}
+
+    /** Whether a browser sign-in window is open and waiting for the person (the screen then offers to show it). */
+    @GetMapping("/sign-in/window")
+    public SignInWindow signInWindow() {
+        return new SignInWindow(com.questioncrawler.core.source.BrowserLogin.anyWindowOpen());
+    }
+
+    /** Brings an open sign-in window in front of other windows again. */
+    @PostMapping("/sign-in/window/show")
+    public SignInWindow showSignInWindow() {
+        return new SignInWindow(com.questioncrawler.core.source.BrowserLogin.showOpenWindows());
+    }
+
     @PostMapping({"/sign-in", "/confluence/sign-in"})
     public Workspace.SignInResult confluenceSignIn(@RequestBody(required = false) Map<String, String> values) {
         return workspace.confluenceSignIn(values == null ? Map.of() : values);

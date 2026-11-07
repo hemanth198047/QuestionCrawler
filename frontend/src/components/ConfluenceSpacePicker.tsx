@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react'
 import { listConfluenceSpaces, signInConfluence } from '../api'
 import type { ConfluenceSpaces } from '../types/api'
 import { Banner, Button, Card } from './ui'
+import { SignInWindowHint } from './SignInWindowHint'
 
 /** Lists the Confluence spaces the account can read, so whole spaces are ticked instead of page ids typed. */
 export function ConfluenceSpacePicker({ values, chosen, onChange }: { values: Record<string, string>; chosen: string[]; onChange: (keys: string[]) => void }) {
@@ -53,8 +54,7 @@ export function ConfluenceSpacePicker({ values, chosen, onChange }: { values: Re
           </div>
         </div>
       </div>
-      {browserSignIn && signing && <div style={{ marginTop: 14 }}><Banner tone="info" title="Finish signing in in the browser window">A browser window opened at your Confluence site. Sign in there as you usually do (company login, MFA). This page continues by itself once Confluence lets you in, and the window closes.</Banner></div>}
-      {browserSignIn && busy && !signing && <div style={{ marginTop: 14 }}><Banner tone="info">If a browser window opens, sign in there; the list appears afterwards.</Banner></div>}
+      <div style={{ marginTop: 14 }}><SignInWindowHint active={signing || busy} /></div>
       {signedIn && <div style={{ marginTop: 14 }}><Banner tone={signedIn.ok ? 'ok' : 'bad'} title={signedIn.ok ? 'Signed in' : 'Not signed in'}>{signedIn.message}</Banner></div>}
       {error && <div style={{ marginTop: 14 }}><Banner tone="bad">{error}</Banner></div>}
       {result && !result.ok && <div style={{ marginTop: 14 }}><Banner tone="bad" title="Could not list the spaces">{result.problem}</Banner></div>}

@@ -43,12 +43,18 @@ export interface ConnectionReport {
   headline: string; detail: string; score: number; stages: Stage[]
   route: { kind: string; label: string; explanation: string; supported: boolean; nextSteps: string[] }
   requirements: { id: string; label: string; status: 'MET' | 'MISSING' | 'UNKNOWN'; detail: string }[]
+  /** Settings the check chose (for example browser sign-in when the site redirects to its login page); applied to the form */
+  settingsToApply?: Record<string, string>
 }
 
 // ---- sync
 export interface SyncProgress {
   runId: string; phase: 'LISTING' | 'FETCHING' | 'RECONCILING' | 'FINISHING' | 'DONE' | 'FAILED'; message: string
   pagesListed: number; questionsFound: number; toFetch: number; fetched: number; added: number; updated: number; unchanged: number; failures: number
+  /** Questions plus answers (or pages) saved in this run */
+  collected: number
+  /** Paused after another 100,000: waiting for "continue" or "stop" */
+  waitingForChoice: boolean
 }
 export interface SyncReport {
   runId: string; mode: string; outcome: string; startedAt: string; finishedAt: string; resumed: boolean; tags: string[]

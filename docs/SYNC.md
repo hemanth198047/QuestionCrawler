@@ -61,3 +61,14 @@ schtasks /Delete /TN "QuestionCrawler Incremental" /F    # to remove
 incremental syncs and a full reconciliation every 7 days while the web app is running. Off by default.
 
 Only one sync can run at a time per store (OS file lock); a second one fails immediately with a clear message.
+
+
+## No limit on how much is collected
+
+A collection reads **every** question and answer that matches (every page of the list, every answer page). There is no
+page or item limit. Instead, after every **100,000 questions and answers** the collection pauses and asks:
+
+- **In the app (Collect):** *"100,000 questions and answers collected so far. Continue?"* with **Continue collecting** and
+  **Stop here**. Stopping keeps everything collected; starting Collect again continues where it stopped. An unanswered
+  question stops the run after 24 hours.
+- **On the command line:** `sync` asks `Continue? [y/N]`; `sync --yes` always continues (for scripts and schedules).

@@ -56,8 +56,6 @@ public final class ConfluenceAdapter implements SourceAdapter, BrowserSignIn {
     private List<String> resolvedSpaceIds;
     private List<String> treeIds;
 
-    /** Upper bound for pages listed under an ancestor page (v2), so a mistaken root cannot crawl a whole site. */
-    static final int MAX_TREE_PAGES = 20_000;
 
     public ConfluenceAdapter(SourceSettings settings, ConfluenceOptions confluence, HttpSourceClient client) {
         this(settings, confluence, client, System::getenv);
@@ -559,10 +557,6 @@ public final class ConfluenceAdapter implements SourceAdapter, BrowserSignIn {
                     }
                     if (type.equals("page")) {
                         out.add(id);
-                        if (out.size() >= MAX_TREE_PAGES) {
-                            notes.add("Stopped listing under page " + rootId + " after " + MAX_TREE_PAGES + " pages.");
-                            return out;
-                        }
                     }
                 }
                 String next = node(root.path("_links").path("next"));

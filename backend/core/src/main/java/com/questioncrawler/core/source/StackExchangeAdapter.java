@@ -49,7 +49,8 @@ public final class StackExchangeAdapter implements SourceAdapter, BrowserSignIn 
     private static final int IDS_PER_CALL = 100; // documented cap on {ids} parameters
     private volatile int pageSize = 100;
     private volatile boolean pageSizeFromDocs;
-    private static final int MAX_PAGES_PER_BATCH = 50;
+    /** No cap on answer pages: the loops stop when the API reports no more (has_more). */
+    private static final int MAX_PAGES_PER_BATCH = Integer.MAX_VALUE;
     private static final int MAX_TAGS_ALL = 5;
     private static final Pattern WAIT_SECONDS = Pattern.compile("(\\d+)\\s*seconds");
     private static final int CACHE_LIMIT = 5000;

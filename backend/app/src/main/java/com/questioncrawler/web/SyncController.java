@@ -31,6 +31,15 @@ public class SyncController {
         this.workspace = workspace;
     }
 
+    public record ChoiceRequest(boolean proceed) {}
+
+    /** The answer to "continue after another 100,000 questions and answers?" for the running collection. */
+    @PostMapping("/sync/continue")
+    public SyncRunner.State answer(@RequestBody ChoiceRequest request) {
+        workspace.runner().answer(request != null && request.proceed());
+        return workspace.runner().state();
+    }
+
     @PostMapping("/sync")
     public ResponseEntity<?> start(@RequestBody(required = false) SyncRequest request,
                                    @RequestParam(name = "wait", defaultValue = "false") boolean wait) {

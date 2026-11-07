@@ -38,7 +38,9 @@ public final class Cli {
               init                         Create configuration, taxonomy and the storage folders
               doctor [--connect]           Validate configuration, storage and (optionally) source connectivity
               spaces                       Confluence: list the spaces this account can read (keys for source.confluence.spaces)
-              sync [--full]                Synchronize. First run = initial collection, later runs = incremental.
+              sync [--full] [--yes]        Synchronize. First run = initial collection, later runs = incremental.
+                                           No limit; after every 100,000 questions and answers it asks whether to
+                                           continue (--yes = always continue).
                                            --full = full reconciliation (re-verifies everything, detects deletions)
               search <text...>             Search the stored knowledge and print evidence
               show <question-id>           Show one question with all its answers
@@ -222,7 +224,17 @@ public final class Cli {
         if (options.tags().isEmpty()) {
             throw new UsageException("No tags configured. Pass --tag <name> or set sync.tags in the configuration.");
         }
-        SyncReport report = kb.sync(options);
+        // No limit: after every 100,000 questions and answers the person decides whether to go on (--yes always continues).
+        com.questioncrawler.core.sync.ContinueGate gate = a.flag("--yes") ? com.questioncrawler.core.sync.ContinueGate.ALWAYS : collected -> {
+            java.io.Console console = System.console();
+            if (console == null) {
+                err.println(String.format("Collected %,d questions and answers. Stopping here because nobody can be asked; run 'sync --yes' to go on without asking.", collected));
+                return false;
+            }
+            String reply = console.readLine("%,d questions and answers collected so far. Continue? [y/N] ", collected);
+            return reply != null && reply.strip().toLowerCase(java.util.Locale.ROOT).startsWith("y");
+        };
+        SyncReport report = kb.sync(options, null, gate);
         if (a.json()) json(report); else out.print(TextFormat.syncReport(report));
         return switch (report.outcome()) {
             case SyncReport.COMPLETE -> 0;

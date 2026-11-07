@@ -155,6 +155,15 @@ public final class Workspace {
         String authUserEnv = type.equals("jive")
                 ? v.getOrDefault("source.jive.usernameEnv", "")
                 : v.getOrDefault("source.confluence.emailEnv", "");
+        // The site sends visitors to a company login page and no sign-in is chosen yet: sign in through the browser
+        // (the same as choosing "Sign in with my browser"), and tell the screen to select it so saving keeps it.
+        boolean autoBrowser = false;
+        if ((type.equals("live") || type.equals("confluence")) && (authMethod.isBlank() || authMethod.equals("none") || autoBrowserFor(type, v))
+                && sendsToLogin(type.equals("live") && target.isBlank() ? v.getOrDefault("api.swaggerUrl", "") : target, v)) {
+            authMethod = "browser";
+            v.put("source.auth.method", "browser");
+            autoBrowser = true;
+        }
         SiteDiagnostics.Input input = new SiteDiagnostics.Input(type, target, site, tags, authMethod,
                 v.getOrDefault("source.auth.tokenEnv", ""), keyEnv,
                 ca.isEmpty() ? null : Path.of(ca), Boolean.parseBoolean(v.getOrDefault("source.allowInsecureHttp", "false")), Math.min(timeout, 30),
@@ -225,6 +234,9 @@ public final class Workspace {
             diagnostics.withBrowserSession(status, cookie);
         }
         ConnectionReport report = diagnostics.run(input);
+        if (autoBrowser) {
+            report = report.withSettingsToApply(Map.of("source.auth.method", "browser"));
+        }
         try {
             knowledgeBase.store().init();
             knowledgeBase.store().writeState(CONNECTION_STATE, report);
@@ -232,6 +244,36 @@ public final class Workspace {
             // the report is still returned even if it cannot be remembered
         }
         return report;
+    }
+
+    /** Confluence's default (email + API token) with no email or token set: nothing is really chosen yet. */
+    private boolean autoBrowserFor(String type, Map<String, String> v) {
+        if (!type.equals("confluence") || !"basic-env".equals(v.getOrDefault("source.auth.method", ""))) {
+            return false;
+        }
+        String tokenEnv = v.getOrDefault("source.auth.tokenEnv", "");
+        return v.getOrDefault("source.confluence.email", "").isBlank() && v.getOrDefault("source.confluence.emailEnv", "").isBlank()
+                && (tokenEnv.isBlank() || env.apply(tokenEnv) == null);
+    }
+
+    /** True when the address answers with a redirect to a sign-in page, a 401 or a login form (a company login). */
+    private boolean sendsToLogin(String address, Map<String, String> v) {
+        if (address == null || address.isBlank()) {
+            return false;
+        }
+        try {
+            java.net.URI u = java.net.URI.create(address.strip());
+            if (u.getHost() == null) {
+                return false;
+            }
+            var probe = new com.questioncrawler.core.source.SourceSettings("login-check", address, List.of(u.getHost()), List.of("/"),
+                    "none", null, null, null, null, java.time.Duration.ofSeconds(15),
+                    Boolean.parseBoolean(v.getOrDefault("source.allowInsecureHttp", "false")), null, null, proxyOf(v),
+                    new com.questioncrawler.core.source.ApiOptions(null, null, null, null, false, null, null, "same-host"));
+            return com.questioncrawler.core.source.BrowserLogin.needsSignIn(new com.questioncrawler.core.source.HttpSourceClient(probe, env).exchange(address));
+        } catch (com.questioncrawler.core.source.SourceException | RuntimeException e) {
+            return false;
+        }
     }
 
     private static com.questioncrawler.core.source.ApiOptions apiOptions(Map<String, String> v) {

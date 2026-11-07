@@ -21,6 +21,11 @@ export interface AgeParams { maxQuestionAge: string; minQuestionAge: string; max
 export const NO_AGE: AgeParams = { maxQuestionAge: '', minQuestionAge: '', maxAnswerAge: '', minAnswerAge: '' }
 export const startSync = (full: boolean, maxQuestionAge: string) => post<SyncState>('/sync', { full, maxQuestionAge: maxQuestionAge || 'all' }) // '' means Everything: say so explicitly, or the saved window would silently apply
 export const getSyncState = (s?: AbortSignal) => get<SyncState>('/sync/status', s)
+/** The answer to "continue after another 100,000 questions and answers?" */
+export const answerSyncChoice = (proceed: boolean) => post<SyncState>('/sync/continue', { proceed })
+/** Whether a browser sign-in window is open, and bringing it to the front again */
+export const getSignInWindow = () => get<{ open: boolean }>('/sign-in/window')
+export const showSignInWindow = () => post<{ open: boolean }>('/sign-in/window/show')
 export const getSyncReports = (s?: AbortSignal) => get<SyncReport[]>('/sync/reports?limit=12', s)
 
 // exploring

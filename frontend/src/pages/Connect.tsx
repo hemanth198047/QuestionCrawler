@@ -14,6 +14,7 @@ import { RequestTemplate, RequirementsCard, RouteCard, RouteMap, StageDetail, Ve
 import { Banner, Button, Card, Skeleton, useToast } from '../components/ui'
 import { isShown } from '../lib/fields'
 import { go, useRemote } from '../lib/useRemote'
+import { SignInWindowHint } from '../components/SignInWindowHint'
 import type { ConfigField, ConnectionReport, Issue, Preset } from '../types/api'
 
 const ICONS: Record<string, React.ReactNode> = { sparkles: <Sparkles size={20} />, globe: <Globe size={20} />, layers: <Layers size={20} />, building: <Building2 size={20} />, book: <BookOpen size={20} />, messages: <MessagesSquare size={20} /> }
@@ -63,6 +64,11 @@ export default function ConnectPage() {
     try {
       const r = await checkConnection(draft)
       setReport(r); setSelected(r.stages.find((s) => s.status === 'FAIL' || s.status === 'WARN')?.id ?? r.stages[0].id)
+      if (r.settingsToApply && Object.keys(r.settingsToApply).length > 0) {
+        setDraft((d) => ({ ...(d ?? {}), ...r.settingsToApply }))
+        toast('info', 'Your site uses a company login page, so “Sign in with my browser” is now selected. Save to keep it.')
+      }
+      window.focus()
     } catch (e) { setCheckError(e instanceof Error ? e.message : 'The check could not run') }
     finally { setChecking(false); reload() }
   }
@@ -133,6 +139,7 @@ export default function ConnectPage() {
           {report && <span className="muted small">Last checked {new Date(report.checkedAt).toLocaleTimeString()}</span>}
         </div>
         {checkError && <Banner tone="bad" title="The check could not run">{checkError}</Banner>}
+        <SignInWindowHint active={checking} />
         {checking && <div className="stack-sm"><Skeleton h={120} r={18} /></div>}
         {report && !checking && (
           <div className="stack">

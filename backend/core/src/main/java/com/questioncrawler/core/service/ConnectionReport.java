@@ -18,7 +18,19 @@ public record ConnectionReport(
         int score,
         List<Stage> stages,
         Route route,
-        List<Requirement> requirements) {
+        List<Requirement> requirements,
+        /** Settings the check chose for you (for example browser sign-in when the site redirects to a login page); the screen applies them to the form. */
+        java.util.Map<String, String> settingsToApply) {
+
+    public ConnectionReport(String checkedAt, String target, String sourceType, String verdict, String headline, String detail, int score,
+                            List<Stage> stages, Route route, List<Requirement> requirements) {
+        this(checkedAt, target, sourceType, verdict, headline, detail, score, stages, route, requirements, java.util.Map.of());
+    }
+
+    public ConnectionReport withSettingsToApply(java.util.Map<String, String> settings) {
+        return new ConnectionReport(checkedAt, target, sourceType, verdict, headline, detail, score, stages, route, requirements,
+                settings == null ? java.util.Map.of() : java.util.Map.copyOf(settings));
+    }
 
     /** status: PASS, WARN, FAIL, INFO (informational), SKIPPED. */
     public record Stage(String id, String title, String question, String status, String summary,

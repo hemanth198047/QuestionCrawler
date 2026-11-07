@@ -541,7 +541,7 @@ public final class SiteDiagnostics {
             }
             return stage("access", title, q, "PASS", in.sourceType().equals("stackexchange")
                     ? "No sign-in is needed. Anyone may read public questions through the API."
-                    : "The address answers without signing in" + (redirected ? " (after " + home.chain().size() + " redirect" + (home.chain().size() == 1 ? "" : "s") + ")." : "."), facts, List.of(), t0);
+                    : sessionCookie != null ? "Signed in through your browser (your company login): the site answers." : "The address answers without signing in" + (redirected ? " (after " + home.chain().size() + " redirect" + (home.chain().size() == 1 ? "" : "s") + ")." : "."), facts, List.of(), t0);
         }
         if (s >= 300 && s < 400) {
             String loc = home.header("location");
@@ -588,6 +588,8 @@ public final class SiteDiagnostics {
         String rateInfo;
         boolean restApi;
         boolean restApiReady;
+        /** The site's question pages can be read (website mode, for example Stack Overflow Enterprise without its API). */
+        boolean websiteMode;
         String quotaInfo;
         long tagQuestions = Long.MIN_VALUE;
         boolean tagChecked;
@@ -701,6 +703,15 @@ public final class SiteDiagnostics {
 
         if (in.liveApi()) {
             return liveApiStage(in, d, t0);
+        }
+        if (in.sourceType().equals("live") && !"api".equals((in.api() == null ? ApiOptions.DEFAULT : in.api()).mode())) {
+            // No API documentation: the address may be the Q&A website itself, whose pages website mode reads.
+            String web = websiteCheck(in, in.target(), in.api() == null ? ApiOptions.DEFAULT : in.api());
+            if (web != null) {
+                d.websiteMode = true;
+                facts.add(new Fact("Website mode", web));
+                return stage("data", title, q, "PASS", "Yes: questions and answers are read from the website's own pages with your browser session (website mode).", facts, List.of(), t0);
+            }
         }
 
         // Generic site: look for a machine-readable description, robots rules and what the home page is made of.
@@ -842,6 +853,7 @@ public final class SiteDiagnostics {
             if (web != null) {
                 facts.add(new Fact("Website mode", web));
                 d.restApiReady = true;
+                d.websiteMode = true;
                 return stage("data", title, q, "PASS", "Yes: questions and answers are read from the website's own pages with your browser session (website mode).", facts, List.of(), t0);
             }
         }
@@ -887,6 +899,7 @@ public final class SiteDiagnostics {
                     facts.add(new Fact("API test call", friendly(e)));
                     facts.add(new Fact("Website mode", web));
                     d.restApiReady = true;
+                    d.websiteMode = true;
                     return stage("data", title, q, "PASS", "Yes: the API address answers with the website, so questions and answers are read from the website's pages (website mode).", facts, List.of(), t0);
                 }
                 status = e.kind() == SourceException.Kind.AUTH_FAILED || e.kind() == SourceException.Kind.FORBIDDEN ? "FAIL" : "WARN";
@@ -1141,6 +1154,10 @@ public final class SiteDiagnostics {
                     ? List.of("Save these settings.", "Confirm the site URL and Graph credentials.", "Open Collect and start with a modest time window.")
                     : List.of("Save these settings.", "Open Collect and start with a small time window.", "Keep the source links: the content is licensed CC BY-SA and requires attribution.");
             return new Route("OFFICIAL_API", "Official API (recommended)", summary, true, next);
+        }
+        if (d.websiteMode) {
+            return new Route("WEBSITE", "The site's own pages (website mode)", "The questions and answers are read from the website's pages with your browser session, the same pages you open yourself. Read-only, one page at a time.", true,
+                    List.of("Save these settings.", "Open Collect and start (choose a tag, or all).", "If your session expires, the sign-in window opens again and the collection continues."));
         }
         if (d.restApiReady) {
             return new Route("REST_API", "Your site's REST API (recommended)", "The site documents its REST API with Swagger. Every endpoint this app needs is available, so questions and answers can be collected the proper, permitted way.", true,

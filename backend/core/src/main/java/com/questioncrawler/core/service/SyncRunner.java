@@ -28,6 +28,29 @@ public final class SyncRunner {
     private volatile SyncProgress progress;
     private volatile SyncReport lastReport;
     private volatile String lastError;
+    /** Set while a run waits for the person to say whether to continue after another 100,000. */
+    private volatile java.util.concurrent.CompletableFuture<Boolean> pendingChoice;
+
+    /** How long an unanswered "continue?" waits before the run stops by itself (everything collected so far is kept). */
+    static final java.time.Duration CHOICE_TIMEOUT = java.time.Duration.ofHours(24);
+
+    /** The person's answer to "continue after another 100,000?". False when nothing is waiting. */
+    public boolean answer(boolean proceed) {
+        var waiting = pendingChoice;
+        return waiting != null && waiting.complete(proceed);
+    }
+
+    private boolean askToContinue(long collected) throws InterruptedException {
+        var choice = new java.util.concurrent.CompletableFuture<Boolean>();
+        pendingChoice = choice;
+        try {
+            return choice.get(CHOICE_TIMEOUT.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (java.util.concurrent.TimeoutException | java.util.concurrent.ExecutionException e) {
+            return false;
+        } finally {
+            pendingChoice = null;
+        }
+    }
 
     public SyncRunner(Supplier<KnowledgeBase> knowledgeBase) {
         this.knowledgeBase = knowledgeBase;
@@ -74,7 +97,7 @@ public final class SyncRunner {
         LOG.log(System.Logger.Level.INFO, "Collection started: mode={0}, tags={1}, window={2}", options.mode(), options.tags(),
                 options.maxQuestionAge() == null ? "everything" : options.maxQuestionAge());
         try {
-            SyncReport report = knowledgeBase.get().sync(options, p -> progress = p);
+            SyncReport report = knowledgeBase.get().sync(options, p -> progress = p, this::askToContinue);
             lastReport = report;
             LOG.log(System.Logger.Level.INFO, "Collection ended: outcome={0}, found={1}, new={2}, changed={3}, problems={4}{5}", report.outcome(), report.questionsListed(),
                     report.added(), report.updated(), report.failures().size(), report.abortReason() == null ? "" : ", reason: " + report.abortReason());

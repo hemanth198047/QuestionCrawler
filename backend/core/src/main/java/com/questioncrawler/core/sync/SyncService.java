@@ -51,7 +51,6 @@ import java.util.concurrent.Future;
 public final class SyncService {
 
     private static final DateTimeFormatter RUN_ID_TIME = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'").withZone(ZoneOffset.UTC);
-    private static final int MAX_PAGES = 100_000;
 
     private final KnowledgeStore store;
     private final SourceAdapter adapter;
@@ -66,6 +65,22 @@ public final class SyncService {
     private volatile java.util.function.Consumer<SyncProgress> progressListener = p -> { };
 
     /** Receives a snapshot after every meaningful step (listing page, fetched thread, phase change). */
+    private volatile ContinueGate gate = ContinueGate.ALWAYS;
+
+    /** Asked after every 100,000 questions and answers whether to continue (there is no other limit). */
+    public SyncService withGate(ContinueGate continueGate) {
+        return withGate(continueGate, ContinueGate.EVERY);
+    }
+
+    /** As {@link #withGate(ContinueGate)} with another interval (tests). */
+    public SyncService withGate(ContinueGate continueGate, long every) {
+        this.gate = continueGate == null ? ContinueGate.ALWAYS : continueGate;
+        this.every = every <= 0 ? ContinueGate.EVERY : every;
+        return this;
+    }
+
+    private volatile long every = ContinueGate.EVERY;
+
     public SyncService withProgress(java.util.function.Consumer<SyncProgress> listener) {
         this.progressListener = listener == null ? p -> { } : listener;
         return this;
@@ -123,11 +138,38 @@ public final class SyncService {
         private int fetchedCount;
 
         private void emit(String phase, String message) {
+            emit(phase, message, false);
+        }
+
+        private void emit(String phase, String message, boolean waiting) {
             if (current == null) {
                 return;
             }
             progressListener.accept(new SyncProgress(current.runId, phase, message, current.pagesListed, current.candidates.size(),
-                    toFetchCount, fetchedCount, added, updated, unchanged, failures.size()));
+                    toFetchCount, fetchedCount, added, updated, unchanged, failures.size(), collected, waiting));
+        }
+
+        private long collected;
+        private long nextPause = every;
+
+        /** After every 100,000 questions and answers: ask whether to go on. False = stop here (all collected so far is kept). */
+        private boolean mayContinue() {
+            if (collected < nextPause) {
+                return true;
+            }
+            nextPause = (collected / every + 1) * every;
+            String what = terms().hasAnswers() ? terms().items() + " and " + terms().answers() : terms().items();
+            emit(SyncProgress.FETCHING, String.format("%,d %s collected so far. Continue?", collected, what), true);
+            try {
+                if (gate.proceed(collected)) {
+                    emit(SyncProgress.FETCHING, "Continuing after " + String.format("%,d", collected), false);
+                    return true;
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            abort(String.format("Stopped by you after %,d %s. Everything collected so far is kept; start Collect again to continue.", collected, what));
+            return false;
         }
 
         Run(SyncOptions options) {
@@ -204,10 +246,6 @@ public final class SyncService {
         private void listPhase(RunState state) {
             String since = adapter.supportsModifiedSince() ? state.since : null;
             while (!state.listingComplete) {
-                if (state.pagesListed >= MAX_PAGES) {
-                    abort("Listing exceeded " + MAX_PAGES + " pages; stopping to avoid an endless loop.");
-                    return;
-                }
                 final String cursor = state.listingCursor;
                 Page<QuestionSummary> page;
                 try {
@@ -306,10 +344,14 @@ public final class SyncService {
                             handleFailure(id, failure, reconciling);
                         } else {
                             storeFetched(id, fetched, state, reconciling);
+                            collected += 1 + (fetched.answers() == null ? 0 : fetched.answers().size());
                         }
                         fetchedCount++;
                         emit(reconciling ? SyncProgress.RECONCILING : SyncProgress.FETCHING,
                                 (reconciling ? "Verifying " : "Saved ") + terms().item() + " " + id);
+                        if (!mayContinue()) {
+                            break;
+                        }
                     }
                 }
             } finally {
