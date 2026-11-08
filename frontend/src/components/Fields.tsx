@@ -43,11 +43,11 @@ export function SettingField({ field, value, onChange, issues, source }: { field
           </label>
         )
       case 'TAGS':
-        return <TagInput value={value.split(',').map((s) => s.trim()).filter(Boolean)} onChange={(v) => onChange(v.join(','))} placeholder={field.placeholder ?? 'Type and press Enter'} />
+        return <TagInput value={value.split(',').map((s) => s.trim()).filter(Boolean)} onChange={(v) => onChange(v.join(','))} placeholder={(source && field.placeholderBySource?.[source]) || field.placeholder || 'Type and press Enter'} />
       case 'NUMBER':
         return (
           <div className="input-wrap">
-            <input className="input" type="number" inputMode="numeric" value={value} onChange={(e) => onChange(e.target.value)} placeholder={field.placeholder ?? undefined} style={{ maxWidth: 220 }} />
+            <input className="input" type="number" inputMode="numeric" value={value} onChange={(e) => onChange(e.target.value)} placeholder={(source && field.placeholderBySource?.[source]) || field.placeholder || undefined} style={{ maxWidth: 220 }} />
             {field.unit && <span className="input-unit" style={{ position: 'static', marginLeft: 10 }}>{field.unit}</span>}
           </div>
         )
@@ -61,7 +61,7 @@ export function SettingField({ field, value, onChange, issues, source }: { field
           </div>
         )
       default:
-        return <input className="input" type="text" value={value} onChange={(e) => onChange(e.target.value)} placeholder={field.placeholder ?? undefined} spellCheck={false} />
+        return <input className="input" type="text" value={value} onChange={(e) => onChange(e.target.value)} placeholder={(source && field.placeholderBySource?.[source]) || field.placeholder || undefined} spellCheck={false} />
     }
   })()
   return (

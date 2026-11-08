@@ -160,3 +160,29 @@ readable rules you can rename and edit. It runs on this computer, needs no AI se
 ## What is verified and what is not
 Tested against a **mock** of such a site (Swashbuckle-style Swagger page, key on every request, unknown `withbody`, header-less gzip, comments). Not yet tested against your real site.
 If something does not match: press **Copy summary** on the Connect screen (it contains endpoints and parameters, never keys) and send it, together with the first lines of `logs/backend.log`.
+
+
+## Access key and access token: what they are, where to get them, how to set them
+
+The internal Q&A site's REST API (for example Stack Overflow Enterprise, `https://<your-site>/api/2.3`) normally needs:
+
+| Setting (Connect → 2. Signing in) | What | Where to get it |
+|---|---|---|
+| **API access key variable name** (`api.keyEnv`, e.g. `INTERNAL_QA_API_KEY`) | Identifies this app to the API; sent as `key=` | The site's admins register an application / API key (Stack Overflow Enterprise: Admin settings → API / Apps) |
+| **Access token variable name** (`api.accessTokenEnv`, e.g. `INTERNAL_QA_ACCESS_TOKEN`) | Your personal token, so the API returns what you may read (private/team content); sent as `access_token=` | On the site: your profile → Settings → **Personal access tokens** → create one with read access. If you do not see it, ask the admins to enable personal access tokens |
+
+Keep **Sign-in method** at *No sign-in (key and token below)*. Choose *Access token* only when the API wants the
+token in an `Authorization: Bearer` header (for example API v3); then fill *Token / password variable name*.
+
+The settings hold only the **names** of environment variables; the key and token themselves are never saved. Set them,
+then start the app from a **new** terminal (a running app does not see new variables):
+
+```powershell
+setx INTERNAL_QA_API_KEY "your-key"
+setx INTERNAL_QA_ACCESS_TOKEN "your-token"
+# open a NEW terminal, then:
+npm start
+```
+
+macOS / Linux: `export INTERNAL_QA_API_KEY=your-key` and `export INTERNAL_QA_ACCESS_TOKEN=your-token`, then `npm start`.
+Connect shows a note next to each field while its variable is not set.

@@ -25,6 +25,8 @@ export interface ConfigField {
   showWhen: Record<string, string[]>
   /** Help written for one system, used instead of help when that system is chosen */
   helpBySource: Record<string, string>
+  /** Example value written for one system (for example INTERNAL_QA_ACCESS_TOKEN for the internal Q&A site) */
+  placeholderBySource: Record<string, string>
 }
 export interface ConfigSection { id: string; title: string; description: string; icon: string; fields: ConfigField[] }
 export interface Issue { key: string; level: 'error' | 'warning' | 'info'; message: string; fix: string | null }

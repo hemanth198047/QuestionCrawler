@@ -37,20 +37,27 @@ public final class ConfigService {
      */
     public record Field(String key, String label, String help, Type type, List<Option> options, String defaultValue,
                         String placeholder, List<String> showForSources, boolean advanced, String unit,
-                        Map<String, List<String>> showWhen, Map<String, String> helpBySource) {
+                        Map<String, List<String>> showWhen, Map<String, String> helpBySource, Map<String, String> placeholderBySource) {
 
         /** Help text written for one system (shown instead of the general help when that system is chosen). */
         public Field helpFor(String source, String text) {
             Map<String, String> h = new java.util.LinkedHashMap<>(helpBySource);
             h.put(source, text);
-            return new Field(key, label, help, type, options, defaultValue, placeholder, showForSources, advanced, unit, showWhen, Map.copyOf(h));
+            return new Field(key, label, help, type, options, defaultValue, placeholder, showForSources, advanced, unit, showWhen, Map.copyOf(h), placeholderBySource);
+        }
+
+        /** Example value written for one system (shown instead of the general example when that system is chosen). */
+        public Field placeholderFor(String source, String example) {
+            Map<String, String> m = new java.util.LinkedHashMap<>(placeholderBySource);
+            m.put(source, example);
+            return new Field(key, label, help, type, options, defaultValue, placeholder, showForSources, advanced, unit, showWhen, helpBySource, Map.copyOf(m));
         }
 
         /** Shown only while the setting {@code key} has one of {@code values} (for example one sign-in method). */
         public Field when(String key, String... values) {
             Map<String, List<String>> w = new java.util.LinkedHashMap<>(showWhen);
             w.put(key, List.of(values));
-            return new Field(this.key, label, help, type, options, defaultValue, placeholder, showForSources, advanced, unit, Map.copyOf(w), helpBySource);
+            return new Field(this.key, label, help, type, options, defaultValue, placeholder, showForSources, advanced, unit, Map.copyOf(w), helpBySource, placeholderBySource);
         }
     }
 
@@ -89,7 +96,7 @@ public final class ConfigService {
     // ================================================================== metadata
 
     private static Field f(String key, String label, String help, Type type, String def, String placeholder, List<String> sources, boolean advanced, String unit, Option... options) {
-        return new Field(key, label, help, type, List.of(options), def, placeholder, sources, advanced, unit, Map.of(), Map.of());
+        return new Field(key, label, help, type, List.of(options), def, placeholder, sources, advanced, unit, Map.of(), Map.of(), Map.of());
     }
 
     /**
@@ -157,8 +164,9 @@ public final class ConfigService {
                                 new Option("browser", "Sign in with my browser", "Recommended for company Confluence: your usual company login page opens in Edge/Chrome, you sign in, the app continues. Nothing to set up", List.of("confluence")),
                                 new Option("tvm", "Company token service (Kerberos)", "Your company's Token Vending Machine gives a short-lived token using your Windows/Kerberos login", List.of("confluence")),
                                 new Option("basic-env", "Email or username + API token / password", "Confluence Cloud: your email and an API token. Jive: a username and password", List.of("confluence", "jive")),
-                                new Option("token", "Access token", "Confluence Server/Data Center personal access token, Jive OAuth token, SharePoint (Microsoft Graph) token, or an internal API token", List.of("confluence", "jive", "sharepoint", "live")),
-                                new Option("none", "No sign-in", "Only for internal APIs that need nothing besides the access key", List.of("live"))),
+                                new Option("token", "Access token (Bearer header)", "Sent as 'Authorization: Bearer': Confluence Server/Data Center personal access token, Jive OAuth token, SharePoint (Microsoft Graph) token, or an internal API that wants a Bearer token", List.of("confluence", "jive", "sharepoint", "live")),
+                                new Option("none", "No sign-in (key and token below)", "Internal Q&A site: the access key and access token below are sent with every request. The usual choice", List.of("live")))
+                                .helpFor("live", "For your internal Q&A site (for example Stack Overflow Enterprise, API /api/2.3) keep 'No sign-in' and fill in the access key and the access token below: they are sent with every request. Choose 'Access token' only if the API wants the token in an 'Authorization: Bearer' header (for example API v3)."),
                         f("source.confluence.email", "Atlassian account email", "Cloud only. The email for Basic auth with your API token. Not a secret; the token stays in an environment variable.",
                                 Type.TEXT, "", "you@example.com", CONFLUENCE, false, null).when("source.auth.method", "basic-env"),
                         f("source.confluence.emailEnv", "Email variable name (optional)", "Optional alternative: NAME of an environment variable that holds the Atlassian email instead of typing it above.",
@@ -170,6 +178,10 @@ public final class ConfigService {
                         f("source.auth.tokenEnv", "Token / password variable name", "The NAME of the environment variable that holds your token or password (never the secret itself). For example CONFLUENCE_API_TOKEN, CONFLUENCE_PAT, JIVE_PASSWORD, SHAREPOINT_ACCESS_TOKEN.",
                                 Type.ENV_NAME, "", "CONFLUENCE_API_TOKEN", AUTH_TOKEN, false, null)
                                 .helpFor("confluence", "The NAME of the environment variable that holds your Confluence API token (Cloud, with your email) or personal access token (Server/Data Center), for example CONFLUENCE_API_TOKEN. Never the token itself.")
+                                .placeholderFor("live", "INTERNAL_QA_ACCESS_TOKEN")
+                                .placeholderFor("jive", "JIVE_PASSWORD")
+                                .placeholderFor("sharepoint", "SHAREPOINT_ACCESS_TOKEN")
+                                .helpFor("live", "Only for 'Access token' (Bearer): the NAME of the environment variable that holds your personal access token, for example INTERNAL_QA_ACCESS_TOKEN. Where to get it: your profile on the Q&A site → Settings → Personal access tokens (if your site offers them), or ask the site admins. Set the variable before starting the app; see the access token field below.")
                                 .helpFor("jive", "The NAME of the environment variable that holds your Jive password or OAuth token, for example JIVE_PASSWORD. Never the secret itself.")
                                 .helpFor("sharepoint", "The NAME of the environment variable that holds a Microsoft Graph access token, for example SHAREPOINT_ACCESS_TOKEN. Leave as is when you use the app login (tenant and client id) below.")
                                 .helpFor("live", "The NAME of the environment variable that holds the API's Bearer token. Never the token itself.").when("source.auth.method", "token", "basic-env"),
@@ -201,10 +213,10 @@ public final class ConfigService {
                                 Type.ENV_NAME, "SHAREPOINT_CLIENT_SECRET", "SHAREPOINT_CLIENT_SECRET", SHAREPOINT, false, null),
                         f("source.stackexchange.keyEnv", "API key variable name", "Optional. Name of the environment variable that holds a free Stack Exchange application key. A key raises the daily request limit from about 300 to 10,000. The key itself is never stored here.",
                                 Type.ENV_NAME, "STACKEXCHANGE_KEY", "STACKEXCHANGE_KEY", SE, false, null),
-                        f("api.keyEnv", "API access key variable name", "All API requests need an access key. Enter the NAME of the environment variable that holds your key (the key itself is never saved), then set that variable in your terminal.",
+                        f("api.keyEnv", "API access key variable name", "The NAME of the environment variable that holds the API access key (the key itself is never saved), for example INTERNAL_QA_API_KEY. Where to get it: the Q&A site's admins create API keys (Stack Overflow Enterprise: Admin settings → API / Apps → register an application). How to set it (Windows PowerShell): setx INTERNAL_QA_API_KEY \"<key>\" then open a new terminal and start the app; macOS/Linux: export INTERNAL_QA_API_KEY=<key>.",
                                 Type.ENV_NAME, "INTERNAL_QA_API_KEY", "INTERNAL_QA_API_KEY", LIVE, false, null),
-                        f("api.accessTokenEnv", "Access token variable name", "Only if the API also needs a signed-in user token. Name of the environment variable that holds it.",
-                                Type.ENV_NAME, "", "INTERNAL_QA_ACCESS_TOKEN", LIVE, true, null),
+                        f("api.accessTokenEnv", "Access token variable name", "The NAME of the environment variable that holds YOUR access token, for example INTERNAL_QA_ACCESS_TOKEN. It lets the API return what you may read (private and team content); it is sent as access_token. Where to get it: on the Q&A site open your profile → Settings → Personal access tokens (PATs) and create one with read access (Stack Overflow Enterprise; if you do not see it, ask the admins to enable personal access tokens or to give you one). How to set it (Windows PowerShell): setx INTERNAL_QA_ACCESS_TOKEN \"<token>\" then open a new terminal and start the app; macOS/Linux: export INTERNAL_QA_ACCESS_TOKEN=<token>. Leave empty if the API needs only the key.",
+                                Type.ENV_NAME, "", "INTERNAL_QA_ACCESS_TOKEN", LIVE, false, null),
                         f("source.auth.headerName", "Auth header name", "The HTTP header that carries the credential. Almost always Authorization.",
                                 Type.TEXT, "Authorization", "Authorization", AUTH_TOKEN, true, null).when("source.auth.method", "token"),
                         f("source.auth.scheme", "Bearer prefix", "For Bearer/PAT auth only. Ignored for Basic (email + API token).",
@@ -717,10 +729,13 @@ public final class ConfigService {
         }
         String value = env.apply(name);
         if (value == null || value.isBlank()) {
-            issues.add(new Issue(key, required ? "warning" : "info",
-                    required ? "The variable " + name + " is not set where this app is running, so signing in will fail."
-                            : "No key is set in " + name + ", so the smaller anonymous request limit applies.",
-                    "Set it in the terminal that starts the app, for example: $env:" + name + "='your-value' (PowerShell) or export " + name + "='your-value' (Mac/Linux)."));
+            String message = required ? "The variable " + name + " is not set where this app is running, so signing in will fail."
+                    : key.equals("source.stackexchange.keyEnv") ? "No key is set in " + name + ", so the smaller anonymous request limit applies."
+                    : "The variable " + name + " is not set yet where this app is running (leave the name empty if you do not need it).";
+            issues.add(new Issue(key, required ? "warning" : "info", message,
+                    "Set it, then restart the app from a NEW terminal (a running app does not see new variables). Windows: setx " + name
+                            + " \"your-value\" and open a new terminal, or $env:" + name + "='your-value' in the same PowerShell before npm start. "
+                            + "Mac/Linux: export " + name + "='your-value' before npm start."));
         }
     }
 
