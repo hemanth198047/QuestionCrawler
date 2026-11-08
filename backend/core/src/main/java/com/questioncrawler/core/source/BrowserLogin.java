@@ -38,6 +38,8 @@ import java.util.function.Function;
  */
 public final class BrowserLogin {
 
+    private static final System.Logger LOG = System.getLogger("questioncrawler.signin");
+
     /** Checks whether the site accepts a Cookie header (for example: one cheap API call answers 200). */
     @FunctionalInterface
     public interface Prober {
@@ -156,11 +158,19 @@ public final class BrowserLogin {
     }
 
     /** True when a response means "sign in first": 401, a redirect, or a login page instead of content. */
+    private static final java.util.regex.Pattern LOGIN_URL = java.util.regex.Pattern.compile(
+            "login|logon|signin|sign-in|sso|oauth|saml|adfs|okta|microsoftonline|auth0|/auth|/users/login|wsignin|openid|idp", java.util.regex.Pattern.CASE_INSENSITIVE);
+
     public static boolean needsSignIn(HttpSourceClient.Response r) {
         if (r == null) {
             return false;
         }
         if (r.status() == 401 || Redirects.isRedirect(r.status())) {
+            return true;
+        }
+        // Redirected (on the same host) to a sign-in page, e.g. /users/login?returnurl=... on Stack Overflow Enterprise.
+        boolean redirected = r.redirects() != null && !r.redirects().isEmpty();
+        if (redirected && r.finalUrl() != null && LOGIN_URL.matcher(r.finalUrl()).find()) {
             return true;
         }
         String type = r.contentType() == null ? "" : r.contentType().toLowerCase(Locale.ROOT);
@@ -220,6 +230,7 @@ public final class BrowserLogin {
     private void login(Prober prober) throws SourceException {
         Instant deadline = clock.instant().plus(timeout);
         lastStatus = "waiting for you to sign in in the browser window";
+        LOG.log(System.Logger.Level.INFO, "Opening the browser sign-in window at {0}", startUrl);
         try (Session session = launcher.open(startUrl)) {
             openWindow = session;
             Instant opened = clock.instant();
@@ -234,6 +245,7 @@ public final class BrowserLogin {
                 }
                 String candidate = headerFor(session.cookies());
                 if (!candidate.isEmpty() && prober.accepted(candidate)) {
+                    LOG.log(System.Logger.Level.INFO, "Signed in through the browser; closing the sign-in window");
                     signedInAt = clock.instant(); // before header: readers that see the header also see when
                     header = candidate;
                     logins++;
@@ -249,6 +261,7 @@ public final class BrowserLogin {
             }
         } catch (IOException e) {
             lastStatus = "the browser could not be opened";
+            LOG.log(System.Logger.Level.WARNING, "The browser sign-in window could not be opened: " + e.getMessage(), e);
             throw new SourceException(SourceException.Kind.AUTH_FAILED, "Could not open a browser for signing in: " + e.getMessage(), null, e);
         } finally {
             openWindow = null; // the window closes as soon as the site lets you in (try-with-resources)
@@ -311,13 +324,21 @@ public final class BrowserLogin {
         @Override
         public Session open(String startUrl) throws IOException {
             String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+            if (os.contains("linux") && insideWsl()) {
+                throw new IOException("the app runs inside WSL (Linux on Windows), where it cannot open your Windows browser. "
+                        + "Start it from a normal Windows terminal (PowerShell or Command Prompt) with 'npm start'");
+            }
             if (os.contains("linux") && blank(env.apply("DISPLAY")) && blank(env.apply("WAYLAND_DISPLAY"))) {
                 throw new IOException("there is no screen on this computer (no DISPLAY): browser sign-in needs a desktop session");
             }
             Path exe = findBrowser(options.path(), os, env);
             if (exe == null) {
-                throw new IOException("no Edge or Chrome was found. Install one, or set source.confluence.browser.path to the browser program");
+                throw new IOException(blank(options.path())
+                        ? "no Edge or Chrome was found on this computer. Set 'Browser program' (source.browser.path) to the browser's .exe, "
+                        + "for example C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+                        : "the browser program '" + options.path() + "' (source.browser.path) does not exist or cannot be started");
             }
+            LOG.log(System.Logger.Level.INFO, "Browser for sign-in: {0}", exe);
             Path profile = options.profileDir().isBlank()
                     ? Path.of(System.getProperty("user.home"), ".questioncrawler", "browser-profile")
                     : Path.of(options.profileDir());
@@ -353,7 +374,7 @@ public final class BrowserLogin {
             cmd.add(startUrl);
             Process process = new ProcessBuilder(cmd).redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
             String wsUrl = null;
-            long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+            long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(45);
             while (System.nanoTime() < until && wsUrl == null) {
                 if (Files.exists(portFile)) {
                     List<String> lines = Files.readAllLines(portFile, StandardCharsets.UTF_8);
@@ -374,8 +395,11 @@ public final class BrowserLogin {
             }
             if (wsUrl == null) {
                 process.destroy();
-                throw new IOException("the browser did not open its local DevTools port within 30 seconds");
+                throw new IOException("the browser opened, but does not let the app take over the login (its local remote-control "
+                        + "(DevTools) port stayed off; company policy often switches it off for Edge). Set 'Browser program' to Chrome, or ask IT "
+                        + "to allow remote debugging for this app's own browser profile");
             }
+            LOG.log(System.Logger.Level.INFO, "Sign-in window open (profile {0})", profile);
             return new CdpSession(process, wsUrl);
         }
 
@@ -410,7 +434,46 @@ public final class BrowserLogin {
                     return p;
                 }
             }
+            if (os.contains("win")) { // installs elsewhere register themselves under App Paths
+                for (String exe : new String[] {"msedge.exe", "chrome.exe"}) {
+                    for (String hive : new String[] {"HKCU", "HKLM"}) {
+                        Path p = registryAppPath(hive + "\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\" + exe);
+                        if (p != null) {
+                            return p;
+                        }
+                    }
+                }
+            }
             return null;
+        }
+
+        /** The default value of a Windows registry key holding a program path (App Paths), or null. */
+        static Path registryAppPath(String key) {
+            try {
+                Process p = new ProcessBuilder("reg", "query", key, "/ve").redirectErrorStream(true).start();
+                String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+                if (!p.waitFor(10, TimeUnit.SECONDS) || p.exitValue() != 0) {
+                    return null;
+                }
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("REG_(?:EXPAND_)?SZ\\s+(.+)").matcher(out);
+                if (m.find()) {
+                    Path path = Path.of(m.group(1).strip().replace("\"", ""));
+                    return Files.isRegularFile(path) ? path : null;
+                }
+            } catch (IOException | InterruptedException | RuntimeException e) {
+                if (e instanceof InterruptedException) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            return null;
+        }
+
+        static boolean insideWsl() {
+            try {
+                return Files.readString(Path.of("/proc/version")).toLowerCase(Locale.ROOT).contains("microsoft");
+            } catch (IOException | RuntimeException e) {
+                return false;
+            }
         }
 
         private static boolean blank(String s) {

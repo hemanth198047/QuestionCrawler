@@ -158,12 +158,13 @@ public final class Workspace {
         // The site sends visitors to a company login page and no sign-in is chosen yet: sign in through the browser
         // (the same as choosing "Sign in with my browser"), and tell the screen to select it so saving keeps it.
         boolean autoBrowser = false;
-        if ((type.equals("live") || type.equals("confluence")) && (authMethod.isBlank() || authMethod.equals("none") || autoBrowserFor(type, v))
-                && sendsToLogin(type.equals("live") && target.isBlank() ? v.getOrDefault("api.swaggerUrl", "") : target, v)) {
-            authMethod = "browser";
-            v.put("source.auth.method", "browser");
-            autoBrowser = true;
-        }
+        boolean mayAutoBrowser = (type.equals("live") || type.equals("confluence"))
+                && (authMethod.isBlank() || authMethod.equals("none") || autoBrowserFor(type, v));
+        ConnectionReport report = null;
+        ConnectionReport withoutBrowser = null;
+        // Run the check; if its sign-in step finds a company login page (the same test that shows "the site sends
+        // visitors to a sign-in page"), sign in through the browser and check again with that session.
+        for (int attempt = 0; attempt < 2; attempt++) {
         SiteDiagnostics.Input input = new SiteDiagnostics.Input(type, target, site, tags, authMethod,
                 v.getOrDefault("source.auth.tokenEnv", ""), keyEnv,
                 ca.isEmpty() ? null : Path.of(ca), Boolean.parseBoolean(v.getOrDefault("source.allowInsecureHttp", "false")), Math.min(timeout, 30),
@@ -233,7 +234,22 @@ public final class Workspace {
             }
             diagnostics.withBrowserSession(status, cookie);
         }
-        ConnectionReport report = diagnostics.run(input);
+        report = diagnostics.run(input);
+        if (attempt == 0 && mayAutoBrowser && !"browser".equalsIgnoreCase(authMethod) && accessNeedsLogin(report)) {
+            withoutBrowser = report;
+            authMethod = "browser";
+            v.put("source.auth.method", "browser");
+            autoBrowser = true;
+            continue;
+        }
+        break;
+        }
+        if (autoBrowser && withoutBrowser != null && browserCouldNotBeUsed(report)) {
+            // The automatic browser sign-in could not run here (no browser, no screen, ...): keep the full sign-in
+            // analysis of the first check and add why the browser could not be used. Nothing is switched.
+            report = withBrowserProblem(withoutBrowser, accessStage(report));
+            autoBrowser = false;
+        }
         if (autoBrowser) {
             report = report.withSettingsToApply(Map.of("source.auth.method", "browser"));
         }
@@ -246,6 +262,18 @@ public final class Workspace {
         return report;
     }
 
+    /** The check's sign-in step found a company login (redirect to a sign-in page, a sign-in form, 401). */
+    static boolean accessNeedsLogin(ConnectionReport report) {
+        for (ConnectionReport.Stage st : report.stages()) {
+            if (!st.id().equals("access") || st.status().equals("PASS") || st.status().equals("SKIPPED")) {
+                continue;
+            }
+            String text = (st.summary() + " " + st.needs().stream().map(ConnectionReport.Need::what).reduce("", String::concat)).toLowerCase(java.util.Locale.ROOT);
+            return text.contains("sign-in") || text.contains("sign in") || text.contains("login") || text.contains("log in");
+        }
+        return false;
+    }
+
     /** Confluence's default (email + API token) with no email or token set: nothing is really chosen yet. */
     private boolean autoBrowserFor(String type, Map<String, String> v) {
         if (!type.equals("confluence") || !"basic-env".equals(v.getOrDefault("source.auth.method", ""))) {
@@ -256,24 +284,32 @@ public final class Workspace {
                 && (tokenEnv.isBlank() || env.apply(tokenEnv) == null);
     }
 
-    /** True when the address answers with a redirect to a sign-in page, a 401 or a login form (a company login). */
-    private boolean sendsToLogin(String address, Map<String, String> v) {
-        if (address == null || address.isBlank()) {
-            return false;
-        }
-        try {
-            java.net.URI u = java.net.URI.create(address.strip());
-            if (u.getHost() == null) {
-                return false;
+    static boolean browserCouldNotBeUsed(ConnectionReport report) {
+        ConnectionReport.Stage a = accessStage(report);
+        return a != null && a.status().equals("FAIL") && a.summary().contains("the sign-in browser could not be used");
+    }
+
+    static ConnectionReport.Stage accessStage(ConnectionReport report) {
+        return report.stages().stream().filter(st -> st.id().equals("access")).findFirst().orElse(null);
+    }
+
+    /** The first check's report, with the browser problem added to its sign-in step. */
+    static ConnectionReport withBrowserProblem(ConnectionReport first, ConnectionReport.Stage failed) {
+        List<ConnectionReport.Stage> stages = new ArrayList<>();
+        for (ConnectionReport.Stage st : first.stages()) {
+            if (st.id().equals("access") && failed != null) {
+                List<ConnectionReport.Fact> facts = new ArrayList<>(st.facts());
+                String reason = failed.summary().replaceFirst("^.*the sign-in browser could not be used: ", "");
+                facts.add(new ConnectionReport.Fact("Browser sign-in", "could not be used: " + reason));
+                List<ConnectionReport.Need> needs = new ArrayList<>(failed.needs());
+                needs.addAll(st.needs());
+                st = new ConnectionReport.Stage(st.id(), st.title(), st.question(), st.status(), st.summary()
+                        + " The app tried to open your browser for the company login, but: " + reason, facts, needs, st.millis());
             }
-            var probe = new com.questioncrawler.core.source.SourceSettings("login-check", address, List.of(u.getHost()), List.of("/"),
-                    "none", null, null, null, null, java.time.Duration.ofSeconds(15),
-                    Boolean.parseBoolean(v.getOrDefault("source.allowInsecureHttp", "false")), null, null, proxyOf(v),
-                    new com.questioncrawler.core.source.ApiOptions(null, null, null, null, false, null, null, "same-host"));
-            return com.questioncrawler.core.source.BrowserLogin.needsSignIn(new com.questioncrawler.core.source.HttpSourceClient(probe, env).exchange(address));
-        } catch (com.questioncrawler.core.source.SourceException | RuntimeException e) {
-            return false;
+            stages.add(st);
         }
+        return new ConnectionReport(first.checkedAt(), first.target(), first.sourceType(), first.verdict(), first.headline(), first.detail(),
+                first.score(), stages, first.route(), first.requirements(), first.settingsToApply());
     }
 
     private static com.questioncrawler.core.source.ApiOptions apiOptions(Map<String, String> v) {

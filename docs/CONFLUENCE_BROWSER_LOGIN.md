@@ -113,7 +113,10 @@ Machine or a token there).
 
 | Message | Fix |
 |---|---|
-| `no Edge or Chrome was found` | Install one, or set `source.confluence.browser.path` |
+| Check access: *The site needs your company login, but the sign-in browser could not be used: …* | The reason follows; the rows below explain each one. The `npm start` window also logs each step (`Opening the browser sign-in window …`, `Browser for sign-in: …`) |
+| `no Edge or Chrome was found` | Set **Browser program** (Settings → Signing in, `source.browser.path`) to `msedge.exe` or `chrome.exe` |
+| `the app runs inside WSL` | Start the app from a normal Windows terminal (PowerShell / Command Prompt): `npm start` |
+| `does not let the app take over the login (… DevTools port stayed off …)` | Company policy blocks the browser's remote control (often for Edge): set **Browser program** to Chrome, or ask IT to allow it for the app's own profile |
 | `the browser stopped right away` | Another window already uses the app's profile: close it, or set `source.confluence.browser.profileDir` |
 | `The sign-in window was closed before Confluence accepted the login` | Open it again and finish signing in |
 | `Nobody finished signing in within 5 minutes` | Sign in faster, or raise `source.confluence.browser.timeoutSeconds` |

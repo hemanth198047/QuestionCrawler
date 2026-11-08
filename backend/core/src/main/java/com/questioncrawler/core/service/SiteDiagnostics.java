@@ -514,6 +514,15 @@ public final class SiteDiagnostics {
             return stage("access", title, q, "FAIL", "The site did not answer our request" + (home == null ? "." : ": " + home.error()), facts,
                     List.of(new Need("A site that answers requests", "We could connect but received no valid reply.", "The site owners")), t0);
         }
+        if ("Browser sign-in".equals(signInFactName) && sessionCookie == null && tvmStatus != null && tvmStatus.startsWith("FAILED")) {
+            // The site needs the company login and the sign-in browser could not be used: say exactly why, up front.
+            facts.add(new Fact("Browser sign-in", tvmStatus));
+            return stage("access", title, q, "FAIL", "The site needs your company login, but the sign-in browser could not be used: "
+                            + tvmStatus.replaceFirst("^FAILED: ", ""), facts,
+                    List.of(new Need("A browser window for your company login", "The app opens Edge or Chrome on this computer so you can sign in. "
+                            + "If none is found, set 'Browser program' in Settings → Signing in (for example C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe). "
+                            + "The app must run on your own desktop (not as a service, on a server or inside WSL).", "You")), t0);
+        }
         facts.add(new Fact("Reply", "HTTP " + home.status()));
         boolean redirected = !home.chain().isEmpty();
         if (redirected) {
