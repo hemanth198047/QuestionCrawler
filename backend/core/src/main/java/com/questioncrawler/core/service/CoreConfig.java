@@ -503,7 +503,10 @@ public record CoreConfig(
         com.questioncrawler.core.source.BrowserLogin login = null;
         com.questioncrawler.core.source.BrowserLogin.Prober probe = null;
         HttpSourceClient.TokenSource session = null;
-        if (source.authMethod().equalsIgnoreCase("browser")) {
+        // "Sign in with my browser", or no sign-in chosen (then the browser is used only when the site answers with its login).
+        boolean autoSignIn = source.authMethod().isBlank() || source.authMethod().equalsIgnoreCase("none");
+        if (source.authMethod().equalsIgnoreCase("browser")
+                || (autoSignIn && !(source.baseUrl().isBlank() && source.api().swaggerUrl() == null))) {
             String site = !source.baseUrl().isBlank() ? source.baseUrl() : source.api().swaggerUrl();
             if (site == null || site.isBlank()) {
                 throw new IllegalStateException("Enter the site or API documentation address before signing in.");
@@ -584,7 +587,7 @@ public record CoreConfig(
         // Website mode: read the questions and answers from the site's own pages (for example Stack Overflow Enterprise
         // when only its website works). "auto" switches to it when the API address answers with the website.
         var website = new com.questioncrawler.core.source.HtmlQaAdapter(working, client, working.baseUrl(), com.questioncrawler.core.util.Sleeper.REAL);
-        if (login != null) {
+        if (login != null && !autoSignIn) {
             adapter.withBrowser(login, probe);
             website.withBrowser(login, probe);
         }

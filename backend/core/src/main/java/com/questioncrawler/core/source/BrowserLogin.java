@@ -97,7 +97,7 @@ public final class BrowserLogin {
     private final String origin;
     private volatile List<String> contentUrls = List.of();
     /** Marker "cookie" while reading through the browser (requests are routed through the window, not sent with it). */
-    static final String THROUGH_BROWSER = "qc-reads-through-browser=1";
+    public static final String THROUGH_BROWSER = "qc-reads-through-browser=1";
     private int logins;
     private String lastStatus = "not signed in yet";
 
