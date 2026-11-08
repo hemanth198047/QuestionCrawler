@@ -597,8 +597,6 @@ public final class SiteDiagnostics {
         String rateInfo;
         boolean restApi;
         boolean restApiReady;
-        /** The site's question pages can be read (website mode, for example Stack Overflow Enterprise without its API). */
-        boolean websiteMode;
         String quotaInfo;
         long tagQuestions = Long.MIN_VALUE;
         boolean tagChecked;
@@ -712,15 +710,6 @@ public final class SiteDiagnostics {
 
         if (in.liveApi()) {
             return liveApiStage(in, d, t0);
-        }
-        if (in.sourceType().equals("live") && !"api".equals((in.api() == null ? ApiOptions.DEFAULT : in.api()).mode())) {
-            // No API documentation: the address may be the Q&A website itself, whose pages website mode reads.
-            String web = websiteCheck(in, in.target(), in.api() == null ? ApiOptions.DEFAULT : in.api());
-            if (web != null) {
-                d.websiteMode = true;
-                facts.add(new Fact("Website mode", web));
-                return stage("data", title, q, "PASS", "Yes: questions and answers are read from the website's own pages with your browser session (website mode).", facts, List.of(), t0);
-            }
         }
 
         // Generic site: look for a machine-readable description, robots rules and what the home page is made of.
@@ -857,15 +846,6 @@ public final class SiteDiagnostics {
         String keyVar = in.keyEnv();
         boolean hasKey = keyVar != null && !keyVar.isBlank() && env.apply(keyVar) != null && !env.apply(keyVar).isBlank();
         facts.add(new Fact("Access key variable " + (keyVar == null || keyVar.isBlank() ? "(not named)" : keyVar), hasKey ? "set (value not shown)" : "NOT set"));
-        if ("website".equals(api.mode()) || (!hasKey && !"api".equals(api.mode()))) {
-            String web = websiteCheck(in, base, api);
-            if (web != null) {
-                facts.add(new Fact("Website mode", web));
-                d.restApiReady = true;
-                d.websiteMode = true;
-                return stage("data", title, q, "PASS", "Yes: questions and answers are read from the website's own pages with your browser session (website mode).", facts, List.of(), t0);
-            }
-        }
         if (!hasKey) {
             if (status.equals("PASS")) {
                 status = "WARN";
@@ -903,14 +883,6 @@ public final class SiteDiagnostics {
                     }
                 }
             } catch (SourceException e) {
-                String web = "api".equals(api.mode()) ? null : websiteCheck(in, base, api);
-                if (web != null) {
-                    facts.add(new Fact("API test call", friendly(e)));
-                    facts.add(new Fact("Website mode", web));
-                    d.restApiReady = true;
-                    d.websiteMode = true;
-                    return stage("data", title, q, "PASS", "Yes: the API address answers with the website, so questions and answers are read from the website's pages (website mode).", facts, List.of(), t0);
-                }
                 status = e.kind() == SourceException.Kind.AUTH_FAILED || e.kind() == SourceException.Kind.FORBIDDEN ? "FAIL" : "WARN";
                 summary = "The test call failed: " + friendly(e);
                 if (e.getMessage() != null && e.getMessage().toLowerCase().contains("sign-in page") && !e.getMessage().toLowerCase().contains("bearer token:")) {
@@ -926,21 +898,6 @@ public final class SiteDiagnostics {
         }
         d.restApiReady = status.equals("PASS");
         return stage("data", title, q, status, summary, facts, needs, t0);
-    }
-
-    /** Whether the site's question pages can be read (website mode); a status line, or null when they cannot. */
-    private String websiteCheck(Input in, String base, ApiOptions api) {
-        String address = base != null && !base.isBlank() ? base : api.swaggerUrl();
-        if (address == null || address.isBlank()) {
-            return null;
-        }
-        try {
-            String root = com.questioncrawler.core.source.HtmlQaAdapter.siteRoot(address);
-            SourceSettings s = apiSettings(in, root, api);
-            return new com.questioncrawler.core.source.HtmlQaAdapter(s, new HttpSourceClient(s, env), root, d2 -> { }).ping();
-        } catch (SourceException | RuntimeException e) {
-            return null;
-        }
     }
 
     private SourceSettings apiSettings(Input in, String base, ApiOptions api) {
@@ -1163,10 +1120,6 @@ public final class SiteDiagnostics {
                     ? List.of("Save these settings.", "Confirm the site URL and Graph credentials.", "Open Collect and start with a modest time window.")
                     : List.of("Save these settings.", "Open Collect and start with a small time window.", "Keep the source links: the content is licensed CC BY-SA and requires attribution.");
             return new Route("OFFICIAL_API", "Official API (recommended)", summary, true, next);
-        }
-        if (d.websiteMode) {
-            return new Route("WEBSITE", "The site's own pages (website mode)", "The questions and answers are read from the website's pages with your browser session, the same pages you open yourself. Read-only, one page at a time.", true,
-                    List.of("Save these settings.", "Open Collect and start (choose a tag, or all).", "If your session expires, the sign-in window opens again and the collection continues."));
         }
         if (d.restApiReady) {
             return new Route("REST_API", "Your site's REST API (recommended)", "The site documents its REST API with Swagger. Every endpoint this app needs is available, so questions and answers can be collected the proper, permitted way.", true,

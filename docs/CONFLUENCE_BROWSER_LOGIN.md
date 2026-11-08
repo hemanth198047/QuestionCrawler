@@ -1,6 +1,6 @@
-# Sign in with my browser (company login page / SSO): Confluence and the internal Q&A site
+# Confluence: sign in with my browser (company login page / SSO)
 
-Works for **Confluence** and **Our internal Q&A site** (its API and its Swagger documentation). Use it when calling the site from the app ends in **HTTP 302 to another site for login** (your company SSO:
+For **Confluence** only (the internal Q&A site / Stack Overflow uses its REST API with an access key or token). Use it when calling Confluence from the app ends in **HTTP 302 to another site for login** (your company SSO:
 Azure AD / Entra ID, Okta, ADFS, PingFederate, a gateway…), and after logging in in a browser you are sent back to
 Confluence. Nothing has to be changed by administrators: the app uses the same login you use every day.
 
@@ -72,44 +72,6 @@ sync.maxQuestionAge=1y
 | `network.proxyHost` / `Port` | Your web proxy, only if needed | The `--proxy` value you use with curl |
 
 No secret is stored anywhere.
-
-## Our internal Q&A site
-
-Choose **Connect → Our internal Q&A site**, enter the API documentation (Swagger) address and/or the API address, and in
-step 3 choose **Sign in with my browser**, then press the button to try it.
-
-```properties
-source.type=live
-api.swaggerUrl=https://qa.mycompany.com/swagger/index.html
-source.baseUrl=https://qa.mycompany.com/api/2.3
-source.auth.method=browser
-api.keyEnv=INTERNAL_QA_API_KEY   # only if the API also needs its own access key
-```
-
-The window opens at the site's home page; after you sign in, the app checks the session against the API (`/info`) or
-the documentation and continues. Reading the documentation, *Test the collection* and *Try an address* on Connect reuse
-the same session. When the session expires during a collection, the window opens again and the collection continues.
-
-### When the address is the website, not the API (Stack Overflow Enterprise)
-
-If the address you have is the **website** (its pages say "Newest Posts"), the app reads the questions and answers from
-the website's own pages with your browser session: **website mode**. It needs no API key.
-
-- *How to read the site* (Connect, step 2): **Automatic** (default) uses the API and switches to the website's pages by
-  itself when the address answers with the website; **Website pages** always reads the pages; **REST API only** never does.
-- It reads `/questions` (or `/questions/tagged/…`) page by page, then each question page with its text, tags, author,
-  dates, votes and **every answer** (accepted answer, votes, author, date; answer pages are followed).
-- A quick update uses the *Active* tab and stops at the last change already collected; a time window stops at the first
-  older question.
-- It reads one page at a time with a short pause, read-only, exactly like you browsing the site.
-
-```properties
-source.type=live
-source.baseUrl=https://stackoverflow.mycompany.com
-source.auth.method=browser
-api.mode=auto        # or website
-sync.tags=all
-```
 
 ## Command line
 

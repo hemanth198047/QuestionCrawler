@@ -272,7 +272,7 @@ public record CoreConfig(
                 new com.questioncrawler.core.source.ApiOptions(p.getProperty("api.keyName", ""), p.getProperty("api.keyIn", "query"),
                         p.getProperty("api.accessTokenEnv", ""), p.getProperty("api.bodyFilter", ""),
                         Boolean.parseBoolean(p.getProperty("api.collectComments", "false").strip()), swagger, p.getProperty("api.swaggerFile", ""),
-                        followRedirects, p.getProperty("api.mode", "auto")),
+                        followRedirects),
                 authUser,
                 authUserEnv);
 
@@ -304,17 +304,15 @@ public record CoreConfig(
 
     public List<String> validate() {
         List<String> problems = new ArrayList<>();
-        if (sourceType.equals("live") && !List.of("auto", "api", "website").contains(source.api().mode())) {
-            problems.add("api.mode must be 'auto', 'api' or 'website' (was '" + source.api().mode() + "')");
-        }
         if (!List.of("fixture", "live", "stackexchange", "confluence", "jive", "sharepoint").contains(sourceType)) {
             problems.add("source.type must be 'fixture', 'live', 'stackexchange', 'confluence', 'jive' or 'sharepoint' (was '" + sourceType + "')");
         }
         if (source.authMethod().equalsIgnoreCase("tvm") && !sourceType.equals("confluence")) {
             problems.add("source.auth.method=tvm (Token Vending Machine) is only supported for source.type=confluence");
         }
-        if (source.authMethod().equalsIgnoreCase("browser") && !sourceType.equals("confluence") && !sourceType.equals("live")) {
-            problems.add("source.auth.method=browser (sign in with my browser) is supported for Confluence and the internal Q&A site");
+        if (source.authMethod().equalsIgnoreCase("browser") && !sourceType.equals("confluence")) {
+            problems.add("source.auth.method=browser (sign in with my browser) is only for Confluence; the internal Q&A site uses its REST API "
+                    + "with an access key (and token if needed)");
         }
         if (maxQuestionAge != null && !com.questioncrawler.core.util.AgeSpec.isValid(maxQuestionAge)) {
             problems.add("sync.maxQuestionAge must look like 30d, 12h, 2w, 6m or 1y (was '" + maxQuestionAge + "')");
@@ -499,54 +497,12 @@ public record CoreConfig(
      */
     private SourceAdapter createInternalApiAdapter(Function<String, String> env) {
         com.questioncrawler.core.source.SourceSettings working = source;
-        // Sign in with my browser: the company login page opens when the site (API or documentation) needs it.
-        com.questioncrawler.core.source.BrowserLogin login = null;
-        com.questioncrawler.core.source.BrowserLogin.Prober probe = null;
-        HttpSourceClient.TokenSource session = null;
-        // "Sign in with my browser", or no sign-in chosen (then the browser is used only when the site answers with its login).
-        boolean autoSignIn = source.authMethod().isBlank() || source.authMethod().equalsIgnoreCase("none");
-        if (source.authMethod().equalsIgnoreCase("browser")
-                || (autoSignIn && !(source.baseUrl().isBlank() && source.api().swaggerUrl() == null))) {
-            String site = !source.baseUrl().isBlank() ? source.baseUrl() : source.api().swaggerUrl();
-            if (site == null || site.isBlank()) {
-                throw new IllegalStateException("Enter the site or API documentation address before signing in.");
-            }
-            java.net.URI u = java.net.URI.create(site);
-            String origin = u.getScheme() + "://" + u.getRawAuthority();
-            var b = confluence.browser();
-            String start = b.loginUrl().isBlank() ? origin + "/" : b.loginUrl();
-            // Signed in only when the site shows content that is behind the login: the API's data (JSON) or the
-            // website's question list. A page that merely is not a password form (for example /users/login, which
-            // only forwards to the company login) is NOT a sign-in.
-            List<String> probeUrls = new ArrayList<>();
-            if (!source.baseUrl().isBlank() && !"website".equals(source.api().mode())) {
-                probeUrls.add(trimSlash(source.baseUrl()) + "/questions?pagesize=1");
-            }
-            probeUrls.add(com.questioncrawler.core.source.HtmlQaAdapter.siteRoot(site) + "/questions");
-            HttpSourceClient probeClient = new HttpSourceClient(source, env); // a request with a Cookie header skips the normal sign-in
-            login = com.questioncrawler.core.source.BrowserLogin.forSite(origin, start, b, env).withContentCheck(probeUrls);
-            probe = cookie -> {
-                for (String url : probeUrls) {
-                    try {
-                        if (com.questioncrawler.core.source.BrowserLogin.showsContent(probeClient.exchange(url, Map.of("Cookie", cookie)))) {
-                            return true;
-                        }
-                    } catch (com.questioncrawler.core.source.SourceException e) {
-                        // still on the way through the login pages
-                    }
-                }
-                return false;
-            };
-            var l = login;
-            var pr = probe;
-            session = () -> l.cookieHeader(pr);
-        }
         com.questioncrawler.core.api.ApiCapabilities[] learned = new com.questioncrawler.core.api.ApiCapabilities[1];
         java.util.function.Supplier<com.questioncrawler.core.api.ApiCapabilities> provider = null;
         String suggestedPath = null;
-        if (source.api().hasDocs() && !"website".equals(source.api().mode())) {
+        if (source.api().hasDocs()) {
             try {
-                var discovery = com.questioncrawler.core.api.ApiDocsLoader.load(working, env, session);
+                var discovery = com.questioncrawler.core.api.ApiDocsLoader.load(working, env);
                 learned[0] = discovery.capabilities();
                 String base = working.baseUrl();
                 String suggested = discovery.catalog().suggestedBaseUrl();
@@ -563,7 +519,7 @@ public record CoreConfig(
                 var keyScheme = discovery.catalog().security().stream().filter(x -> "apiKey".equals(x.type()) && x.name() != null).findFirst();
                 if (keyScheme.isPresent() && source.api().keyName().equals("key") && !explicitKeyName) {
                     api = new com.questioncrawler.core.source.ApiOptions(keyScheme.get().name(), keyScheme.get().in(), api.accessTokenEnv(),
-                            api.bodyFilter(), api.collectComments(), api.swaggerUrl(), api.swaggerFile(), api.redirects(), api.mode());
+                            api.bodyFilter(), api.collectComments(), api.swaggerUrl(), api.swaggerFile(), api.redirects());
                 }
                 working = working.withBase(base, api);
             } catch (com.questioncrawler.core.source.SourceException e) {
@@ -572,26 +528,14 @@ public record CoreConfig(
             }
             provider = () -> learned[0];
         }
-        if (working.baseUrl().isBlank() && "website".equals(source.api().mode()) && source.api().swaggerUrl() != null) {
-            working = working.withBase(com.questioncrawler.core.source.HtmlQaAdapter.siteRoot(source.api().swaggerUrl()), working.api());
-        }
         if (working.baseUrl().isBlank()) {
             throw new IllegalStateException("The API address is not known. " + (suggestedPath != null
                     ? "The documentation says the API lives under '" + suggestedPath + "': enter your site's full address in front of it (for example https://your-site" + suggestedPath + "). "
                     : "Enter it in the settings, or make the API documentation readable ")
                     + "(run 'Check access' on the Connect screen to see why it cannot be read).");
         }
-        HttpSourceClient client = new HttpSourceClient(working, env, session);
-        var adapter = new com.questioncrawler.core.source.StackExchangeAdapter(working, client, env,
+        return new com.questioncrawler.core.source.StackExchangeAdapter(working, new HttpSourceClient(working, env), env,
                 com.questioncrawler.core.util.Sleeper.REAL, provider);
-        // Website mode: read the questions and answers from the site's own pages (for example Stack Overflow Enterprise
-        // when only its website works). "auto" switches to it when the API address answers with the website.
-        var website = new com.questioncrawler.core.source.HtmlQaAdapter(working, client, working.baseUrl(), com.questioncrawler.core.util.Sleeper.REAL);
-        if (login != null && !autoSignIn) {
-            adapter.withBrowser(login, probe);
-            website.withBrowser(login, probe);
-        }
-        return adapter.withWebsite(website, source.api().mode());
     }
 
     public SyncOptions syncOptions(List<String> tagOverride, TagMode modeOverride, Boolean partialOverride, SyncMode mode) {

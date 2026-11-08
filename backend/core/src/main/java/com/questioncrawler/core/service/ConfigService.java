@@ -71,7 +71,7 @@ public final class ConfigService {
     private static final List<String> CONFLUENCE = List.of("confluence");
     private static final List<String> JIVE = List.of("jive");
     private static final List<String> SHAREPOINT = List.of("sharepoint");
-    private static final List<String> BROWSER_SOURCES = List.of("confluence", "live");
+    private static final List<String> BROWSER_SOURCES = List.of("confluence");
     private static final List<String> REMOTE = List.of("stackexchange", "live", "confluence", "jive", "sharepoint");
     private static final List<String> AUTH_TOKEN = List.of("live", "confluence", "jive", "sharepoint");
     private static final List<String> LIVE_WIKI = List.of("live", "confluence", "jive", "sharepoint");
@@ -138,11 +138,6 @@ public final class ConfigService {
                                 Type.TEXT, "", "/wiki/rest/api", CONFLUENCE, true, null),
                         f("source.jive.apiRoot", "REST API root override", "Leave empty for /api/core/v3. Set only if your site uses a custom context path.",
                                 Type.TEXT, "", "/api/core/v3", JIVE, true, null),
-                        f("api.mode", "How to read the site", "Automatic: use the site's REST API, and if the address turns out to be the website (for example Stack Overflow Enterprise behind the company login), read the questions and answers from the website's pages instead. Choose one explicitly if you know.",
-                                Type.SELECT, "auto", null, LIVE, false, null,
-                                new Option("auto", "Automatic", "The API, or the website's pages when only the website answers"),
-                                new Option("api", "REST API only", "The documented API (fastest)"),
-                                new Option("website", "Website pages", "Read questions and answers from the site's pages with your browser session")),
                         f("api.keyName", "Key parameter name", "How the key is called in each request. Leave empty to use what the Swagger documentation says (usually 'key').",
                                 Type.TEXT, "", "key", LIVE, true, null),
                         f("api.keyIn", "Send the key in", "Normally in the address (query). Choose 'header' if the documentation says so.",
@@ -159,7 +154,7 @@ public final class ConfigService {
                         "How the app proves who you are. Only the ways that work for your system are shown. Secrets are never stored: at most the name of an environment variable that holds one.", "lock", List.of(
                         f("source.auth.method", "Sign-in method", "Pick the way you already sign in to this system. Only the choices that work for it are shown. Passwords and tokens are never stored; at most the NAME of an environment variable that holds one.",
                                 Type.SELECT, "none", null, AUTH_TOKEN, false, null,
-                                new Option("browser", "Sign in with my browser", "Recommended when the site sends you to your company login page: it opens in Edge/Chrome, you sign in as usual, the app continues. Nothing to set up", List.of("confluence", "live")),
+                                new Option("browser", "Sign in with my browser", "Recommended for company Confluence: your usual company login page opens in Edge/Chrome, you sign in, the app continues. Nothing to set up", List.of("confluence")),
                                 new Option("tvm", "Company token service (Kerberos)", "Your company's Token Vending Machine gives a short-lived token using your Windows/Kerberos login", List.of("confluence")),
                                 new Option("basic-env", "Email or username + API token / password", "Confluence Cloud: your email and an API token. Jive: a username and password", List.of("confluence", "jive")),
                                 new Option("token", "Access token", "Confluence Server/Data Center personal access token, Jive OAuth token, SharePoint (Microsoft Graph) token, or an internal API token", List.of("confluence", "jive", "sharepoint", "live")),

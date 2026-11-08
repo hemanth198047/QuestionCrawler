@@ -245,7 +245,7 @@ public final class BrowserLogin {
         if (r.status() < 200 || r.status() >= 300) {
             return false;
         }
-        return HtmlQaAdapter.looksLikeQaSite(body) && !looksLikeLoginPage(body);
+        return false; // only API data counts: a web page is no proof of being signed in (it may be the login's forwarding page)
     }
 
     /** An HTML page with a password field or a SAML/OAuth form: the company login, not content. */

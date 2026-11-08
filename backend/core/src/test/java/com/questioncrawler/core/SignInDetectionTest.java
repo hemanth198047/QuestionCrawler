@@ -45,8 +45,8 @@ class SignInDetectionTest {
         assertFalse(BrowserLogin.showsContent(loginPage));
         var notFound = page(200, "text/html", "<html><body>Page not found</body></html>", "https://qa.corp.com/info", List.of());
         assertFalse(BrowserLogin.showsContent(notFound), "an ordinary page is not proof of being signed in");
-        var list = page(200, "text/html", "<div class=\"s-post-summary\" data-post-id=\"1\"></div>", "https://qa.corp.com/questions", List.of());
-        assertTrue(BrowserLogin.showsContent(list));
+        var webPage = page(200, "text/html", "<div class=\"content\">Welcome</div>", "https://qa.corp.com/wiki/home", List.of());
+        assertFalse(BrowserLogin.showsContent(webPage), "only API data counts as proof of being signed in");
         assertTrue(BrowserLogin.showsContent(page(200, "application/json", "{\"items\":[]}", "https://qa.corp.com/api/2.3/questions", List.of())));
         assertTrue(BrowserLogin.showsContent(page(400, "application/json", "{\"error_message\":\"key required\"}", "https://qa.corp.com/api/2.3/questions", List.of())),
                 "the API itself answered: the company login was passed");
@@ -71,7 +71,7 @@ class SignInDetectionTest {
 
             @Override
             public HttpSourceClient.Response fetchInPage(String url, String origin, java.util.Map<String, String> headers) {
-                return page(200, "text/html", "<div class=\"s-post-summary\" data-post-id=\"7\"></div>", url, List.of());
+                return page(200, "application/json", "{\"results\":[{\"key\":\"ENG\"}]}", url, List.of());
             }
 
             @Override
@@ -86,7 +86,7 @@ class SignInDetectionTest {
         };
         BrowserLogin login = new BrowserLogin("https://winqa.example.com", "https://winqa.example.com/", launcher,
                 java.time.Duration.ofSeconds(10), java.time.Duration.ofMillis(10), java.time.Clock.systemUTC())
-                .withContentCheck(List.of("https://winqa.example.com/questions"));
+                .withContentCheck(List.of("https://winqa.example.com/wiki/api/v2/spaces?limit=1"));
         login.cookieHeader(cookie -> false); // the cookies never work outside the browser
         assertTrue(login.readsThroughBrowser());
         assertTrue(minimised.get(), "the window is minimised, not closed");

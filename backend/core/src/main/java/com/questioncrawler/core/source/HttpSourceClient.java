@@ -133,36 +133,7 @@ public final class HttpSourceClient {
         if ("browser".equalsIgnoreCase(settings.authMethod()) && bearer != null && !testingASession) {
             bearer.token(); // sign in first (opens the window when needed), so the request below knows how to reach the site
         }
-        boolean autoSignIn = bearer != null && !testingASession && (settings.authMethod().isBlank() || settings.authMethod().equalsIgnoreCase("none"));
-        if (!autoSignIn) {
-            return exchangeOnceRouted(url, extraHeaders, testingASession);
-        }
-        // No sign-in chosen, but the site may sit behind the company login: when it answers with its login (or sends the
-        // request to another host's login), sign in through the browser (or use the window already open) and try again.
-        Response r;
-        SourceException redirectedAway = null;
-        try {
-            r = exchangeOnceRouted(url, extraHeaders, false);
-        } catch (SourceException e) {
-            if (e.getMessage() == null || !e.getMessage().contains("redirected")) {
-                throw e;
-            }
-            r = null;
-            redirectedAway = e;
-        }
-        if (r == null || BrowserLogin.needsSignIn(r)) {
-            try {
-                bearer.token();
-            } catch (SourceException signInFailed) {
-                // No browser here (a server, no screen, ...): keep the site's own answer and its explanation.
-                if (r != null) {
-                    return r;
-                }
-                throw redirectedAway;
-            }
-            r = exchangeOnceRouted(url, extraHeaders, false);
-        }
-        return r;
+        return exchangeOnceRouted(url, extraHeaders, testingASession);
     }
 
     private Response exchangeOnceRouted(String url, Map<String, String> extraHeaders, boolean testingASession) throws SourceException {
@@ -279,11 +250,6 @@ public final class HttpSourceClient {
     private void applyAuth(HttpRequest.Builder request, Map<String, String> extraHeaders, URI uri) throws SourceException {
         String method = settings.authMethod();
         if (method.equalsIgnoreCase("none") || method.isBlank()) {
-            // No sign-in chosen: still send the browser session when someone signed in to this site (automatic sign-in).
-            String cookie = extraHeaders.keySet().stream().anyMatch(k -> k.equalsIgnoreCase("Cookie")) ? null : BrowserLogin.sessionFor(uri.getHost());
-            if (cookie != null && !cookie.equals(BrowserLogin.THROUGH_BROWSER)) {
-                request.header("Cookie", cookie);
-            }
             return;
         }
         if (method.equalsIgnoreCase("browser")) {

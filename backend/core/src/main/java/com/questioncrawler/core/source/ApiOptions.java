@@ -13,17 +13,11 @@ package com.questioncrawler.core.source;
  * @param swaggerUrl      address of the Swagger documentation page (optional)
  * @param redirects       how redirects are handled: "all" (default), "same-host" or "off"
  * @param swaggerFile     a saved copy of the Swagger JSON on this computer (optional; for documentation that needs a sign-in)
- * @param mode            "auto" (default: the API, or the website's pages when the address turns out to be the website),
- *                        "api" (only the REST API) or "website" (only the website's pages, see {@link HtmlQaAdapter})
  */
-public record ApiOptions(String keyName, String keyIn, String accessTokenEnv, String bodyFilter, boolean collectComments, String swaggerUrl, String swaggerFile, String redirects,
-                         String mode) {
+public record ApiOptions(String keyName, String keyIn, String accessTokenEnv, String bodyFilter, boolean collectComments, String swaggerUrl, String swaggerFile, String redirects) {
 
     public static final ApiOptions DEFAULT = new ApiOptions("key", "query", null, "withbody", false, null, null, "all");
 
-    public ApiOptions(String keyName, String keyIn, String accessTokenEnv, String bodyFilter, boolean collectComments, String swaggerUrl, String swaggerFile, String redirects) {
-        this(keyName, keyIn, accessTokenEnv, bodyFilter, collectComments, swaggerUrl, swaggerFile, redirects, "auto");
-    }
 
     public ApiOptions {
         keyName = keyName == null || keyName.isBlank() ? "key" : keyName.strip();
@@ -33,7 +27,6 @@ public record ApiOptions(String keyName, String keyIn, String accessTokenEnv, St
         swaggerUrl = swaggerUrl == null || swaggerUrl.isBlank() ? null : swaggerUrl.strip();
         swaggerFile = swaggerFile == null || swaggerFile.isBlank() ? null : swaggerFile.strip();
         redirects = Redirects.Mode.parse(redirects).text();
-        mode = mode == null || mode.isBlank() ? "auto" : mode.strip().toLowerCase(java.util.Locale.ROOT);
     }
 
     public ApiOptions(String keyName, String keyIn, String accessTokenEnv, String bodyFilter, boolean collectComments, String swaggerUrl, String swaggerFile) {

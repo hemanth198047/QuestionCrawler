@@ -158,7 +158,7 @@ public final class Workspace {
         // The site sends visitors to a company login page and no sign-in is chosen yet: sign in through the browser
         // (the same as choosing "Sign in with my browser"), and tell the screen to select it so saving keeps it.
         boolean autoBrowser = false;
-        boolean mayAutoBrowser = (type.equals("live") || type.equals("confluence"))
+        boolean mayAutoBrowser = type.equals("confluence") // the internal Q&A site uses its REST API (no browser)
                 && (authMethod.isBlank() || authMethod.equals("none") || autoBrowserFor(type, v));
         ConnectionReport report = null;
         ConnectionReport withoutBrowser = null;
@@ -216,23 +216,6 @@ public final class Workspace {
                 }
                 diagnostics.withBrowserSession(status, cookie);
             }
-        }
-        if (type.equals("live") && "browser".equalsIgnoreCase(authMethod)) {
-            // Sign in through the browser first (opens the company login page if there is no session yet).
-            String status;
-            String cookie = null;
-            try {
-                var adapter = CoreConfig.load(null, v).createAdapter(env);
-                if (adapter instanceof com.questioncrawler.core.source.BrowserSignIn signIn) {
-                    status = signIn.signIn();
-                    cookie = signIn.sessionCookie();
-                } else {
-                    status = "this source does not sign in through the browser";
-                }
-            } catch (com.questioncrawler.core.source.SourceException | RuntimeException e) {
-                status = "FAILED: " + e.getMessage();
-            }
-            diagnostics.withBrowserSession(status, cookie);
         }
         report = diagnostics.run(input);
         if (attempt == 0 && mayAutoBrowser && !"browser".equalsIgnoreCase(authMethod) && accessNeedsLogin(report)) {
@@ -314,7 +297,7 @@ public final class Workspace {
 
     private static com.questioncrawler.core.source.ApiOptions apiOptions(Map<String, String> v) {
         return new com.questioncrawler.core.source.ApiOptions(v.get("api.keyName"), v.get("api.keyIn"), v.get("api.accessTokenEnv"), v.get("api.bodyFilter"),
-                Boolean.parseBoolean(v.getOrDefault("api.collectComments", "false")), v.get("api.swaggerUrl"), v.get("api.swaggerFile"), v.get("source.followRedirects"), v.get("api.mode"));
+                Boolean.parseBoolean(v.getOrDefault("api.collectComments", "false")), v.get("api.swaggerUrl"), v.get("api.swaggerFile"), v.get("source.followRedirects"));
     }
 
     private static com.questioncrawler.core.source.ProxyConfig proxyOf(Map<String, String> v) {
@@ -575,7 +558,7 @@ public final class Workspace {
             List<CollectionSample> samples = new ArrayList<>();
             for (var summary : page.items().stream().limit(3).toList()) {
                 var q = api.fetchQuestion(summary.id());
-                int answers = q.answers().size(); // website mode reads the answers with the question
+                int answers = q.answers().size(); // answers embedded in the question, if the API sends them
                 try {
                     answers = Math.max(answers, api.listAnswers(summary.id(), null).items().size());
                 } catch (com.questioncrawler.core.source.SourceException e) {
@@ -639,8 +622,8 @@ public final class Workspace {
             v.putAll(draft);
         }
         String type = v.getOrDefault("source.type", "fixture");
-        if (!("confluence".equals(type) || "live".equals(type)) || !"browser".equalsIgnoreCase(v.getOrDefault("source.auth.method", ""))) {
-            return new SignInResult(false, "Choose Confluence or your internal Q&A site, and the sign-in 'Sign in with my browser', first.");
+        if (!"confluence".equals(type) || !"browser".equalsIgnoreCase(v.getOrDefault("source.auth.method", ""))) {
+            return new SignInResult(false, "Browser sign-in is for Confluence: choose Confluence and 'Sign in with my browser' first.");
         }
         if (v.getOrDefault("source.baseUrl", "").isBlank() && ("confluence".equals(type) || v.getOrDefault("api.swaggerUrl", "").isBlank())) {
             return new SignInResult(false, "confluence".equals(type)
