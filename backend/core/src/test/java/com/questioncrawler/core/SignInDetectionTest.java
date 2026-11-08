@@ -35,4 +35,21 @@ class SignInDetectionTest {
         assertFalse(BrowserLogin.needsSignIn(page(200, "text/html", "<p>ok</p>", "https://qa.corp.com/questions?page=2",
                 List.of("301 to https://qa.corp.com/questions?page=2"))));
     }
+
+    @Test
+    void theLoginForwardingPageIsNotMistakenForBeingSignedIn() {
+        // The bug: an anonymous cookie + a request that ends on /users/login (a page without a password field) closed
+        // the sign-in window at once. Only content behind the login counts as signed in.
+        var loginPage = page(200, "text/html", "<html><body>Redirecting to your company sign-in…</body></html>",
+                "https://qa.corp.com/users/login?returnurl=%2fquestions", List.of("302 to https://qa.corp.com/users/login"));
+        assertFalse(BrowserLogin.showsContent(loginPage));
+        var notFound = page(200, "text/html", "<html><body>Page not found</body></html>", "https://qa.corp.com/info", List.of());
+        assertFalse(BrowserLogin.showsContent(notFound), "an ordinary page is not proof of being signed in");
+        var list = page(200, "text/html", "<div class=\"s-post-summary\" data-post-id=\"1\"></div>", "https://qa.corp.com/questions", List.of());
+        assertTrue(BrowserLogin.showsContent(list));
+        assertTrue(BrowserLogin.showsContent(page(200, "application/json", "{\"items\":[]}", "https://qa.corp.com/api/2.3/questions", List.of())));
+        assertTrue(BrowserLogin.showsContent(page(400, "application/json", "{\"error_message\":\"key required\"}", "https://qa.corp.com/api/2.3/questions", List.of())),
+                "the API itself answered: the company login was passed");
+        assertFalse(BrowserLogin.showsContent(page(401, "application/json", "{}", "https://qa.corp.com/api/2.3/questions", List.of())));
+    }
 }

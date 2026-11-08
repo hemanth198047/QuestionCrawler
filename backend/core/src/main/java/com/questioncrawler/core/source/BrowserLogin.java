@@ -147,6 +147,29 @@ public final class BrowserLogin {
         return !looksLikeLoginPage(r.body());
     }
 
+    /**
+     * True only when a response is real content behind the login: API data (JSON, 2xx) or a Q&A website page with
+     * questions. Never when the request ended on a login address, was redirected away, or got a login form.
+     */
+    public static boolean showsContent(HttpSourceClient.Response r) {
+        if (r == null || needsSignIn(r) || r.status() == 403 || r.status() == 407 || r.status() >= 500) {
+            return false;
+        }
+        if (r.finalUrl() != null && LOGIN_URL.matcher(r.finalUrl()).find()) {
+            return false;
+        }
+        String type = r.contentType() == null ? "" : r.contentType().toLowerCase(Locale.ROOT);
+        String body = r.body() == null ? "" : r.body();
+        if (type.contains("json")) {
+            // The API itself answered (even "missing key" proves the company login was passed).
+            return body.stripLeading().startsWith("{") || body.stripLeading().startsWith("[");
+        }
+        if (r.status() < 200 || r.status() >= 300) {
+            return false;
+        }
+        return HtmlQaAdapter.looksLikeQaSite(body) && !looksLikeLoginPage(body);
+    }
+
     /** An HTML page with a password field or a SAML/OAuth form: the company login, not content. */
     public static boolean looksLikeLoginPage(String body) {
         if (body == null) {
@@ -512,8 +535,12 @@ public final class BrowserLogin {
 
         @Override
         public boolean alive() {
-            return process.isAlive();
+            // The live connection to the browser, not the program that was started: on Windows the started program
+            // can hand over to another browser process and exit while the window stays open.
+            return !closed && !socket.isInputClosed();
         }
+
+        private volatile boolean closed;
 
         @Override
         public void close() {
@@ -565,7 +592,7 @@ public final class BrowserLogin {
         }
 
         private JsonNode call(String method, String paramsJson) throws IOException {
-            if (!process.isAlive()) {
+            if (closed) {
                 throw new IOException("the browser window is closed");
             }
             int id = ids.incrementAndGet();
@@ -590,6 +617,17 @@ public final class BrowserLogin {
 
         private final class Listener implements WebSocket.Listener {
             private final StringBuilder buffer = new StringBuilder();
+
+            @Override
+            public CompletionStage<?> onClose(WebSocket ws, int statusCode, String reason) {
+                closed = true; // the person closed the browser
+                return null;
+            }
+
+            @Override
+            public void onError(WebSocket ws, Throwable error) {
+                closed = true;
+            }
 
             @Override
             public CompletionStage<?> onText(WebSocket ws, CharSequence data, boolean last) {

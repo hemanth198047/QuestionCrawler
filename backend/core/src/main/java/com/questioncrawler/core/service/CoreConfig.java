@@ -512,15 +512,27 @@ public record CoreConfig(
             String origin = u.getScheme() + "://" + u.getRawAuthority();
             var b = confluence.browser();
             String start = b.loginUrl().isBlank() ? origin + "/" : b.loginUrl();
-            String probeUrl = !source.baseUrl().isBlank() ? trimSlash(source.baseUrl()) + "/info" : source.api().swaggerUrl();
+            // Signed in only when the site shows content that is behind the login: the API's data (JSON) or the
+            // website's question list. A page that merely is not a password form (for example /users/login, which
+            // only forwards to the company login) is NOT a sign-in.
+            List<String> probeUrls = new ArrayList<>();
+            if (!source.baseUrl().isBlank() && !"website".equals(source.api().mode())) {
+                probeUrls.add(trimSlash(source.baseUrl()) + "/questions?pagesize=1");
+            }
+            probeUrls.add(com.questioncrawler.core.source.HtmlQaAdapter.siteRoot(site) + "/questions");
             HttpSourceClient probeClient = new HttpSourceClient(source, env); // a request with a Cookie header skips the normal sign-in
             login = com.questioncrawler.core.source.BrowserLogin.forSite(origin, start, b, env);
             probe = cookie -> {
-                try {
-                    return com.questioncrawler.core.source.BrowserLogin.letIn(probeClient.exchange(probeUrl, Map.of("Cookie", cookie)));
-                } catch (com.questioncrawler.core.source.SourceException e) {
-                    return false; // still on the way through the login pages
+                for (String url : probeUrls) {
+                    try {
+                        if (com.questioncrawler.core.source.BrowserLogin.showsContent(probeClient.exchange(url, Map.of("Cookie", cookie)))) {
+                            return true;
+                        }
+                    } catch (com.questioncrawler.core.source.SourceException e) {
+                        // still on the way through the login pages
+                    }
                 }
+                return false;
             };
             var l = login;
             var pr = probe;
