@@ -83,6 +83,18 @@ The check no longer relies on one lookup. It tries, in order: the tag's own info
 - **When nothing matches**, the *Your topic* step lists similar tags on the site instead of just saying "no such tag".
 - If the tag list itself is not readable (an endpoint the site does not offer), the question search is still tried; if that also finds nothing, check the spelling with the site owners and whether your key can see questions with that tag.
 
+## Redirected to `/users/login` (Stack Overflow Enterprise and similar)
+The internal site is read through its **REST API only**; the app never signs in through a browser for it. So:
+
+- A redirect to the site's **login page** (`/users/login`, `/login`, SSO, SAML, Okta, Entra ID, ...) is **never followed**. The key and token are not sent on to it.
+- If **Site address** is the website (`https://<site>` or `https://<site>/questions`), the app tries the standard API address
+  **`https://<site>/api/2.3`** once by itself. If that answers with JSON it is used, and the collect notes say so; put that address in *Site address* to skip the extra try.
+- If the API itself still redirects to the login page, the error says so plainly and lists what to check:
+  1. *Site address* is the API address (`https://<site>/api/2.3`);
+  2. the **access key** variable is set for the app;
+  3. the **access token** variable is set, the token is not expired and has read access (a private site usually needs both key and token);
+  4. after setting a variable, start the app again **from a new terminal**.
+
 ## "The site sends visitors to a sign-in page" (single sign-on)
 A program cannot complete a browser sign-in (redirects, an SSO page, MFA), and this app deliberately does not try to get around one. The sign-in step and the raw-answer card
 name the system they end at (Microsoft Entra ID / Azure AD, AD FS, Okta, Keycloak, Auth0, Ping, SAML, ... ) and say what a program needs from it.
@@ -111,7 +123,7 @@ connection check (the *Sign-in* step), in the raw-answer card and in the real co
 - Up to **5 redirects in a row**; every hop is shown (without query strings or secrets), for example `307 to https://gateway.corp.com/api/2.3/info`.
 - When the API address redirects to another place, that final place is **used directly from then on** (no repeated redirect on every call).
 - If a redirect on the same host leaves out the query string (where the API key lives), the original one is carried over.
-- The chain can end at a **sign-in page** (single sign-on): the *Sign-in* step then reports "sends visitors to a sign-in page" and what is needed, instead of an unclear redirect message.
+- A redirect to a **sign-in page** is not followed during collection (see "Redirected to `/users/login`" above); the error says what to check instead of an unclear redirect message.
 - If a redirect leads to an address this computer cannot reach, the message says which redirect led there.
 
 Safety rules that stay on: a redirect **from https down to plain http is never followed**; redirects in a circle stop; credentials (the key and token) **are sent along** to wherever a followed redirect leads,

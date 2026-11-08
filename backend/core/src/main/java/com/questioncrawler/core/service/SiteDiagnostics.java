@@ -490,7 +490,18 @@ public final class SiteDiagnostics {
     // ================================================================== stage 3: sign-in / permission
 
     /** Facts and needs for "the site sends programs to a sign-in page": names the system and what to ask for. */
-    private static void signInFindings(Probe home, List<Fact> facts, List<Need> needs) {
+    private static void signInFindings(Input in, Probe home, List<Fact> facts, List<Need> needs) {
+        var named = SignInSystem.identify(home.url(), home.header("location"));
+        if ("live".equals(in.sourceType())) {
+            named.ifPresent(sys -> facts.add(new Fact("Sign-in system", sys.name() + " (the website's; not used by this app)")));
+            // The internal Q&A site is read through its REST API only: the website's login page is expected and not used.
+            String api = com.questioncrawler.core.source.StackExchangeAdapter.apiAddressFor(in.target());
+            needs.add(new Need("The API address", "The website sends visitors to its sign-in page; this app does not sign in there. Put the REST API address in 'Site address'"
+                    + (api != null ? ", for example " + api : " (it normally ends in /api/2.3)") + ".", "You (the site's API documentation)"));
+            needs.add(new Need("An access key and an access token for the API", "Set them in the environment variables named in 'Access key variable' and 'Access token variable', then start the app again from a new terminal.",
+                    "You (the site's API / app settings page) or the site owners"));
+            return;
+        }
         var system = SignInSystem.identify(home.url(), home.header("location"));
         system.ifPresent(sys -> facts.add(new Fact("Sign-in system", sys.name())));
         needs.add(new Need("A way for a program to sign in" + system.map(sys -> " to " + sys.name()).orElse(""),
@@ -531,7 +542,7 @@ public final class SiteDiagnostics {
         }
         if (redirected && LOGIN_WORDS.matcher(home.url()).find()) {
             List<Need> needs = new ArrayList<>();
-            signInFindings(home, facts, needs);
+            signInFindings(in, home, facts, needs);
             return stage("access", title, q, "WARN", "The site sends visitors to a sign-in page (through " + home.chain().size() + " redirect" + (home.chain().size() == 1 ? "" : "s") + "). Reading content requires an approved login.", facts, needs, t0);
         }
         boolean tokenConfigured = in.authMethod() != null && in.authMethod().equals("token");
@@ -557,7 +568,7 @@ public final class SiteDiagnostics {
             facts.add(new Fact("Redirects to", loc == null ? "unknown" : hostAndPath(loc)));
             if (loc != null && LOGIN_WORDS.matcher(loc).find()) {
                 List<Need> needs = new ArrayList<>();
-                signInFindings(home, facts, needs);
+                signInFindings(in, home, facts, needs);
                 return stage("access", title, q, "WARN", "The site sends visitors to a sign-in page. Reading content requires an approved login.", facts, needs, t0);
             }
             return stage("access", title, q, "INFO", "The address redirects elsewhere and the redirect was not followed: " + (home.stop() == null ? "unknown reason" : home.stop()) + ".", facts,

@@ -94,7 +94,7 @@ public final class StackExchangeAdapter implements SourceAdapter {
         this.api = settings.api();
         this.bodyFilter = settings.api().bodyFilter();
         this.settings = settings;
-        this.client = client;
+        this.client = client.stopAtSignInPages(); // REST only: a redirect to the site's login page is never followed
         this.env = env;
         this.sleeper = sleeper;
         this.apiBase = settings.baseUrl().endsWith("/") ? settings.baseUrl().substring(0, settings.baseUrl().length() - 1) : settings.baseUrl();
@@ -952,7 +952,82 @@ public final class StackExchangeAdapter implements SourceAdapter {
 
     private JsonNode callOnce(String path, Map<String, String> params) throws SourceException {
         awaitBackoff();
-        StringBuilder url = new StringBuilder(apiBase).append(path);
+        Map<String, String> headers = new LinkedHashMap<>();
+        String url = requestUrl(apiBase, path, params, headers);
+        HttpSourceClient.Response response = client.exchange(url, headers);
+        if (!jsonObject(response) && !triedApiAddress) {
+            // The address entered is probably the website (it sends programs to /users/login): try the standard API address once.
+            triedApiAddress = true;
+            String candidate = apiAddressFor(apiBase);
+            if (candidate != null) {
+                try {
+                    Map<String, String> altHeaders = new LinkedHashMap<>();
+                    String altUrl = requestUrl(candidate, path, params, altHeaders);
+                    HttpSourceClient.Response alt = client.exchange(altUrl, altHeaders);
+                    if (jsonObject(alt)) {
+                        notes.add("The site address " + ResponseInspector.withoutQuery(apiBase) + " is the website, not the API; the API at " + candidate
+                                + " is used instead. Put " + candidate + " in 'Site address' to skip this step.");
+                        redirectedFrom = apiBase;
+                        apiBase = candidate;
+                        response = alt;
+                        url = altUrl;
+                    }
+                } catch (SourceException ignored) {
+                    // not allowed or not reachable: explain the original answer below
+                }
+            }
+        }
+        JsonNode root = parseBody(response, url);
+        if (response.status() < 200 || response.status() >= 300) {
+            throw mapError(response, root, url);
+        }
+        learnBase(path, response);
+        if (root.has("quota_remaining")) {
+            quotaRemaining.set(root.get("quota_remaining").asInt());
+        }
+        int backoff = root.path("backoff").asInt(0);
+        if (backoff > 0) {
+            backoffUntilMillis.accumulateAndGet(System.currentTimeMillis() + backoff * 1000L, Math::max);
+        }
+        return root;
+    }
+
+    private volatile boolean triedApiAddress;
+
+    private static boolean jsonObject(HttpSourceClient.Response r) {
+        try {
+            JsonNode n = Json.MAPPER.readTree(ResponseInspector.stripNoise(r.body()));
+            return n != null && n.isObject();
+        } catch (java.io.IOException | RuntimeException e) {
+            return false;
+        }
+    }
+
+    /**
+     * The standard API address for a website address: https://site[/context]/api/2.3 (Stack Overflow Enterprise and
+     * Stack Exchange 2.3 style APIs). Null when the address already points at an API.
+     */
+    public static String apiAddressFor(String base) {
+        try {
+            java.net.URI u = java.net.URI.create(base);
+            if (u.getScheme() == null || u.getHost() == null) {
+                return null;
+            }
+            String p = u.getRawPath() == null ? "" : u.getRawPath();
+            if (java.util.regex.Pattern.compile("(?i)/api(/|$)").matcher(p).find()) {
+                return null;
+            }
+            Matcher tail = java.util.regex.Pattern.compile("(?i)/(questions|users|posts|tags|search|unanswered|c|articles|collections)(/|$)").matcher(p);
+            String prefix = (tail.find() ? p.substring(0, tail.start()) : p).replaceAll("/+$", "");
+            return u.getScheme() + "://" + u.getRawAuthority() + prefix + "/api/2.3";
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    /** The request address (key and token in the query, or the key in a header, as configured). */
+    private String requestUrl(String base, String path, Map<String, String> params, Map<String, String> headers) {
+        StringBuilder url = new StringBuilder(base).append(path);
         char sep = '?';
         if (site != null && !site.isBlank()) {
             url.append(sep).append("site=").append(enc(site));
@@ -962,7 +1037,6 @@ public final class StackExchangeAdapter implements SourceAdapter {
             url.append(sep).append(e.getKey()).append('=').append(enc(e.getValue()));
             sep = '&';
         }
-        Map<String, String> headers = new LinkedHashMap<>();
         String key = settings.apiKeyEnv() == null || settings.apiKeyEnv().isBlank() ? null : env.apply(settings.apiKeyEnv());
         if (key != null && !key.isBlank()) {
             if ("header".equals(api.keyIn())) {
@@ -976,20 +1050,7 @@ public final class StackExchangeAdapter implements SourceAdapter {
         if (token != null && !token.isBlank()) {
             url.append(sep).append("access_token=").append(enc(token));
         }
-        HttpSourceClient.Response response = client.exchange(url.toString(), headers);
-        JsonNode root = parseBody(response, url.toString());
-        if (response.status() < 200 || response.status() >= 300) {
-            throw mapError(response, root, url.toString());
-        }
-        learnBase(path, response);
-        if (root.has("quota_remaining")) {
-            quotaRemaining.set(root.get("quota_remaining").asInt());
-        }
-        int backoff = root.path("backoff").asInt(0);
-        if (backoff > 0) {
-            backoffUntilMillis.accumulateAndGet(System.currentTimeMillis() + backoff * 1000L, Math::max);
-        }
-        return root;
+        return url.toString();
     }
 
     private void awaitBackoff() throws SourceException {
@@ -1081,12 +1142,16 @@ public final class StackExchangeAdapter implements SourceAdapter {
         if (node != null && node.isObject()) {
             return node;
         }
+        boolean toLogin = (Redirects.isRedirect(response.status()) && Redirects.isSignInAddress(response.location()))
+                || Redirects.isSignInAddress(response.finalUrl());
+        if (toLogin) {
+            throw new SourceException(SourceException.Kind.AUTH_FAILED, signInRedirectMessage(response, null));
+        }
         if (Redirects.isRedirect(response.status()) && response.redirectStop() != null) {
             boolean login = response.location() != null && java.util.regex.Pattern.compile("(?i)login|signin|sign-in|sso|saml|oauth|authorize|adfs|okta").matcher(response.location()).find();
             throw new SourceException(login ? SourceException.Kind.AUTH_FAILED : SourceException.Kind.FATAL,
                     "The site redirected the request (HTTP " + response.status() + ") to " + ResponseInspector.withoutQuery(String.valueOf(response.location())) + " but it was not followed: " + response.redirectStop() + ". "
-                            + (login ? "The redirect leads to a sign-in page, so the API wants credentials that were not accepted. "
-                                    + SignInSystem.identify(response.location()).map(x -> x.sentence() + " ").orElse("") : "")
+                            + (login ? "The redirect leads to a sign-in page, so the API did not accept the access key / token. " : "")
                             + (response.redirects().isEmpty() ? "" : "Followed before that: " + String.join("; ", response.redirects()) + ". ")
                             + "(On the Connect screen, 'See what the API really answers' shows the whole chain.)");
         }
@@ -1109,10 +1174,53 @@ public final class StackExchangeAdapter implements SourceAdapter {
                 ? " The site said: \"" + inspection.preview().strip() + "\"." : "";
         String via = response.redirects().isEmpty() ? "" : " (after redirects: " + String.join(", ", response.redirects()) + ")";
         if (inspection.kind().equals("HTML_LOGIN")) {
-            via += SignInSystem.identify(response.finalUrl(), response.location()).map(x -> " " + x.sentence()).orElse("");
+            throw new SourceException(SourceException.Kind.AUTH_FAILED, signInRedirectMessage(response, inspection.summary()));
         }
         throw new SourceException(kind, "The API did not answer with JSON. " + inspection.summary() + via + said + hint
                 + " (On the Connect screen, 'See what the API really answers' shows the full answer.)");
+    }
+
+    /** "The API sent us to the login page": what that means for a REST-only source and exactly what to check. */
+    private String signInRedirectMessage(HttpSourceClient.Response response, String pageSummary) {
+        boolean redirect = Redirects.isRedirect(response.status()) || !response.redirects().isEmpty();
+        String where = String.valueOf(response.finalUrl());
+        if (Redirects.isRedirect(response.status()) && response.location() != null) {
+            try {
+                where = response.finalUrl() == null ? response.location() : java.net.URI.create(response.finalUrl()).resolve(response.location().strip()).toString();
+            } catch (IllegalArgumentException e) {
+                where = response.location();
+            }
+        }
+        where = ResponseInspector.withoutQuery(where);
+        String keyEnv = settings.apiKeyEnv();
+        String tokenEnv = api.accessTokenEnv();
+        boolean keySet = keyEnv != null && !keyEnv.isBlank() && env.apply(keyEnv) != null && !env.apply(keyEnv).isBlank();
+        boolean tokenSet = tokenEnv != null && !tokenEnv.isBlank() && env.apply(tokenEnv) != null && !env.apply(tokenEnv).isBlank();
+        String suggested = apiAddressFor(apiBase);
+        StringBuilder m = new StringBuilder(redirect
+                ? "The site redirected the request to its sign-in page (" + where + ") instead of answering"
+                : "The site answered with its sign-in page instead of data");
+        if (!response.redirects().isEmpty()) {
+            m.append(" (after redirects: ").append(String.join(", ", response.redirects())).append(')');
+        }
+        if (pageSummary != null && !pageSummary.isBlank()) {
+            m.append(". ").append(pageSummary.strip().replaceAll("\\.$", ""));
+        }
+        SignInSystem.identify(response.finalUrl(), response.location()).ifPresent(sys -> m.append(". The site's sign-in is ").append(sys.name()));
+        m.append(". The API did not accept the request as signed in. This app reads the site through its REST API only (no browser sign-in), "
+                + "so the API has to accept the access key and access token. Check: ");
+        m.append("(1) 'Site address' is the API address, for example ").append(suggested != null ? suggested : "https://<your-site>/api/2.3")
+                .append(" (now: ").append(ResponseInspector.withoutQuery(apiBase)).append(")");
+        if (suggested != null) {
+            m.append(" - that address was tried as well and did not answer with JSON");
+        }
+        m.append("; (2) the access key: ").append(keyEnv == null || keyEnv.isBlank() ? "no variable name is set in 'Access key variable'"
+                : keySet ? "found in " + keyEnv : "the variable " + keyEnv + " is empty or not set for this app");
+        m.append("; (3) the access token: ").append(tokenEnv == null || tokenEnv.isBlank() ? "no variable name is set in 'Access token variable' (a private site usually needs one)"
+                : tokenSet ? "found in " + tokenEnv + " - if it still fails, it may be expired or lack read access: create a new one" : "the variable " + tokenEnv + " is empty or not set for this app");
+        m.append("; (4) after setting a variable, start the app again from a new terminal so it sees it."
+                + " (On the Connect screen, 'See what the API really answers' shows the full answer.)");
+        return m.toString();
     }
 
     // ================================================================== mapping

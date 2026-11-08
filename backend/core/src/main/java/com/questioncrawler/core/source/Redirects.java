@@ -97,6 +97,20 @@ public final class Redirects {
         return new Step(target, null);
     }
 
+    private static final java.util.regex.Pattern SIGN_IN_ADDRESS = java.util.regex.Pattern.compile(
+            "/users/login|/users/signin|/account/login|/login|/logon|/signin|/sign-in|/sso\\b|/saml|/oauth|/authorize|/adfs/|wsignin|/openid|"
+                    + "login\\.microsoftonline\\.com|\\.okta\\.com|\\.auth0\\.com|^https?://(login|sso|signin|auth|idp)\\.",
+            java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    /** True for the address of a sign-in page (for example /users/login?returnurl=... on Stack Overflow Enterprise). */
+    public static boolean isSignInAddress(String url) {
+        if (url == null || url.isBlank()) {
+            return false;
+        }
+        String noQuery = url.split("[?#]", 2)[0];
+        return SIGN_IN_ADDRESS.matcher(noQuery).find();
+    }
+
     /** An address without its query string and credentials: safe to show and to log. */
     public static String show(URI uri) {
         StringBuilder out = new StringBuilder();

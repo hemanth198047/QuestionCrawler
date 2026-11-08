@@ -106,6 +106,18 @@ public final class HttpSourceClient {
         this.http = builder.build();
     }
 
+    private volatile boolean stopAtSignIn;
+
+    /**
+     * Never follow a redirect to a sign-in page (REST-only sources such as the internal Q&A site): the redirect itself
+     * is returned, so the caller can explain that the key / token was not accepted. The query string, which carries
+     * the key and token, is then never sent on to the sign-in page either.
+     */
+    public HttpSourceClient stopAtSignInPages() {
+        this.stopAtSignIn = true;
+        return this;
+    }
+
     /** GET that returns only on 2xx; every other outcome is thrown as a classified {@link SourceException}. */
     public Response get(String url) throws SourceException {
         Response response = exchange(url);
@@ -177,6 +189,10 @@ public final class HttpSourceClient {
             Redirects.Step step = Redirects.next(current, r.location(), first, settings.api().redirectMode(), visited, hops);
             if (step.follow() && !"https".equalsIgnoreCase(step.target().getScheme()) && !settings.allowInsecureHttp()) {
                 step = new Redirects.Step(null, "the redirect leads to unencrypted http (" + Redirects.show(step.target()) + ") and source.allowInsecureHttp is off");
+            }
+            if (step.follow() && stopAtSignIn && Redirects.isSignInAddress(step.target().toString())) {
+                step = new Redirects.Step(null, "it leads to the site's sign-in page (" + Redirects.show(step.target())
+                        + "), which a program cannot use: the API has to accept the access key / token instead");
             }
             if (!step.follow()) {
                 return r.after(current.toString(), chain, step.stopReason());

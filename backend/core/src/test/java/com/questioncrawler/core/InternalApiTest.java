@@ -1138,7 +1138,7 @@ class InternalApiTest {
         redirectMode = "login";
         SourceException e = assertThrows(SourceException.class, () -> config("").createAdapter(env()).ping());
         assertEquals(SourceException.Kind.AUTH_FAILED, e.kind());
-        assertTrue(e.getMessage().contains("sign-in page") && e.getMessage().contains("after redirects: 307 to http://127.0.0.1:") && e.getMessage().contains("/sso/login"), e.getMessage());
+        assertTrue(e.getMessage().contains("redirected the request to its sign-in page (http://127.0.0.1:") && e.getMessage().contains("/sso/login)"), e.getMessage());
         assertFalse(e.getMessage().contains("returnUrl") || e.getMessage().contains(KEY));
     }
 
@@ -1194,7 +1194,9 @@ class InternalApiTest {
     void aRedirectToAnAddressThatCannotBeReachedSaysWhichRedirectLedThere() throws Exception {
         infoMode = "redirect"; // leads to https://sso.example.com/login, which does not exist here
         SourceException e = assertThrows(SourceException.class, () -> config("").createAdapter(env()).ping());
-        assertTrue(e.getMessage().contains("redirected the request (302 to https://sso.example.com/login)") && e.getMessage().contains("could not be used"), e.getMessage());
+        // The sign-in page is never requested: the error says where the redirect led and what to check instead.
+        assertEquals(SourceException.Kind.AUTH_FAILED, e.kind());
+        assertTrue(e.getMessage().contains("redirected the request to its sign-in page (https://sso.example.com/login)"), e.getMessage());
         assertFalse(e.getMessage().contains(KEY));
     }
 
@@ -1231,7 +1233,7 @@ class InternalApiTest {
         redirectMode = "login-keycloak";
         SourceException e = assertThrows(SourceException.class, () -> config("").createAdapter(env()).ping());
         assertEquals(SourceException.Kind.AUTH_FAILED, e.kind());
-        assertTrue(e.getMessage().contains("Keycloak") && e.getMessage().contains("cannot complete a browser sign-in"), e.getMessage());
+        assertTrue(e.getMessage().contains("Keycloak") && e.getMessage().contains("REST API only (no browser sign-in)"), e.getMessage());
     }
 
     @Test
@@ -1240,10 +1242,11 @@ class InternalApiTest {
         var access = workspace("si2", env()).checkConnection(Map.of("source.type", "live", "source.baseUrl", origin + "/start", "source.allowInsecureHttp", "true", "source.timeoutSeconds", "5"))
                 .stages().stream().filter(x -> x.id().equals("access")).findFirst().orElseThrow();
         assertEquals("WARN", access.status());
-        assertTrue(access.facts().stream().anyMatch(f -> f.label().equals("Sign-in system") && f.value().equals("Keycloak")), access.facts().toString());
-        assertTrue(access.needs().stream().anyMatch(n -> n.what().contains("A way for a program to sign in to Keycloak") && n.who().contains("IT identity team")), access.needs().toString());
-        assertTrue(access.needs().stream().anyMatch(n -> n.what().contains("address of the API that accepts a token")));
-        assertTrue(access.needs().stream().anyMatch(n -> n.what().contains("What to ask for") && n.why().contains("ID and secret")), access.needs().toString());
+        assertTrue(access.facts().stream().anyMatch(f -> f.label().equals("Sign-in system") && f.value().startsWith("Keycloak")), access.facts().toString());
+        // The internal site is read through its REST API only: the website's sign-in is not something to set up.
+        assertTrue(access.needs().stream().anyMatch(n -> n.what().equals("The API address") && n.why().contains("/api/2.3")), access.needs().toString());
+        assertTrue(access.needs().stream().anyMatch(n -> n.what().contains("access key and an access token")), access.needs().toString());
+        assertTrue(access.needs().stream().noneMatch(n -> n.what().contains("A way for a program to sign in")), access.needs().toString());
     }
 
     @Test
@@ -1257,7 +1260,7 @@ class InternalApiTest {
         assertEquals("PASS", data.status(), data.summary());
         assertEquals("PASS", access.status(), access.summary());
         assertTrue(access.summary().contains("REST API accepts our access key"), access.summary());
-        assertTrue(access.facts().stream().anyMatch(f -> f.label().equals("Sign-in system") && f.value().equals("Keycloak")), "what the website uses is still shown");
+        assertTrue(access.facts().stream().anyMatch(f -> f.label().equals("Sign-in system") && f.value().startsWith("Keycloak")), "what the website uses is still shown");
         assertEquals("REST_API", report.route().kind());
     }
 
