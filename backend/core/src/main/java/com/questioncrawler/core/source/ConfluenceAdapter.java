@@ -96,6 +96,8 @@ public final class ConfluenceAdapter implements SourceAdapter, BrowserSignIn {
     /** An adapter that signs in through {@code login} (the person's browser) and sends its session cookies. */
     public static ConfluenceAdapter withBrowserLogin(SourceSettings settings, ConfluenceOptions options, Function<String, String> env, BrowserLogin login) {
         ConfluenceAdapter[] self = new ConfluenceAdapter[1];
+        String root = resolveApiRoot(trimSlash(settings.baseUrl()), options);
+        login.withContentCheck(List.of(root + (options.v2() ? "/spaces?limit=1" : "/space?limit=1")));
         HttpSourceClient client = new HttpSourceClient(settings, env, () -> login.cookieHeader(self[0]::sessionAccepted));
         self[0] = new ConfluenceAdapter(settings, options, client, env, null).withBrowser(login);
         return self[0];

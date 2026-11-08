@@ -30,7 +30,7 @@ export function SignInWindowHint({ active }: { active: boolean }) {
   return (
     <Banner tone="info" title="Finish signing in in the browser window"
       action={<Button size="sm" icon={<AppWindow size={15} />} onClick={() => { void showSignInWindow() }}>Show the sign-in window</Button>}>
-      A browser window opened with your company login page. Sign in there as usual (password, MFA). It closes by itself when the site lets you in, and the app carries on.
+      A browser window opened with your company login page. Sign in there as usual (password, MFA). Leave it open: it closes by itself as soon as the site shows its content (if your site signs you in with your Windows login, it is minimised instead and the app reads through it), and the app carries on.
       If you do not see it, press “Show the sign-in window”.
     </Banner>
   )

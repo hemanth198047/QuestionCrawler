@@ -130,6 +130,28 @@ public final class HttpSourceClient {
     /** As {@link #exchange(String)} with extra request headers (for example an API key sent as a header). */
     public Response exchange(String url, Map<String, String> extraHeaders) throws SourceException {
         URI first = checkAllowed(url);
+        boolean testingASession = extraHeaders.keySet().stream().anyMatch(k -> k.equalsIgnoreCase("Cookie"));
+        if ("browser".equalsIgnoreCase(settings.authMethod()) && bearer != null && !testingASession) {
+            bearer.token(); // sign in first (opens the window when needed), so the request below knows how to reach the site
+        }
+        // A site that only lets the browser in (Windows sign-in, client certificate, ...): read it through that window.
+        BrowserLogin.Session window = testingASession ? null : BrowserLogin.transportFor(first);
+        if (window != null) {
+            Map<String, String> headers = new java.util.LinkedHashMap<>();
+            extraHeaders.forEach((k, v) -> {
+                if (!k.equalsIgnoreCase("Cookie")) {
+                    headers.put(k, v);
+                }
+            });
+            try {
+                Response viaBrowser = window.fetchInPage(url, BrowserLogin.originOf(first), headers);
+                if (viaBrowser != null) {
+                    return viaBrowser;
+                }
+            } catch (IOException e) {
+                throw new SourceException(SourceException.Kind.TRANSIENT, "The browser window could not load " + describe(first) + ": " + e.getMessage(), null, e);
+            }
+        }
         URI current = first;
         java.util.Set<String> visited = new HashSet<>();
         visited.add(current.toString());

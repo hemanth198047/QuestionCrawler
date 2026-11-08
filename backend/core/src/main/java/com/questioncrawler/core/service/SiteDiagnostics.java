@@ -1281,6 +1281,17 @@ public final class SiteDiagnostics {
     private Probe get(Input in, String url, boolean withToken) {
         long t0 = System.nanoTime();
         List<String> chain = new ArrayList<>();
+        try { // the site is read through the signed-in browser window (Windows sign-in): probe it the same way
+            var window = com.questioncrawler.core.source.BrowserLogin.transportFor(URI.create(url));
+            var r = window == null ? null : window.fetchInPage(url, com.questioncrawler.core.source.BrowserLogin.originOf(URI.create(url)), Map.of());
+            if (r != null) {
+                Map<String, List<String>> headers = new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+                headers.put("content-type", List.of(r.contentType() == null ? "" : r.contentType()));
+                return new Probe(r.finalUrl() == null ? url : r.finalUrl(), r.status(), headers, r.body(), (System.nanoTime() - t0) / 1_000_000, null, r.redirects(), null);
+            }
+        } catch (java.io.IOException | RuntimeException ignored) {
+            // fall back to a normal request
+        }
         try {
             HttpClient.Builder b = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(Math.max(1, in.timeoutSeconds()))).followRedirects(HttpClient.Redirect.NEVER);
             ProxyConfig proxy = effectiveProxy(in, URI.create(url).getHost());

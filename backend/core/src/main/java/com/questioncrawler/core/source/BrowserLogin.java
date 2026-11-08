@@ -56,6 +56,18 @@ public final class BrowserLogin {
         default void bringToFront() {
         }
 
+        /**
+         * Loads an address INSIDE the browser (from a page of {@code origin}), so everything the browser uses to sign you in
+         * applies: cookies, your Windows login (Kerberos/NTLM), client certificates. Null when this session cannot do it.
+         */
+        default HttpSourceClient.Response fetchInPage(String url, String origin, Map<String, String> headers) throws IOException {
+            return null;
+        }
+
+        /** Minimises the window (it stays open so the app can keep reading through it). */
+        default void minimize() {
+        }
+
         @Override
         void close();
     }
@@ -80,11 +92,19 @@ public final class BrowserLogin {
     private final Clock clock;
     private volatile String header;
     private volatile Instant signedInAt;
+    /** Set when the site only works inside the browser (for example Windows sign-in): requests go through this window. */
+    private volatile Session readsThroughBrowser;
+    private final String origin;
+    private volatile List<String> contentUrls = List.of();
+    /** Marker "cookie" while reading through the browser (requests are routed through the window, not sent with it). */
+    static final String THROUGH_BROWSER = "qc-reads-through-browser=1";
     private int logins;
     private String lastStatus = "not signed in yet";
 
     public BrowserLogin(String siteBase, String startUrl, Launcher launcher, Duration timeout, Duration pollEvery, Clock clock) {
         this.host = URI.create(siteBase).getHost().toLowerCase(Locale.ROOT);
+        URI base = URI.create(siteBase);
+        this.origin = base.getScheme().toLowerCase(Locale.ROOT) + "://" + base.getRawAuthority().toLowerCase(Locale.ROOT);
         this.startUrl = startUrl;
         this.launcher = launcher;
         this.timeout = timeout;
@@ -108,6 +128,64 @@ public final class BrowserLogin {
         String key = siteBase.toLowerCase(Locale.ROOT) + "|" + startUrl + "|" + b.path() + "|" + b.profileDir();
         return BY_SITE.computeIfAbsent(key, k -> new BrowserLogin(siteBase, startUrl,
                 new ChromeLauncher(b, env), Duration.ofSeconds(b.timeoutSeconds()), Duration.ofSeconds(2), Clock.systemUTC()));
+    }
+
+    /**
+     * Addresses that show content only when signed in (for example the question list or an API call). When the browser
+     * window shows the site but its cookies alone do not work for the app (Windows sign-in), these are loaded inside the
+     * browser instead, and the app keeps reading through the browser.
+     */
+    public BrowserLogin withContentCheck(List<String> urls) {
+        this.contentUrls = urls == null ? List.of() : List.copyOf(urls);
+        return this;
+    }
+
+    /** True when the app reads this site through the browser window (the site signs you in in a way only the browser can). */
+    public boolean readsThroughBrowser() {
+        Session s = readsThroughBrowser;
+        return s != null && s.alive();
+    }
+
+    /** A browser window to read an address through, when its site only works inside the browser; null otherwise. */
+    public static Session transportFor(URI uri) {
+        if (uri == null || uri.getHost() == null) {
+            return null;
+        }
+        String o = uri.getScheme().toLowerCase(Locale.ROOT) + "://" + uri.getRawAuthority().toLowerCase(Locale.ROOT);
+        for (BrowserLogin login : ALL) {
+            Session s = login.readsThroughBrowser;
+            if (s != null && login.origin.equals(o)) {
+                if (s.alive()) {
+                    return s;
+                }
+                login.dropBrowserReading(); // the person closed the minimised window: sign in again when needed
+            }
+        }
+        return null;
+    }
+
+    public static String originOf(URI uri) {
+        return uri.getScheme().toLowerCase(Locale.ROOT) + "://" + uri.getRawAuthority().toLowerCase(Locale.ROOT);
+    }
+
+    private synchronized void dropBrowserReading() {
+        Session s = readsThroughBrowser;
+        readsThroughBrowser = null;
+        if (THROUGH_BROWSER.equals(header)) {
+            header = null;
+        }
+        if (s != null) {
+            s.close();
+        }
+    }
+
+    static {
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> ALL.forEach(l -> {
+            Session s = l.readsThroughBrowser;
+            if (s != null) {
+                s.close(); // the minimised reading window closes with the app
+            }
+        }), "close-browser-sign-in"));
     }
 
     /**
@@ -217,6 +295,9 @@ public final class BrowserLogin {
     /** Forgets the session if it is still the one that was rejected (another thread may already have signed in again). */
     public synchronized void invalidate(String rejected) {
         if (rejected == null || rejected.equals(header)) {
+            if (readsThroughBrowser != null) {
+                dropBrowserReading();
+            }
             header = null;
             lastStatus = "the session expired; sign in again";
         }
@@ -227,6 +308,10 @@ public final class BrowserLogin {
     }
 
     public synchronized String status() {
+        if (header != null && readsThroughBrowser != null) {
+            return "signed in through the browser at " + signedInAt + " (the site signs you in with your Windows/browser login, so the app reads "
+                    + host + " through that browser window, kept minimised; it closes when the app stops)";
+        }
         return header == null ? lastStatus : "signed in through the browser at " + signedInAt + " (cookies for " + host + ", values not shown)";
     }
 
@@ -254,7 +339,16 @@ public final class BrowserLogin {
         Instant deadline = clock.instant().plus(timeout);
         lastStatus = "waiting for you to sign in in the browser window";
         LOG.log(System.Logger.Level.INFO, "Opening the browser sign-in window at {0}", startUrl);
-        try (Session session = launcher.open(startUrl)) {
+        Session session;
+        try {
+            session = launcher.open(startUrl);
+        } catch (IOException e) {
+            lastStatus = "the browser could not be opened";
+            LOG.log(System.Logger.Level.WARNING, "The browser sign-in window could not be opened: " + e.getMessage(), e);
+            throw new SourceException(SourceException.Kind.AUTH_FAILED, "Could not open a browser for signing in: " + e.getMessage(), null, e);
+        }
+        boolean keep = false;
+        try {
             openWindow = session;
             Instant opened = clock.instant();
             int fronted = 0;
@@ -266,7 +360,13 @@ public final class BrowserLogin {
                     session.bringToFront();
                     fronted++;
                 }
-                String candidate = headerFor(session.cookies());
+                // 1. The browser's cookies work for the app's own requests: take them and close the window.
+                String candidate;
+                try {
+                    candidate = headerFor(session.cookies());
+                } catch (IOException e) {
+                    candidate = "";
+                }
                 if (!candidate.isEmpty() && prober.accepted(candidate)) {
                     LOG.log(System.Logger.Level.INFO, "Signed in through the browser; closing the sign-in window");
                     signedInAt = clock.instant(); // before header: readers that see the header also see when
@@ -275,23 +375,53 @@ public final class BrowserLogin {
                     lastStatus = "signed in";
                     return;
                 }
+                // 2. The window shows the site's content, but its cookies alone are not enough (Windows/Kerberos sign-in,
+                //    client certificate, ...): read through the browser itself, keeping the window minimised.
+                if (showsContentInBrowser(session)) {
+                    LOG.log(System.Logger.Level.INFO, "The site signs you in inside the browser (no usable cookie): the app reads "
+                            + "through the browser window, now minimised");
+                    session.minimize();
+                    readsThroughBrowser = session;
+                    keep = true;
+                    signedInAt = clock.instant();
+                    header = THROUGH_BROWSER;
+                    logins++;
+                    lastStatus = "signed in";
+                    return;
+                }
                 if (!session.alive()) {
                     lastStatus = "the sign-in window was closed before signing in";
                     throw new SourceException(SourceException.Kind.AUTH_FAILED,
-                            "The sign-in window was closed before the site accepted the login. Try again and finish signing in.");
+                            "The sign-in window was closed before the app could confirm the sign-in. Try again and leave the window open: "
+                                    + "it closes (or minimises) by itself as soon as the site shows its content.");
                 }
                 sleep(pollEvery);
             }
-        } catch (IOException e) {
-            lastStatus = "the browser could not be opened";
-            LOG.log(System.Logger.Level.WARNING, "The browser sign-in window could not be opened: " + e.getMessage(), e);
-            throw new SourceException(SourceException.Kind.AUTH_FAILED, "Could not open a browser for signing in: " + e.getMessage(), null, e);
         } finally {
-            openWindow = null; // the window closes as soon as the site lets you in (try-with-resources)
+            openWindow = null;
+            if (!keep) {
+                session.close(); // the window closes as soon as the site lets you in
+            }
         }
         lastStatus = "sign-in timed out";
         throw new SourceException(SourceException.Kind.AUTH_FAILED,
-                "Nobody finished signing in within " + timeout.toMinutes() + " minutes (source.confluence.browser.timeoutSeconds).");
+                "Nobody finished signing in within " + timeout.toMinutes() + " minutes (source.browser.timeoutSeconds).");
+    }
+
+    /** Whether the content addresses load inside the browser window (the site lets the browser in). */
+    private boolean showsContentInBrowser(Session session) {
+        List<String> urls = contentUrls.isEmpty() ? List.of(origin + "/") : contentUrls;
+        for (String url : urls) {
+            try {
+                HttpSourceClient.Response r = session.fetchInPage(url, origin, Map.of());
+                if (r != null && showsContent(r)) {
+                    return true;
+                }
+            } catch (IOException | RuntimeException e) {
+                // the page is still on the login, or the window is busy
+            }
+        }
+        return false;
     }
 
     /** The cookies that the browser would send to this host, as one Cookie header. */
@@ -587,11 +717,113 @@ public final class BrowserLogin {
             }
         }
 
+        private volatile String pageSession;
+
+        /** A DevTools session attached to the browser's page (tab), for running things inside it. */
+        private String pageSession() throws IOException {
+            String s = pageSession;
+            if (s != null) {
+                return s;
+            }
+            String target = null;
+            for (JsonNode t : call("Target.getTargets", "{}").path("targetInfos")) {
+                if ("page".equals(t.path("type").asText())) {
+                    target = t.path("targetId").asText();
+                    break;
+                }
+            }
+            if (target == null) {
+                target = call("Target.createTarget", "{\"url\":\"about:blank\"}").path("targetId").asText();
+            }
+            s = call("Target.attachToTarget", "{\"targetId\":" + Json.MAPPER.writeValueAsString(target) + ",\"flatten\":true}").path("sessionId").asText();
+            pageSession = s;
+            return s;
+        }
+
+        private String evaluate(String expression, int seconds) throws IOException {
+            String params = "{\"expression\":" + Json.MAPPER.writeValueAsString(expression) + ",\"awaitPromise\":true,\"returnByValue\":true}";
+            JsonNode result;
+            try {
+                result = call("Runtime.evaluate", params, pageSession(), seconds);
+            } catch (IOException e) {
+                pageSession = null; // the tab may have changed: attach again next time
+                throw e;
+            }
+            if (result.has("exceptionDetails")) {
+                throw new IOException("the page could not run it: " + result.path("exceptionDetails").path("text").asText());
+            }
+            return result.path("result").path("value").asText(null);
+        }
+
+        @Override
+        public synchronized HttpSourceClient.Response fetchInPage(String url, String origin, Map<String, String> headers) throws IOException {
+            // Run from a page of the site itself, so the browser sends everything it signs in with.
+            String at = evaluate("location.origin", 10);
+            if (at == null || !at.equalsIgnoreCase(origin)) {
+                String here = evaluate("location.href", 10);
+                boolean onLogin = here != null && LOGIN_URL.matcher(here).find();
+                if (onLogin) {
+                    return null; // the person is still signing in: do not navigate away from the login
+                }
+                call("Page.navigate", "{\"url\":" + Json.MAPPER.writeValueAsString(origin + "/") + "}", pageSession(), 20);
+                long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+                while (System.nanoTime() < until) {
+                    try {
+                        Thread.sleep(300);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new IOException("interrupted");
+                    }
+                    String o = evaluate("document.readyState === 'complete' ? location.origin : ''", 10);
+                    if (o != null && o.equalsIgnoreCase(origin)) {
+                        break;
+                    }
+                }
+            }
+            String js = "(async (u, h) => { try { const r = await fetch(u, { credentials: 'include', headers: h });"
+                    + " const t = await r.text(); return JSON.stringify({ s: r.status, u: r.url, ty: r.headers.get('content-type') || '', r: r.redirected, b: t }); }"
+                    + " catch (e) { return JSON.stringify({ s: 0, e: String(e) }); } })(" + Json.MAPPER.writeValueAsString(url) + ", "
+                    + Json.MAPPER.writeValueAsString(headers == null ? Map.of() : headers) + ")";
+            String raw = evaluate(js, 120);
+            JsonNode r = Json.MAPPER.readTree(raw == null ? "{}" : raw);
+            int status = r.path("s").asInt(0);
+            if (status == 0) {
+                // Blocked on the way, typically a redirect to the company login on another site: sign in again.
+                return new HttpSourceClient.Response(302, "", null, "text/html", "about:login", null, url, List.of(), "redirect inside the browser");
+            }
+            String finalUrl = r.path("u").asText(url);
+            List<String> redirects = r.path("r").asBoolean(false) ? List.of("redirect to " + finalUrl) : List.of();
+            return new HttpSourceClient.Response(status, r.path("b").asText(""), null, r.path("ty").asText(""), null, null, finalUrl, redirects, null);
+        }
+
+        @Override
+        public void minimize() {
+            try {
+                String target = null;
+                for (JsonNode t : call("Target.getTargets", "{}").path("targetInfos")) {
+                    if ("page".equals(t.path("type").asText())) {
+                        target = t.path("targetId").asText();
+                        break;
+                    }
+                }
+                if (target != null) {
+                    int window = call("Browser.getWindowForTarget", "{\"targetId\":" + Json.MAPPER.writeValueAsString(target) + "}").path("windowId").asInt();
+                    call("Browser.setWindowBounds", "{\"windowId\":" + window + ",\"bounds\":{\"windowState\":\"minimized\"}}");
+                }
+            } catch (IOException ignored) {
+                // a visible window still works
+            }
+        }
+
         private JsonNode call(String method) throws IOException {
             return call(method, null);
         }
 
         private JsonNode call(String method, String paramsJson) throws IOException {
+            return call(method, paramsJson, null, 15);
+        }
+
+        private JsonNode call(String method, String paramsJson, String sessionId, int seconds) throws IOException {
             if (closed) {
                 throw new IOException("the browser window is closed");
             }
@@ -599,9 +831,12 @@ public final class BrowserLogin {
             CompletableFuture<JsonNode> answer = new CompletableFuture<>();
             pending.put(id, answer);
             try {
-                socket.sendText("{\"id\":" + id + ",\"method\":\"" + method + "\"" + (paramsJson == null ? "" : ",\"params\":" + paramsJson) + "}", true)
-                        .get(10, TimeUnit.SECONDS);
-                JsonNode reply = answer.get(15, TimeUnit.SECONDS);
+                String message = "{\"id\":" + id + ",\"method\":\"" + method + "\"" + (paramsJson == null ? "" : ",\"params\":" + paramsJson)
+                        + (sessionId == null ? "" : ",\"sessionId\":\"" + sessionId + "\"") + "}";
+                synchronized (socket) { // a WebSocket sends one message at a time
+                    socket.sendText(message, true).get(10, TimeUnit.SECONDS);
+                }
+                JsonNode reply = answer.get(seconds, TimeUnit.SECONDS);
                 if (reply.has("error")) {
                     throw new IOException("browser answered " + reply.path("error").path("message").asText("an error"));
                 }

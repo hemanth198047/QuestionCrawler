@@ -521,7 +521,7 @@ public record CoreConfig(
             }
             probeUrls.add(com.questioncrawler.core.source.HtmlQaAdapter.siteRoot(site) + "/questions");
             HttpSourceClient probeClient = new HttpSourceClient(source, env); // a request with a Cookie header skips the normal sign-in
-            login = com.questioncrawler.core.source.BrowserLogin.forSite(origin, start, b, env);
+            login = com.questioncrawler.core.source.BrowserLogin.forSite(origin, start, b, env).withContentCheck(probeUrls);
             probe = cookie -> {
                 for (String url : probeUrls) {
                     try {

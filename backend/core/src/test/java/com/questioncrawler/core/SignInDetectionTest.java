@@ -52,4 +52,49 @@ class SignInDetectionTest {
                 "the API itself answered: the company login was passed");
         assertFalse(BrowserLogin.showsContent(page(401, "application/json", "{}", "https://qa.corp.com/api/2.3/questions", List.of())));
     }
+
+    @Test
+    void aSiteThatOnlyLetsTheBrowserInIsReadThroughTheWindow() throws Exception {
+        // Already signed in (Windows sign-in): the window shows content, but no cookie works for the app's own requests.
+        java.util.concurrent.atomic.AtomicBoolean minimised = new java.util.concurrent.atomic.AtomicBoolean();
+        java.util.concurrent.atomic.AtomicBoolean closed = new java.util.concurrent.atomic.AtomicBoolean();
+        BrowserLogin.Launcher launcher = start -> new BrowserLogin.Session() {
+            @Override
+            public List<BrowserLogin.Cookie> cookies() {
+                return List.of(new BrowserLogin.Cookie("anon", "1", "winqa.example.com", "/"));
+            }
+
+            @Override
+            public boolean alive() {
+                return !closed.get();
+            }
+
+            @Override
+            public HttpSourceClient.Response fetchInPage(String url, String origin, java.util.Map<String, String> headers) {
+                return page(200, "text/html", "<div class=\"s-post-summary\" data-post-id=\"7\"></div>", url, List.of());
+            }
+
+            @Override
+            public void minimize() {
+                minimised.set(true);
+            }
+
+            @Override
+            public void close() {
+                closed.set(true);
+            }
+        };
+        BrowserLogin login = new BrowserLogin("https://winqa.example.com", "https://winqa.example.com/", launcher,
+                java.time.Duration.ofSeconds(10), java.time.Duration.ofMillis(10), java.time.Clock.systemUTC())
+                .withContentCheck(List.of("https://winqa.example.com/questions"));
+        login.cookieHeader(cookie -> false); // the cookies never work outside the browser
+        assertTrue(login.readsThroughBrowser());
+        assertTrue(minimised.get(), "the window is minimised, not closed");
+        assertFalse(closed.get());
+        assertTrue(BrowserLogin.transportFor(java.net.URI.create("https://winqa.example.com/questions/7")) != null,
+                "requests to the site go through the window");
+        closed.set(true); // the person closes the minimised window
+        assertTrue(BrowserLogin.transportFor(java.net.URI.create("https://winqa.example.com/questions/7")) == null);
+        assertFalse(login.readsThroughBrowser());
+    }
 }

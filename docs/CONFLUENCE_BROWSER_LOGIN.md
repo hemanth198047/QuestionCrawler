@@ -4,6 +4,14 @@ Works for **Confluence** and **Our internal Q&A site** (its API and its Swagger 
 Azure AD / Entra ID, Okta, ADFS, PingFederate, a gateway…), and after logging in in a browser you are sent back to
 Confluence. Nothing has to be changed by administrators: the app uses the same login you use every day.
 
+## Already signed in (Windows sign-in)
+
+Some company sites sign you in with your **Windows login** (Kerberos/NTLM) or a certificate: the window opens and the site
+shows its content at once, without any login screen. Such a session often does not work outside the browser. The app then
+**reads the site through that browser window**: it minimises the window (it does not close it), loads the pages inside the
+browser, and closes the window when the app stops. If you close the minimised window, the next request opens a new one.
+Leave the sign-in window open until it closes or minimises by itself.
+
 ## You do not have to choose it
 
 When **Check access** finds that the site sends visitors to a sign-in page and no sign-in is set yet, the app opens the
