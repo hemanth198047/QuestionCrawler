@@ -32,12 +32,22 @@ clicking through the site:
 - Each page is downloaded once per run, and a page reached through several links is stored once.
 - The pages are stored like wiki pages: search and the quoted answers on Explore use them.
 
-**About signing in.** No tokens, keys or settings are needed:
-- Pages that open without a login are read directly.
-- For a site behind the company login, the same sign-in window as for Confluence opens once for that site, and the other pages on
-  that site reuse the sign-in.
-- Sites that use your Windows login usually let the browser in without asking.
+**About signing in: one browser window, one sign-in.** No tokens, keys or settings are needed:
+- Every page is first read directly. That is fast, and works for pages that open without a login.
+- A page that sends you to the company login (for example SiteMinder `loginidp…/SmMakeCookie`), or that only your browser can
+  reach, is opened in **one** Edge/Chrome window.
+  - The window is kept minimised. It comes to the front only when the company login wants you to sign in.
+  - You sign in once, and every other site behind the same company login opens without asking again.
+  - The window closes by itself a few minutes after the last page.
+  - It uses the app's own browser profile, so your login is remembered for next time.
+- If you close the window, pages that need it are skipped until the next collection. No new windows keep popping up.
+- Internal sites that the company web proxy cannot reach (the proxy answers 502/503/504) are tried directly, the way your browser
+  reaches them.
 - A page the app cannot open is skipped with the reason, and the rest continues.
+- *Sign-in method: Don't use the browser* reads only pages that open without any login.
+- *Check access* tries only the first 3 pages you listed. It never follows links and never uses links found in collected items.
+- *Also read short links found in what you collected* is now **off** by default (Advanced settings). It can add many pages from
+  other sites.
 
 The app cannot read a page that you cannot open in your own browser.
 

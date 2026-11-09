@@ -38,10 +38,10 @@ public final class WebPageReader {
         ShortLinks.Hop get(URI uri, String cookieHeader) throws IOException;
     }
 
-    /** Opens a browser sign-in for a site. Replaceable in tests. */
+    /** Reads a page through the one browser window (company login included). Replaceable in tests. */
     @FunctionalInterface
-    public interface SignIns {
-        BrowserLogin forSite(String origin, String startUrl);
+    public interface Browser {
+        WebPage read(URI url, String why) throws SourceException;
     }
 
     private static final int MAX_HOPS = 10;
@@ -49,27 +49,37 @@ public final class WebPageReader {
     private static final Pattern META_REFRESH = Pattern.compile(
             "(?is)<meta[^>]+http-equiv\\s*=\\s*[\"']?refresh[\"']?[^>]*content\\s*=\\s*[\"']\\s*\\d*\\s*;\\s*url\\s*=\\s*'?([^\"'>\\s]+)");
 
-    private final boolean browserSignIn;
     private final Http http;
-    private final SignIns signIns;
-    private final Map<String, BrowserLogin> logins = new ConcurrentHashMap<>();
-    /** Sites whose sign-in did not finish in this run: their other pages are skipped instead of opening the window again. */
-    private final Set<String> declined = ConcurrentHashMap.newKeySet();
+    /** null: pages that need the company login (or that only the browser can reach) are skipped with the reason. */
+    private final Browser browser;
+    private final Runnable onNewRun;
 
-    public WebPageReader(boolean browserSignIn, Http http, SignIns signIns) {
-        this.browserSignIn = browserSignIn;
-        this.http = http;
-        this.signIns = signIns;
+    public WebPageReader(Http http, Browser browser) {
+        this(http, browser, () -> { });
     }
 
-    /** The reader used by the app: plain HTTP (proxy and company certificate from the settings), Edge/Chrome for sign-ins. */
-    public static WebPageReader create(ShortLinks.Options net, ConfluenceOptions.Browser browser, boolean browserSignIn, Function<String, String> env) {
+    public WebPageReader(Http http, Browser browser, Runnable onNewRun) {
+        this.http = http;
+        this.browser = browser;
+        this.onNewRun = onNewRun == null ? () -> { } : onNewRun;
+    }
+
+    /**
+     * The reader used by the app: a plain request first (fast); a page that needs the company login, or that only the
+     * browser can reach, is read through the one shared browser window.
+     */
+    public static WebPageReader create(ShortLinks.Options net, ConfluenceOptions.Browser browserOptions, boolean useBrowser, Function<String, String> env) {
         Http http = httpFor(net, env);
-        Map<String, BrowserLogin> shared = new ConcurrentHashMap<>();
-        SignIns signIns = (origin, start) -> shared.computeIfAbsent(origin, o -> new BrowserLogin(o, start,
-                new BrowserLogin.ChromeLauncher(browser, env), Duration.ofSeconds(browser.timeoutSeconds()), Duration.ofSeconds(2), Clock.systemUTC()))
-                .acceptingWebPages().withContentCheck(List.of(start));
-        return new WebPageReader(browserSignIn, http, signIns);
+        if (!useBrowser) {
+            return new WebPageReader(http, null);
+        }
+        BrowserPageReader window = BrowserPageReader.shared(browserOptions, env);
+        return new WebPageReader(http, window::read, window::newRun);
+    }
+
+    /** A new collection or check starts (a browser window you closed may be used again). */
+    public void newRun() {
+        onNewRun.run();
     }
 
     /** Reads the page {@code link} leads to (signing in through the browser when the site asks for it). */
@@ -82,36 +92,26 @@ public final class WebPageReader {
             // Typed without http:// or https:// (casc-docs/): http first, https if http does not answer.
             first = reachableScheme(first);
         }
-        String signedIn = null;
-        for (int attempt = 0; attempt < 3; attempt++) {
+        String why;
+        try {
             Outcome o = follow(first);
             if (o.page() != null) {
-                return new WebPage(link, o.page().finalUrl(), o.page().html(), o.page().contentType(), o.page().hops(), signedIn);
+                return new WebPage(link, o.page().finalUrl(), o.page().html(), o.page().contentType(), o.page().hops(), null);
             }
-            // The site wants a sign-in at o.needsSignIn (the address that sent us to its login page).
-            URI site = o.needsSignIn();
-            String origin = BrowserLogin.originOf(site);
-            if (!browserSignIn) {
-                throw new SourceException(SourceException.Kind.FORBIDDEN, Redirects.show(site) + " needs a sign-in (" + o.why()
-                        + "). Choose 'Open a browser window to sign in' under Signing in to read it.");
+            why = Redirects.show(o.needsSignIn()) + " needs the company sign-in (" + o.why() + ")";
+        } catch (SourceException e) {
+            String m = String.valueOf(e.getMessage());
+            if (e.kind() == SourceException.Kind.GONE || m.startsWith("HTTP 404") || m.contains("is not a web page") || m.startsWith("The link leads in a circle")) {
+                throw e; // the browser would not do better
             }
-            if (declined.contains(origin)) {
-                throw new SourceException(SourceException.Kind.FORBIDDEN, "Skipped: the sign-in to " + site.getHost() + " was not finished earlier in this run.");
-            }
-            BrowserLogin login = logins.computeIfAbsent(origin, x -> signIns.forSite(origin, site.toString()));
-            String before = login.current();
-            if (before != null && attempt > 0) {
-                login.invalidate(before); // the session no longer works: sign in again
-            }
-            try {
-                login.cookieHeader(cookie -> accepted(site, cookie));
-                signedIn = "signed in to " + site.getHost() + " through the browser";
-            } catch (SourceException e) {
-                declined.add(origin);
-                throw new SourceException(SourceException.Kind.FORBIDDEN, "Could not sign in to " + site.getHost() + ": " + e.getMessage(), null, e);
-            }
+            why = m; // for example HTTP 503 from the web proxy for an internal site, or a site only the browser reaches
         }
-        throw new SourceException(SourceException.Kind.FORBIDDEN, "The site still asks for a sign-in after signing in through the browser: " + Redirects.show(first));
+        if (browser == null) {
+            throw new SourceException(SourceException.Kind.FORBIDDEN, "Not read: " + why
+                    + ". Choose 'Read through my browser' under Signing in to read pages like this.");
+        }
+        WebPage viaBrowser = browser.read(first, why);
+        return new WebPage(link, viaBrowser.finalUrl(), viaBrowser.html(), viaBrowser.contentType(), viaBrowser.hops(), viaBrowser.signIn());
     }
 
     /** Per site: whether an address typed without a scheme is reached with http or https (asked once). */
@@ -231,34 +231,6 @@ public final class WebPageReader {
         throw new SourceException(SourceException.Kind.NOT_FOUND, "More than " + MAX_HOPS + " redirects: " + String.join(", ", hops));
     }
 
-    /** Whether the browser's cookies open the page for the app (the sign-in is finished). */
-    private boolean accepted(URI site, String cookie) {
-        URI current = site;
-        for (int hop = 0; hop < MAX_HOPS; hop++) {
-            ShortLinks.Hop answer;
-            try {
-                answer = http.get(current, current.getHost().equalsIgnoreCase(site.getHost()) ? cookie : BrowserLogin.sessionFor(current.getHost()));
-            } catch (IOException e) {
-                return false;
-            }
-            if (answer.status() >= 300 && answer.status() < 400 && answer.location() != null) {
-                URI next;
-                try {
-                    next = next(current, answer.location());
-                } catch (IllegalArgumentException e) {
-                    return false;
-                }
-                if (Redirects.isSignInAddress(next.toString())) {
-                    return false;
-                }
-                current = next;
-                continue;
-            }
-            return answer.status() >= 200 && answer.status() < 300 && !BrowserLogin.looksLikeLoginPage(answer.body());
-        }
-        return false;
-    }
-
     private static URI nextOrFail(URI current, String location) throws SourceException {
         try {
             return next(current, location);
@@ -306,17 +278,41 @@ public final class WebPageReader {
         }
         HttpClient directClient = direct.build();
         HttpClient proxiedClient = proxy.configured() ? proxied.build() : directClient;
+        // Per site: the way that reached it (direct or through the web proxy), so each site is tried both ways once only.
+        Map<String, Boolean> directWorks = new ConcurrentHashMap<>();
         return (uri, cookie) -> {
+            if (proxiedClient == directClient) {
+                return send(directClient, uri, cookie, timeout);
+            }
+            String site = String.valueOf(uri.getRawAuthority()).toLowerCase(Locale.ROOT);
+            Boolean known = directWorks.get(site);
             boolean intranet = uri.getHost() != null && !uri.getHost().contains(".");
-            HttpClient firstTry = intranet ? directClient : proxiedClient;
+            boolean directFirst = known != null ? known : intranet;
+            HttpClient firstTry = directFirst ? directClient : proxiedClient;
+            HttpClient other = directFirst ? proxiedClient : directClient;
+            ShortLinks.Hop answer;
             try {
-                return send(firstTry, uri, cookie, timeout);
+                answer = send(firstTry, uri, cookie, timeout);
             } catch (IOException e) {
-                if (proxiedClient == directClient) {
+                if (known != null) {
                     throw e;
                 }
-                return send(firstTry == directClient ? proxiedClient : directClient, uri, cookie, timeout);
+                ShortLinks.Hop retry = send(other, uri, cookie, timeout);
+                directWorks.put(site, !directFirst);
+                return retry;
             }
+            // A web proxy answers 502/503/504 for internal sites it cannot reach (the browser goes there directly).
+            if (known == null && !directFirst && (answer.status() == 502 || answer.status() == 503 || answer.status() == 504)) {
+                try {
+                    ShortLinks.Hop retry = send(directClient, uri, cookie, timeout);
+                    directWorks.put(site, true);
+                    return retry;
+                } catch (IOException ignored) {
+                    // keep the proxy's answer
+                }
+            }
+            directWorks.putIfAbsent(site, directFirst);
+            return answer;
         };
     }
 

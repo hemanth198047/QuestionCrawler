@@ -301,7 +301,7 @@ public final class Workspace {
             if (total == 0) {
                 problem = "There are no links to read yet. Add short links or page addresses, or collect another source first (its short links are read too).";
             } else {
-                Map<String, String> tried = adapter.tryLinks(5);
+                Map<String, String> tried = adapter.tryLinks(3);
                 for (Map.Entry<String, String> e : tried.entrySet()) {
                     facts.add(new ConnectionReport.Fact(e.getKey(), e.getValue()));
                     if (e.getValue().startsWith("OK")) {
@@ -309,7 +309,7 @@ public final class Workspace {
                     }
                 }
                 if (total > tried.size()) {
-                    facts.add(new ConnectionReport.Fact("Not tried now", (total - tried.size()) + " more link(s): they are read when you collect"));
+                    facts.add(new ConnectionReport.Fact("Not tried now", (total - tried.size()) + " more page(s) in your list: read when you collect"));
                 }
             }
         } catch (RuntimeException e) {
@@ -328,8 +328,8 @@ public final class Workspace {
         ConnectionReport report = new ConnectionReport(clock.instant().toString(), "links", "links", verdict,
                 status.equals("PASS") ? "Your links can be read" : status.equals("WARN") ? "Some links can be read" : "The links cannot be read yet", summary,
                 status.equals("PASS") ? 100 : status.equals("WARN") ? 60 : 10, stages,
-                new ConnectionReport.Route("WEB_PAGES", "Web pages behind the links", "Each short link is expanded and the page it leads to is read; "
-                        + "a browser window opens for sites that need your sign-in.", true, List.of("Save the settings", "Collect")),
+                new ConnectionReport.Route("WEB_PAGES", "Web pages behind the links", "Each page is read directly; a page that needs the company login (or that only your browser can reach) is read through one browser window; "
+                        + "you sign in there once for every site behind the same login.", true, List.of("Save the settings", "Collect")),
                 List.of(new ConnectionReport.Requirement("links", "Links to read", total > 0 ? "MET" : "MISSING", total + " link(s)")));
         try {
             knowledgeBase.store().init();

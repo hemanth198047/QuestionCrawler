@@ -134,8 +134,8 @@ public final class ConfigService {
                                 new Option("any", "Any site", "Also other sites the pages link to; can grow large")).when("source.links.followLinks", "true"),
                         f("source.links.maxPages", "At most this many pages", "A safety limit for one collection. The rest is reported, and you can raise it.",
                                 Type.NUMBER, "500", "500", LINKS, false, "pages").when("source.links.followLinks", "true"),
-                        f("source.links.fromCollected", "Also read short links found in what you collected", "Reads the pages behind every short link that appears in the pages, questions and answers already collected from your other sources (Confluence, Q&A, Jive, SharePoint). Collect those sources first.",
-                                Type.SWITCH, "true", null, LINKS, false, null),
+                        f("source.links.fromCollected", "Also read short links found in what you collected", "Reads the pages behind every short link that appears in the pages, questions and answers already collected from your other sources (Confluence, Q&A, Jive, SharePoint). Collect those sources first. Off by default: it can add many pages from other sites.",
+                                Type.SWITCH, "false", null, LINKS, true, null),
                         f("source.siteUrl", "Site address", "The home page of the Stack Exchange site, for example https://stackoverflow.com/.",
                                 Type.URL, "https://stackoverflow.com/", "https://stackoverflow.com/", SE, false, null),
                         f("source.baseUrl", "Site address", "Confluence: your site, for example https://acme.atlassian.net (pasting any page or space address also works). Jive: the community, for example https://community.example.com. SharePoint: the site, for example https://contoso.sharepoint.com/sites/Engineering. Internal Q&A: the API address, or leave empty to take it from the documentation.",
@@ -181,8 +181,8 @@ public final class ConfigService {
                         f("source.auth.method", "Sign-in method", "Pick the way you already sign in to this system. Only the choices that work for it are shown. Passwords and tokens are never stored; at most the NAME of an environment variable that holds one.",
                                 Type.SELECT, "none", null, AUTH_TOKEN, false, null,
                                 new Option("browser", "Sign in with my browser", "Recommended for company Confluence: your usual company login page opens in Edge/Chrome, you sign in, the app continues. Nothing to set up", List.of("confluence")),
-                                new Option("browser", "Open a browser window when a page needs a sign-in", "Recommended: like Confluence, your company login opens in Edge/Chrome, you sign in once per site, the window closes and reading continues", List.of("links")),
-                                new Option("none", "No sign-in (skip pages that need one)", "Only pages that open without a login are read; the others are listed as skipped", List.of("links")),
+                                new Option("browser", "Read through my browser when needed", "Recommended: pages that need the company login (or that only your browser can reach) are opened in ONE Edge/Chrome window, kept minimised. It comes to the front only if you need to sign in, once for all sites behind the same login", List.of("links")),
+                                new Option("skip", "Don't use the browser", "Only pages that open without any login are read; the others are listed as skipped", List.of("links")),
                                 new Option("tvm", "Company token service (Kerberos)", "Your company's Token Vending Machine gives a short-lived token using your Windows/Kerberos login", List.of("confluence")),
                                 new Option("basic-env", "Email or username + API token / password", "Confluence Cloud: your email and an API token. Jive: a username and password", List.of("confluence", "jive")),
                                 new Option("token", "Access token (Bearer header)", "Sent as 'Authorization: Bearer': Confluence Server/Data Center personal access token, Jive OAuth token, SharePoint (Microsoft Graph) token, or an internal API that wants a Bearer token", List.of("confluence", "jive", "sharepoint", "live")),
@@ -410,7 +410,7 @@ public final class ConfigService {
                                 Map.entry("source.allowedHosts", "contoso.sharepoint.com,graph.microsoft.com"),
                                 Map.entry("source.allowedPathPrefixes", "/v1.0/"))),
                 new Preset("links", "Links (short links and web pages)", "Short links (go/xyz, bit.ly/...) and page addresses: each is expanded and the page it leads to is read. When a site needs your company login, a browser window opens, you sign in, and reading continues.", "link",
-                        Map.of("source.type", "links", "source.auth.method", "browser", "source.links.fromCollected", "true", "sync.tags", "all", "sync.maxQuestionAge", "")),
+                        Map.of("source.type", "links", "source.auth.method", "browser", "source.links.fromCollected", "false", "sync.tags", "all", "sync.maxQuestionAge", "")),
                 new Preset("internal", "Our internal Q&A site", "Your company's Stack Overflow-style site, through its REST API. Paste the link to its Swagger page and we read every endpoint for you.", "building",
                         Map.of("source.type", "live", "source.baseUrl", "", "api.swaggerUrl", "", "sync.tags", "")));
     }
@@ -477,9 +477,9 @@ public final class ConfigService {
         String type = v.getOrDefault("source.type", "fixture");
         if (type.equals("links")) {
             boolean any = !v.getOrDefault("source.links.list", "").isBlank();
-            boolean fromCollected = Boolean.parseBoolean(v.getOrDefault("source.links.fromCollected", "true"));
+            boolean fromCollected = Boolean.parseBoolean(v.getOrDefault("source.links.fromCollected", "false"));
             if (!any && !fromCollected) {
-                issues.add(new Issue("source.links.list", "error", "There is nothing to read yet.", "Add short links or page addresses, or turn on 'Also read short links found in what you collected'."));
+                issues.add(new Issue("source.links.list", "warning", "There is nothing to read yet.", "Add page addresses or short links, or turn on 'Also read short links found in what you collected'."));
             } else if (!any) {
                 issues.add(new Issue("source.links.list", "info", "Only the short links found in what you already collected will be read.", "Collect your other sources first, or add links here."));
             }
@@ -901,8 +901,8 @@ public final class ConfigService {
         }
         if (type.equals("links")) {
             String auth = merged.getOrDefault("source.auth.method", "").strip();
-            if (!auth.equals("browser") && !auth.equals("none")) {
-                merged.put("source.auth.method", "browser");
+            if (!auth.equals("browser") && !auth.equals("skip")) {
+                merged.put("source.auth.method", "browser"); // "none" is the settings screen's general default: the browser is used
             }
             if (merged.getOrDefault("source.systemId", "").isBlank()) {
                 merged.put("source.systemId", "links");

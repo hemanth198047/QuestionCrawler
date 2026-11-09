@@ -40,26 +40,28 @@ class LinksSourceTest {
             + "<p>Install the client, then sign in with your badge number. Restart the laptop once.</p></main></body></html>";
 
     @Test
-    void aShortLinkBehindTheCompanyLoginIsReadAfterSigningInThroughTheBrowser() throws Exception {
-        List<String> cookiesSent = new ArrayList<>();
-        AtomicInteger windows = new AtomicInteger();
+    void pagesBehindTheCompanyLoginAreReadThroughOneBrowserWindowWithOneSignIn() throws Exception {
         WebPageReader.Http http = (uri, cookie) -> {
-            cookiesSent.add(uri.getHost() + "=" + cookie);
             String u = uri.toString();
             if (u.equals("http://go/vpn")) {
                 return new ShortLinks.Hop(302, "https://wiki.corp.com/display/IT/VPN", "");
             }
-            if (u.equals("https://wiki.corp.com/display/IT/VPN")) {
-                return "sid=ok".equals(cookie) ? new ShortLinks.Hop(200, null, PAGE)
-                        : new ShortLinks.Hop(302, "https://login.corp.com/sso/saml?RelayState=x", "");
+            if (u.startsWith("https://wiki.corp.com/") || u.startsWith("https://portal.corp.com/")) {
+                return new ShortLinks.Hop(302, "https://loginidp-prod.corp.com:2222/smMakeCookie.ccc?target=" + u, ""); // SiteMinder
             }
             return new ShortLinks.Hop(404, null, "");
         };
-        WebPageReader.SignIns signIns = (origin, start) -> new BrowserLogin(origin, start, url -> {
+        AtomicInteger windows = new AtomicInteger();
+        AtomicInteger signIns = new AtomicInteger();
+        List<String> opened = new ArrayList<>();
+        BrowserLogin.Launcher launcher = start -> {
             windows.incrementAndGet();
             return new BrowserLogin.Session() {
+                boolean signedIn;
+                String at = "about:blank";
+
                 public List<BrowserLogin.Cookie> cookies() {
-                    return List.of(new BrowserLogin.Cookie("sid", "ok", "wiki.corp.com", "/"), new BrowserLogin.Cookie("other", "x", "elsewhere.com", "/"));
+                    return List.of();
                 }
 
                 public boolean alive() {
@@ -68,32 +70,46 @@ class LinksSourceTest {
 
                 public void close() {
                 }
+
+                public BrowserLogin.PageView openPage(String url, Duration wait) {
+                    opened.add(url);
+                    at = url;
+                    return signedIn ? new BrowserLogin.PageView(url, "VPN setup - IT", PAGE, true)
+                            : new BrowserLogin.PageView("https://loginidp-prod.corp.com:2222/login.fcc", "Sign in", "<form><input type=\"password\"></form>", true);
+                }
+
+                public BrowserLogin.PageView currentPage() {
+                    if (!signedIn) { // the person signs in in the window
+                        signedIn = true;
+                        signIns.incrementAndGet();
+                    }
+                    return new BrowserLogin.PageView(at, "VPN setup - IT", PAGE, true);
+                }
             };
-        }, Duration.ofSeconds(5), Duration.ofMillis(10), Clock.systemUTC()).acceptingWebPages();
-        WebPageReader reader = new WebPageReader(true, http, signIns);
+        };
+        var window = new com.questioncrawler.core.source.BrowserPageReader(launcher, Duration.ofSeconds(30));
+        WebPageReader reader = new WebPageReader(http, window::read, window::newRun);
 
         WebPageReader.WebPage page = reader.read("go/vpn");
-        assertEquals("https://wiki.corp.com/display/IT/VPN", page.finalUrl());
         assertTrue(page.html().contains("badge number"));
-        assertEquals(1, windows.get(), "one sign-in window for the site");
-        assertTrue(cookiesSent.stream().filter(c -> c.startsWith("go=")).allMatch(c -> c.equals("go=null")), "no cookie goes to the short-link service: " + cookiesSent);
-        assertTrue(cookiesSent.stream().noneMatch(c -> c.contains("other=x")), "cookies of other sites are never sent");
+        assertEquals("http://go/vpn", opened.get(0), "the browser opens the link itself and follows it like a person");
+        reader.read("https://portal.corp.com/policies");
+        assertEquals(1, windows.get(), "one browser window for every page");
+        assertEquals(1, signIns.get(), "one sign-in for every site behind the same company login");
 
         var q = LinksAdapter.toQuestion(LinksAdapter.idFor("go/vpn"), "go/vpn", page);
         assertEquals("VPN setup - IT", q.title());
-        assertTrue(q.body().contains("(link: go/vpn)") && !q.body().contains("menu"), q.body());
-        assertTrue(q.tags().containsAll(List.of("link", "site:wiki.corp.com", "short-link")), q.tags().toString());
+        assertTrue(q.body().contains("badge number") && !q.body().contains("menu"), q.body());
+        window.close();
     }
 
     @Test
     void withoutBrowserSignInAPageThatNeedsOneIsSkippedWithTheReason() {
         WebPageReader.Http http = (uri, cookie) -> new ShortLinks.Hop(302, "https://login.corp.com/login", "");
-        WebPageReader reader = new WebPageReader(false, http, (o, s) -> {
-            throw new AssertionError("no window may open");
-        });
+        WebPageReader reader = new WebPageReader(http, null);
         SourceException e = assertThrows(SourceException.class, () -> reader.read("https://wiki.corp.com/x"));
         assertEquals(SourceException.Kind.FORBIDDEN, e.kind());
-        assertTrue(e.getMessage().contains("needs a sign-in"), e.getMessage());
+        assertTrue(e.getMessage().contains("needs the company sign-in"), e.getMessage());
     }
 
     @Test
@@ -144,7 +160,7 @@ class LinksSourceTest {
 
     @Test
     void anAddressThatIsNotALinkIsRefused() {
-        WebPageReader reader = new WebPageReader(true, (u, c) -> new ShortLinks.Hop(200, null, PAGE), (o, s) -> null);
+        WebPageReader reader = new WebPageReader((u, c) -> new ShortLinks.Hop(200, null, PAGE), null);
         assertThrows(SourceException.class, () -> reader.read("not a link"));
         assertEquals("http://go/vpn", URI.create("http://go/vpn").toString());
     }

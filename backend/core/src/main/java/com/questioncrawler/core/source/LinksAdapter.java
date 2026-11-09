@@ -187,6 +187,7 @@ public final class LinksAdapter implements SourceAdapter {
      */
     private Page<QuestionSummary> crawlPage(List<String> start, String cursor) throws SourceException {
         if (cursor == null || running == null) {
+            reader.newRun();
             running = new Crawl();
             for (String l : start) {
                 running.queue.add(new Next(l, 0, null, true));
@@ -394,13 +395,15 @@ public final class LinksAdapter implements SourceAdapter {
     /** Reads up to {@code max} links now, for the Check access screen: link -> what happened. */
     public Map<String, String> tryLinks(int max) {
         Map<String, String> out = new LinkedHashMap<>();
-        for (String l : links().stream().limit(max).toList()) {
+        reader.newRun();
+        // only the pages you listed (not links found in collected items, not the pages they link to)
+        for (String l : (configured.isEmpty() ? links() : configured).stream().limit(max).toList()) {
             try {
                 WebPageReader.WebPage page = reader.read(l);
                 Question q = toQuestion(idFor(l), l, page);
-                out.put(l, "OK: leads to " + page.finalUrl() + " - \"" + q.title() + "\"" + (page.signIn() == null ? "" : " (" + page.signIn() + ")"));
+                out.put(l, "OK: read \"" + q.title() + "\" (" + page.finalUrl() + ")" + (page.signIn() == null ? "" : ", " + page.signIn()));
             } catch (SourceException e) {
-                out.put(l, "FAILED: " + e.getMessage());
+                out.put(l, "NOT READ: " + e.getMessage());
             }
         }
         return out;

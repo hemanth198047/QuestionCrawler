@@ -68,6 +68,19 @@ public final class BrowserLogin {
         default void minimize() {
         }
 
+        /**
+         * Opens an address in the window as a person would (scripts run, the company login applies) and returns where
+         * the window ended up and the page's HTML. Null when this session cannot do it.
+         */
+        default PageView openPage(String url, Duration wait) throws IOException {
+            return null;
+        }
+
+        /** Where the window is now, and its HTML. Null when this session cannot tell. */
+        default PageView currentPage() throws IOException {
+            return null;
+        }
+
         @Override
         void close();
     }
@@ -79,6 +92,9 @@ public final class BrowserLogin {
     }
 
     public record Cookie(String name, String value, String domain, String path) {}
+
+    /** A page as the browser window shows it. */
+    public record PageView(String url, String title, String html, boolean complete) {}
 
     private static final Map<String, BrowserLogin> BY_SITE = new ConcurrentHashMap<>();
     /** Every sign-in made in this app, so helper requests can reuse a session for the same host. */
@@ -817,6 +833,58 @@ public final class BrowserLogin {
             String finalUrl = r.path("u").asText(url);
             List<String> redirects = r.path("r").asBoolean(false) ? List.of("redirect to " + finalUrl) : List.of();
             return new HttpSourceClient.Response(status, r.path("b").asText(""), null, r.path("ty").asText(""), null, null, finalUrl, redirects, null);
+        }
+
+        @Override
+        public synchronized PageView openPage(String url, Duration wait) throws IOException {
+            call("Page.enable", null, pageSession(), 10);
+            call("Page.navigate", "{\"url\":" + Json.MAPPER.writeValueAsString(url) + "}", pageSession(), 30);
+            long until = System.nanoTime() + wait.toNanos();
+            PageView v = null;
+            while (System.nanoTime() < until) {
+                try {
+                    Thread.sleep(400);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("interrupted");
+                }
+                try {
+                    v = currentPage();
+                } catch (IOException e) {
+                    continue; // the page is being replaced (a redirect): ask again
+                }
+                if (v != null && v.complete() && !"about:blank".equals(v.url())) {
+                    break;
+                }
+            }
+            try {
+                Thread.sleep(800); // let the page's scripts fill in the content
+                v = currentPage();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (IOException ignored) {
+                // keep the last view
+            }
+            return v;
+        }
+
+        @Override
+        public PageView currentPage() throws IOException {
+            String raw = evaluate("JSON.stringify({u: location.href, t: document.title, r: document.readyState,"
+                    + " h: document.documentElement ? document.documentElement.outerHTML : ''})", 20);
+            JsonNode n = Json.MAPPER.readTree(raw == null ? "{}" : raw);
+            return new PageView(n.path("u").asText(""), n.path("t").asText(""), n.path("h").asText(""), "complete".equals(n.path("r").asText()));
+        }
+
+        /** True when the window shows a company sign-in (a login address, or a page with a password field / SAML form). */
+        public static boolean onSignIn(PageView v) {
+            if (v == null) {
+                return false;
+            }
+            String where = v.url() == null ? "" : v.url().split("[?#]", 2)[0];
+            String h = v.html() == null ? "" : v.html().toLowerCase(Locale.ROOT);
+            return LOGIN_URL.matcher(where).find() || h.contains("type=\"password\"") || h.contains("type='password'")
+                    || h.contains("samlrequest") || h.contains("samlresponse");
         }
 
         @Override

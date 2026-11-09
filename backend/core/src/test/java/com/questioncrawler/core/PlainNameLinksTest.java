@@ -35,7 +35,7 @@ class PlainNameLinksTest {
     @Test
     void aNameIsReadOverHttpAndAPlainHttpRedirectIsFollowed() throws Exception {
         List<String> asked = new ArrayList<>();
-        WebPageReader reader = new WebPageReader(false, (uri, cookie) -> {
+        WebPageReader reader = new WebPageReader((uri, cookie) -> {
             asked.add(uri.toString());
             return switch (uri.toString()) {
                 case "http://casc-docs/" -> new ShortLinks.Hop(302, "https://docs.corp.com/casc", "");
@@ -43,7 +43,7 @@ class PlainNameLinksTest {
                 case "http://docs-old.corp.com/casc/home" -> new ShortLinks.Hop(200, null, PAGE);
                 default -> new ShortLinks.Hop(404, null, "");
             };
-        }, (o, s) -> null);
+        }, null);
         var page = reader.read("casc-docs/");
         assertEquals("http://docs-old.corp.com/casc/home", page.finalUrl());
         assertTrue(page.html().contains("runbooks"));
@@ -51,12 +51,12 @@ class PlainNameLinksTest {
 
     @Test
     void whenHttpDoesNotAnswerHttpsIsTried() throws Exception {
-        WebPageReader reader = new WebPageReader(false, (uri, cookie) -> {
+        WebPageReader reader = new WebPageReader((uri, cookie) -> {
             if (uri.getScheme().equals("http")) {
                 throw new IOException("connection refused");
             }
             return new ShortLinks.Hop(200, null, PAGE);
-        }, (o, s) -> null);
+        }, null);
         assertEquals("https://casc-docs/", reader.read("casc-docs").finalUrl());
     }
 

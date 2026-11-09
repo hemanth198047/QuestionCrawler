@@ -110,7 +110,7 @@ export default function ConnectPage() {
 
         <Section num={3} title={source === 'stackexchange' ? 'Sign-in (optional)' : 'How do you sign in?'} hint={source === 'stackexchange' ? 'Public sites need no account. An application key only raises the daily limit.' : 'Choose the way you already sign in. Only what that way needs is asked; passwords and tokens are never stored.'}>
           {fieldsFor('signin').map(field)}
-          {source === 'links' && draft['source.auth.method'] !== 'none' && <Banner tone="info" title="Nothing else to fill in">When a link leads to a page behind your company login, the app opens that login in Edge or Chrome. Sign in as usual; the window closes by itself and reading continues. You sign in once per site.</Banner>}
+          {source === 'links' && draft['source.auth.method'] !== 'skip' && <Banner tone="info" title="Nothing else to fill in">Pages are read directly when they open without a login. A page behind your company login (or one only your browser can reach) is opened in one Edge or Chrome window, kept minimised. It comes to the front only when you need to sign in: once, for every site behind the same company login. Leave it open; it closes by itself when reading is done.</Banner>}
           {source === 'confluence' && draft['source.auth.method'] === 'browser' && <Banner tone="info" title="Nothing else to fill in">When the app needs Confluence it opens your company login page in Edge or Chrome. Sign in as usual; the window closes by itself. You can try it in step 4 with “Sign in with my browser”.</Banner>}
           {more('signin', 'sign-in')}
         </Section>
