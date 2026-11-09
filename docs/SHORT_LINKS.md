@@ -17,6 +17,39 @@ There are two separate features:
 | *Also read short links found in what you collected* (`source.links.fromCollected`, on by default) | Also reads the pages behind every short link written in the pages, questions and answers already collected from your other sources. Collect those first |
 | *Sign-in method* (`source.auth.method`) | **Open a browser window when a page needs a sign-in** (default), or **No sign-in** to skip those pages |
 
+**Reading a page and the pages it links to.** Put a page address in *Pages to read* (for example a team's documentation start
+page). With *Also read the pages they link to* on (the default), the app reads that page and then the pages it links to, like
+clicking through the site:
+
+| Setting | Default | Meaning |
+|---|---|---|
+| *How many clicks deep* (`source.links.depth`) | 1 | 1 = the page and the pages it links to; 2 = also the pages those link to |
+| *Follow links to* (`source.links.scope`) | The same site only | or *The start page's section only* (same folder and below), or *Any site* |
+| *At most this many pages* (`source.links.maxPages`) | 500 | safety limit per collection; what was left is reported |
+
+- Links that sign out, edit, delete, show history or download files are never followed, and PDFs, images and documents are
+  skipped, so nothing on the site is changed.
+- Each page is downloaded once per run, and a page reached through several links is stored once.
+- The pages are stored like wiki pages: search and the quoted answers on Explore use them.
+
+**About signing in.** No tokens, keys or settings are needed:
+- Pages that open without a login are read directly.
+- For a site behind the company login, the same sign-in window as for Confluence opens once for that site, and the other pages on
+  that site reuse the sign-in.
+- Sites that use your Windows login usually let the browser in without asking.
+- A page the app cannot open is skipped with the reason, and the rest continues.
+
+The app cannot read a page that you cannot open in your own browser.
+
+```properties
+source.type=links
+source.links.list=https://intranet.mycompany.com/team/docs
+source.links.followLinks=true
+source.links.depth=1
+source.links.scope=site
+source.links.maxPages=500
+```
+
 **Plain http and names without http/https.** You can type a link the way people say it:
 
 | You type | Read as |

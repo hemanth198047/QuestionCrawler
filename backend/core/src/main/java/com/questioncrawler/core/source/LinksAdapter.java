@@ -33,7 +33,16 @@ public final class LinksAdapter implements SourceAdapter {
     private final Map<String, String> byId = new java.util.concurrent.ConcurrentHashMap<>();
     private final List<String> notes = java.util.Collections.synchronizedList(new ArrayList<>());
 
+    private final LinksOptions crawl;
+
     public LinksAdapter(String systemId, List<String> links, boolean fromCollected, Path threadsDir, ShortLinks shortLinks, WebPageReader reader) {
+        this(systemId, new LinksOptions(links, fromCollected), threadsDir, shortLinks, reader);
+    }
+
+    public LinksAdapter(String systemId, LinksOptions options, Path threadsDir, ShortLinks shortLinks, WebPageReader reader) {
+        this.crawl = options == null ? LinksOptions.NONE : options;
+        List<String> links = crawl.links();
+        boolean fromCollected = crawl.fromCollected();
         this.systemId = systemId == null || systemId.isBlank() ? "links" : systemId;
         this.configured = links == null ? List.of() : links.stream().map(String::strip).filter(l -> !l.isEmpty()).distinct().toList();
         this.fromCollected = fromCollected;
@@ -110,6 +119,9 @@ public final class LinksAdapter implements SourceAdapter {
     @Override
     public Page<QuestionSummary> listQuestions(TagFilter filter, String modifiedSince, String cursor) throws SourceException {
         List<String> all = links();
+        if (crawl.crawls() && !all.isEmpty()) {
+            return crawlPage(all, cursor);
+        }
         if (all.isEmpty()) {
             throw new SourceException(SourceException.Kind.NOT_CONFIGURED, "No links to read: add short links or page addresses under 'Links to read'"
                     + (fromCollected ? ", or collect another source first (its short links are read too)." : "."));
@@ -135,8 +147,178 @@ public final class LinksAdapter implements SourceAdapter {
         if (link == null) {
             throw new SourceException(SourceException.Kind.NOT_FOUND, "This link is no longer in the list");
         }
-        WebPageReader.WebPage page = reader.read(link);
+        WebPageReader.WebPage page = alreadyRead.remove(id); // read while following links: not read twice
+        if (page == null) {
+            page = reader.read(link);
+        }
         return toQuestion(id, link, page);
+    }
+
+    // ================================================================== following the links on each page
+
+    /** Pages read while following links, kept until they are stored (each page is downloaded once per run). */
+    private final Map<String, WebPageReader.WebPage> alreadyRead = new java.util.concurrent.ConcurrentHashMap<>();
+    private Crawl running;
+
+    private record Next(String link, int level, URI root, boolean listed) {}
+
+    /** One run's walk through the pages: what is waiting, what was seen. */
+    private final class Crawl {
+        final java.util.ArrayDeque<Next> queue = new java.util.ArrayDeque<>();
+        final java.util.Set<String> seen = new java.util.HashSet<>();
+        int pages;
+        int skipped;
+        int outOfScope;
+    }
+
+    private static final int PAGES_PER_STEP = 20;
+    private static final Pattern HREF = Pattern.compile("(?is)<a\\s[^>]*?href\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s>]+))");
+    /** Links that change something or end the session, and files that are not pages: never followed. */
+    private static final Pattern NEVER_FOLLOW = Pattern.compile("(?i)(logout|log-out|logoff|signout|sign-out|/login\\b|/signin\\b|/sso/|"
+            + "[/=]delete\\b|delete\\.action|removepage|unsubscribe|/edit\\b|action=edit|editpage|createpage|copypage|movepage|"
+            + "viewpreviousversions|diffpages|pageinfo\\.action|/history\\b|[?&]print=|/print/|export\\.action|/export/|/download/|download\\.action|"
+            + "/attachments?/|[?&]replyto=)");
+    private static final Pattern NOT_A_PAGE = Pattern.compile("(?i)\\.(pdf|zip|png|jpe?g|gif|svg|ico|bmp|webp|css|js|json|xml|docx?|xlsx?|pptx?|csv|txt|"
+            + "mp4|mp3|wav|avi|mov|exe|msi|tar|gz|tgz|7z|rar|iso|dmg|jar|war|woff2?|ttf|eot)(\\?|$)");
+
+    /**
+     * Reads the listed pages and, page by page, the pages they link to (to the chosen depth, inside the chosen scope, up
+     * to the page limit). Returns about {@value #PAGES_PER_STEP} pages per call so collecting shows progress.
+     */
+    private Page<QuestionSummary> crawlPage(List<String> start, String cursor) throws SourceException {
+        if (cursor == null || running == null) {
+            running = new Crawl();
+            for (String l : start) {
+                running.queue.add(new Next(l, 0, null, true));
+                running.seen.add(key(l));
+            }
+        }
+        Crawl c = running;
+        List<QuestionSummary> items = new ArrayList<>();
+        while (!c.queue.isEmpty() && items.size() < PAGES_PER_STEP && c.pages < crawl.maxPages()) {
+            Next n = c.queue.poll();
+            WebPageReader.WebPage page;
+            try {
+                page = reader.read(n.link());
+            } catch (SourceException e) {
+                if (n.listed()) {
+                    // a link you listed: it is reported with the reason when it is fetched
+                    String id = idFor(n.link());
+                    byId.put(id, n.link());
+                    items.add(new QuestionSummary(id, null, n.link()));
+                    c.pages++;
+                } else {
+                    c.skipped++;
+                }
+                continue;
+            }
+            String finalKey = key(page.finalUrl());
+            if (!n.listed() && !c.seen.add(finalKey) && !finalKey.equals(key(n.link()))) {
+                continue; // another link that leads to a page already read
+            }
+            c.seen.add(finalKey);
+            String id = n.listed() ? idFor(n.link()) : idFor(page.finalUrl());
+            if (byId.containsKey(id)) {
+                continue;
+            }
+            byId.put(id, n.listed() ? n.link() : page.finalUrl());
+            alreadyRead.put(id, page);
+            items.add(new QuestionSummary(id, null, page.finalUrl()));
+            c.pages++;
+            if (n.level() < crawl.depth()) {
+                URI here = WebPageReader.toUri(page.finalUrl());
+                URI root = n.root() != null ? n.root() : here;
+                for (String href : linksOn(page.html(), here)) {
+                    String k = key(href);
+                    if (c.seen.contains(k)) {
+                        continue;
+                    }
+                    if (!inScope(href, root)) {
+                        c.outOfScope++;
+                        continue;
+                    }
+                    c.seen.add(k);
+                    c.queue.add(new Next(href, n.level() + 1, root, false));
+                }
+            }
+        }
+        boolean more = !c.queue.isEmpty() && c.pages < crawl.maxPages();
+        if (!more) {
+            if (c.pages >= crawl.maxPages() && !c.queue.isEmpty()) {
+                notes.add("Stopped at the page limit (" + crawl.maxPages() + " pages); " + c.queue.size()
+                        + " more linked page(s) were not read. Raise 'At most this many pages' to read them.");
+            }
+            if (c.skipped > 0) {
+                notes.add(c.skipped + " linked page(s) could not be read (no access, sign-in not finished, not found or not a web page) and were skipped.");
+            }
+            if (c.outOfScope > 0 && !"any".equals(crawl.scope())) {
+                notes.add(c.outOfScope + " link(s) lead outside " + ("section".equals(crawl.scope()) ? "the start page's section" : "the start page's site")
+                        + " and were not followed (setting 'Follow links to').");
+            }
+            running = null;
+        }
+        return new Page<>(items, more ? "crawl-" + c.pages : null);
+    }
+
+    /** The web pages a page links to (absolute, without #fragment), in page order, without repeats. */
+    static List<String> linksOn(String html, URI base) {
+        List<String> out = new ArrayList<>();
+        if (html == null || base == null) {
+            return out;
+        }
+        Matcher m = HREF.matcher(html);
+        while (m.find()) {
+            String href = m.group(1) != null ? m.group(1) : m.group(2) != null ? m.group(2) : m.group(3);
+            href = href.strip().replace("&amp;", "&");
+            if (href.isEmpty() || href.startsWith("#") || href.matches("(?i)^(mailto|javascript|tel|data|ftp|file):.*")) {
+                continue;
+            }
+            URI u;
+            try {
+                u = base.resolve(href.replace(" ", "%20"));
+            } catch (IllegalArgumentException e) {
+                continue;
+            }
+            if (u.getScheme() == null || !(u.getScheme().equalsIgnoreCase("http") || u.getScheme().equalsIgnoreCase("https")) || u.getHost() == null) {
+                continue;
+            }
+            String clean = u.toString().split("#", 2)[0];
+            if (NEVER_FOLLOW.matcher(clean).find() || NOT_A_PAGE.matcher(u.getRawPath() == null ? "" : u.getRawPath()).find()) {
+                continue;
+            }
+            if (!out.contains(clean)) {
+                out.add(clean);
+            }
+        }
+        return out;
+    }
+
+    /** Same site (default), the start page's section (its folder and below), or anywhere. */
+    boolean inScope(String link, URI root) {
+        if ("any".equals(crawl.scope()) || root == null) {
+            return true;
+        }
+        URI u = WebPageReader.toUri(link);
+        if (u == null || u.getHost() == null || !u.getHost().equalsIgnoreCase(root.getHost())) {
+            return false;
+        }
+        if ("section".equals(crawl.scope())) {
+            String rootPath = root.getRawPath() == null ? "/" : root.getRawPath();
+            String folder = rootPath.endsWith("/") ? rootPath : rootPath.substring(0, rootPath.lastIndexOf('/') + 1);
+            String path = u.getRawPath() == null ? "/" : u.getRawPath();
+            return path.startsWith(folder);
+        }
+        return true;
+    }
+
+    /** The same page however its address is written: scheme and host in lower case, no #fragment, no trailing slash. */
+    private static String key(String link) {
+        URI u = WebPageReader.toUri(link);
+        if (u == null) {
+            return link.strip().toLowerCase(Locale.ROOT);
+        }
+        String s = u.toString().split("#", 2)[0];
+        return (u.getScheme() + "://" + u.getRawAuthority()).toLowerCase(Locale.ROOT) + s.substring((u.getScheme() + "://" + u.getRawAuthority()).length()).replaceAll("/+$", "");
     }
 
     public static Question toQuestion(String id, String link, WebPageReader.WebPage page) {

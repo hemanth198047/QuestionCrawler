@@ -307,7 +307,11 @@ public record CoreConfig(
                     return key.equals("source.caCertFile") && value != null && !value.isBlank() ? resolve(base, value.strip()).toString() : value;
                 }),
                 new com.questioncrawler.core.source.LinksOptions(com.questioncrawler.core.source.LinksOptions.parse(p.getProperty("source.links.list", "")),
-                        Boolean.parseBoolean(p.getProperty("source.links.fromCollected", "true").strip())));
+                        Boolean.parseBoolean(p.getProperty("source.links.fromCollected", "true").strip()),
+                        Boolean.parseBoolean(p.getProperty("source.links.followLinks", "true").strip()),
+                        intValue(p, "source.links.depth", 1),
+                        p.getProperty("source.links.scope", "site"),
+                        intValue(p, "source.links.maxPages", 500)));
     }
 
     public static CoreConfig forStorage(Path storageRoot) {
@@ -505,8 +509,7 @@ public record CoreConfig(
                     net.proxy(), net.caCertFile(), net.timeout()), env);
             var reader = com.questioncrawler.core.source.WebPageReader.create(net, confluence == null ? ConfluenceOptions.Browser.DEFAULT : confluence.browser(),
                     !"none".equalsIgnoreCase(source.authMethod()), env);
-            return new com.questioncrawler.core.source.LinksAdapter(source.systemId(), links.links(), links.fromCollected(),
-                    storageRoot.resolve("threads"), finder, reader);
+            return new com.questioncrawler.core.source.LinksAdapter(source.systemId(), links, storageRoot.resolve("threads"), finder, reader);
         }
         if (sourceType.equals("sharepoint")) {
             // Dedicated adapter — separate from Confluence / Jive / Stack Exchange.

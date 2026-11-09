@@ -289,7 +289,13 @@ public final class Workspace {
         int total;
         String problem = null;
         try {
-            var adapter = (com.questioncrawler.core.source.LinksAdapter) CoreConfig.load(null, v).createAdapter(env);
+            CoreConfig linksConfig = CoreConfig.load(null, v);
+            var adapter = (com.questioncrawler.core.source.LinksAdapter) linksConfig.createAdapter(env);
+            var lo = linksConfig.links();
+            facts.add(new ConnectionReport.Fact("Following links", lo.crawls()
+                    ? lo.depth() + " click(s) deep, " + ("any".equals(lo.scope()) ? "to any site" : "section".equals(lo.scope()) ? "inside the start page's section" : "on the same site")
+                    + ", at most " + lo.maxPages() + " pages (checked when you collect)"
+                    : "off: only the listed pages are read"));
             List<String> all = adapter.links();
             total = all.size();
             if (total == 0) {
@@ -311,7 +317,7 @@ public final class Workspace {
             problem = "The links could not be read: " + e.getMessage();
         }
         long ms = (System.nanoTime() - t0) / 1_000_000;
-        String status = problem != null ? "FAIL" : ok == facts.stream().filter(f -> !f.label().equals("Not tried now")).count() ? "PASS" : ok > 0 ? "WARN" : "FAIL";
+        String status = problem != null ? "FAIL" : ok == facts.stream().filter(f -> !f.label().equals("Not tried now") && !f.label().equals("Following links")).count() ? "PASS" : ok > 0 ? "WARN" : "FAIL";
         String summary = problem != null ? problem
                 : ok + " of the first " + Math.min(total, 5) + " link(s) were read" + (status.equals("PASS") ? "." : "; see why the others failed below.");
         List<ConnectionReport.Need> needs = status.equals("PASS") ? List.of() : List.of(new ConnectionReport.Need(
