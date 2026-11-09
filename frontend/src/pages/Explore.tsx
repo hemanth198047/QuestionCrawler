@@ -1,6 +1,6 @@
 import { Copy, Filter, Lightbulb, MessageCircleQuestion, Search, SlidersHorizontal } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { getCategories, search, type AgeParams } from '../api'
+import { getCategories, search, type AgeParams, MAX_QUERY_CHARS } from '../api'
 import { AgeSlider, type AgeValue } from '../components/AgeSlider'
 import { AnswerCard } from '../components/AnswerCard'
 import { EvidenceCard } from '../components/Evidence'
@@ -70,8 +70,8 @@ export default function ExplorePage({ params }: { params: URLSearchParams }) {
 
   const navigate = (over: Partial<{ q: string; tags: string[]; category: string; qAge: AgeValue; aAge: AgeValue }> = {}) => {
     const n = new URLSearchParams()
-    const text = over.q ?? input
-    if (text.trim()) n.set('q', text.trim())
+    const text = (over.q ?? input).trim().slice(0, MAX_QUERY_CHARS)
+    if (text) n.set('q', text)
     ;(over.tags ?? tagDraft).forEach((t) => n.append('tag', t))
     const c = over.category ?? catDraft; if (c) n.set('category', c)
     const qa = over.qAge ?? qDraft; if (qa.value) n.set(qa.mode === 'newer' ? 'maxQuestionAge' : 'minQuestionAge', qa.value)
@@ -108,6 +108,7 @@ export default function ExplorePage({ params }: { params: URLSearchParams }) {
             <kbd>/</kbd>
             <Button type="submit" variant="primary" size="lg">Search</Button>
           </div>
+          {input.length > MAX_QUERY_CHARS && <p className="muted small" style={{ marginTop: 8 }}>Only the first {MAX_QUERY_CHARS} characters are searched (for a long log or stack trace, the start usually says the most).</p>}
           <div className="spread" style={{ marginTop: 14 }}>
             <div className="row" style={{ gap: 8 }}>
               <Button type="button" size="sm" variant={open ? 'primary' : 'secondary'} icon={<SlidersHorizontal size={15} />} onClick={() => setOpen(!open)}>Filters{activeFilters.length ? ` · ${activeFilters.length}` : ''}</Button>

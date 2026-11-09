@@ -37,7 +37,7 @@ import org.apache.lucene.store.NIOFSDirectory;
 public final class SearchIndex implements AutoCloseable {
 
     /** Bumped when token expansion changes (plain-English stems) or indexed text shape changes (comments). */
-    public static final int INDEX_VERSION = 4; // 4: pages are indexed per section/passage with heading paths
+    public static final int INDEX_VERSION = 4; // 4: pages are indexed per section/passage with heading paths (pieces of very long tokens are indexed for new pages; older ones are found by exact text)
 
     static final String F_KEY = "key";
     static final String F_TYPE = "type";

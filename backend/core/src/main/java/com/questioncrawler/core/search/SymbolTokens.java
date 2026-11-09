@@ -58,7 +58,18 @@ public final class SymbolTokens {
         Matcher m = WORD.matcher(text);
         while (m.find()) {
             String raw = trimTrailingPunctuation(m.group());
-            if (raw.isEmpty() || raw.length() > MAX_TOKEN) {
+            if (raw.isEmpty()) {
+                continue;
+            }
+            if (raw.length() > MAX_TOKEN) {
+                // a very long run (seg1_seg2_..._seg3000, a_a_a_...): its pieces are still searchable words
+                int added = 0;
+                for (String piece : raw.split("[_.:/\\-]+")) {
+                    if (!piece.isEmpty() && piece.length() <= MAX_TOKEN && added++ < 2000) {
+                        String lower = piece.toLowerCase(Locale.ROOT);
+                        result.add(new Word(lower, List.of()));
+                    }
+                }
                 continue;
             }
             String whole = raw.toLowerCase(Locale.ROOT);

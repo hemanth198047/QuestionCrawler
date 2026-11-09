@@ -29,12 +29,28 @@ export const showSignInWindow = () => post<{ open: boolean }>('/sign-in/window/s
 export const getSyncReports = (s?: AbortSignal) => get<SyncReport[]>('/sync/reports?limit=12', s)
 
 // exploring
-export function search(p: { q: string; tags: string[]; category: string; top: number; age: AgeParams }, signal?: AbortSignal) {
-  const qs = new URLSearchParams({ q: p.q, top: String(p.top) })
+/** Longest question sent (the service searches the start of a longer one, for example a pasted stack trace). */
+export const MAX_QUERY_CHARS = 500
+
+export async function search(p: { q: string; tags: string[]; category: string; top: number; age: AgeParams }, signal?: AbortSignal) {
+  const qs = new URLSearchParams({ q: p.q.slice(0, MAX_QUERY_CHARS), top: String(p.top) })
   p.tags.forEach((t) => qs.append('tag', t))
   if (p.category) qs.append('category', p.category)
   ;(Object.keys(p.age) as (keyof AgeParams)[]).forEach((k) => { if (p.age[k]) qs.append(k, p.age[k]) })
-  return get<SearchResponse>(`/search?${qs.toString()}`, signal)
+  // A search never keeps the screen waiting: after 30 seconds it is given up with a clear message.
+  const limit = new AbortController()
+  const timer = window.setTimeout(() => limit.abort(), 30000)
+  const stop = () => limit.abort()
+  signal?.addEventListener('abort', stop)
+  try {
+    return await get<SearchResponse>(`/search?${qs.toString()}`, limit.signal)
+  } catch (e) {
+    if (limit.signal.aborted && !signal?.aborted) throw new Error('The search took too long and was stopped. Try fewer or more specific words.')
+    throw e
+  } finally {
+    window.clearTimeout(timer)
+    signal?.removeEventListener('abort', stop)
+  }
 }
 export const getQuestion = (id: string, s?: AbortSignal) => get<ThreadView>(`/questions/${encodeURIComponent(id)}`, s)
 export const setOverride = (id: string, categories: string[], note: string) => put<ThreadView>(`/questions/${encodeURIComponent(id)}/categories`, { categories, note })

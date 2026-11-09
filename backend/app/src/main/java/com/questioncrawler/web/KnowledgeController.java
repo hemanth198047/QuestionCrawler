@@ -51,7 +51,7 @@ public class KnowledgeController {
             throw new IllegalArgumentException("Query parameter 'q' must not be blank.");
         }
         if (query.length() > MAX_QUERY_LENGTH) {
-            throw new IllegalArgumentException("Query is longer than " + MAX_QUERY_LENGTH + " characters.");
+            query = query.substring(0, MAX_QUERY_LENGTH); // a pasted log or stack trace: its beginning is searched
         }
         AgeFilter age = new AgeFilter(maxQuestionAge, minQuestionAge, maxAnswerAge, minAnswerAge);
         return workspace.kb().search(new SearchRequest(query, tags, categories, top, maxChars, 0, age));

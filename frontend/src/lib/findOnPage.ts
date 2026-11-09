@@ -22,14 +22,35 @@ export function useHits(root: RefObject<HTMLElement | null>, terms: FindTerms | 
     const counts: Record<string, number> = {}
     let heading: HTMLElement | null = null
     let order = 0
-    el.querySelectorAll<HTMLElement>('.md-h, .md-b').forEach((node) => {
-      if (node.classList.contains('md-h')) { heading = node; return }
-      if (!node.classList.contains('md-hit')) return
+    const headingsWithHits = new Set<HTMLElement>()
+    // Read first, change classes after: reading text this way never makes the browser lay the page out again,
+    // so pages with thousands of matches stay fast. At most 3000 places are listed.
+    for (const node of el.querySelectorAll<HTMLElement>('.md-h, .md-b')) {
+      if (node.classList.contains('md-h')) { heading = node; continue }
+      if (!node.classList.contains('md-hit')) continue
+      if (found.length >= 3000) break
       const section = heading?.dataset.heading ?? null
-      if (heading) heading.classList.add('md-h-hit')
+      if (heading) headingsWithHits.add(heading)
       if (section) counts[section] = (counts[section] ?? 0) + 1
-      found.push({ el: node, score: Number(node.dataset.score ?? 0), order: order++, section, text: (node.innerText || '').replace(/\s+/g, ' ').trim() })
-    })
+      found.push({ el: node, score: Number(node.dataset.score ?? 0), order: order++, section, text: (node.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 400) })
+    }
+    if (found.length === 0) {
+      // Nothing has enough of the question (a long pasted log, for example): show the places that have the most of it.
+      const partial = [...el.querySelectorAll<HTMLElement>('.md-b')].filter((b) => Number(b.dataset.score ?? 0) > 0)
+        .sort((a, b) => Number(b.dataset.score) - Number(a.dataset.score)).slice(0, 20)
+      const keep = new Set(partial)
+      let current: HTMLElement | null = null
+      for (const node of el.querySelectorAll<HTMLElement>('.md-h, .md-b')) {
+        if (node.classList.contains('md-h')) { current = node; continue }
+        if (!keep.has(node)) continue
+        node.classList.add('md-hit')
+        const section = current?.dataset.heading ?? null
+        if (current) headingsWithHits.add(current)
+        if (section) counts[section] = (counts[section] ?? 0) + 1
+        found.push({ el: node, score: Number(node.dataset.score ?? 0), order: order++, section, text: (node.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 400) })
+      }
+    }
+    headingsWithHits.forEach((h) => h.classList.add('md-h-hit'))
     setHits(found)
     setSections(counts)
   }, [root, terms, version])

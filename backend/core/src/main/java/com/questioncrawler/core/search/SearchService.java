@@ -68,33 +68,84 @@ public final class SearchService {
         this.clock = clock;
     }
 
+    /** Longest question taken (a pasted log or stack trace is cut, not refused). */
+    public static final int MAX_QUERY_CHARS = 500;
+    /** Words of the question used for matching; more would only slow the search and exceed the query limits. */
+    static final int MAX_QUERY_WORDS = 32;
+    /** One search may take at most this long; then it answers with what it found so far. */
+    static final long TIME_BUDGET_MS = 6000;
+    /** Searches running at the same time; more wait their turn instead of piling up. */
+    private static final java.util.concurrent.Semaphore RUNNING = new java.util.concurrent.Semaphore(2, true);
+
     public SearchResponse search(SearchRequest request) {
+        boolean admitted;
+        try {
+            admitted = RUNNING.tryAcquire(15, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new StoreException("The search was interrupted.", e);
+        }
+        if (!admitted) {
+            throw new StoreException("Several searches are still running. Try again in a moment.");
+        }
+        try {
+            return searchNow(request);
+        } finally {
+            RUNNING.release();
+        }
+    }
+
+    private SearchResponse searchNow(SearchRequest request) {
         if (!SearchIndex.exists(indexDir)) {
             throw new StoreException("Search index not found at " + indexDir + ". Run 'sync' (or 'demo'), or 'reindex' if threads exist.");
         }
         if (SearchIndex.readVersion(indexDir) != SearchIndex.INDEX_VERSION) {
             throw new StoreException("The search index was built by an older version (plain-English stems need a rebuild). Run 'reindex'.");
         }
-        String rawQuery = request.query() == null ? "" : request.query();
+        String rawQuery = request.query() == null ? "" : request.query().replaceAll("[\\p{Cntrl}&&[^\\n\\t]]", " ").strip();
+        if (rawQuery.length() > MAX_QUERY_CHARS) {
+            rawQuery = rawQuery.substring(0, MAX_QUERY_CHARS);
+        }
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(TIME_BUDGET_MS);
         String queryText = PlainEnglish.stripChattyPrefix(PlainEnglish.expandContractions(rawQuery));
         List<SymbolTokens.Word> words = SymbolTokens.contentWords(queryText);
         if (words.isEmpty()) {
             queryText = rawQuery;
             words = SymbolTokens.contentWords(queryText);
         }
-        if (words.isEmpty()) {
-            return empty(request);
+        if (words.size() > MAX_QUERY_WORDS) {
+            words = words.subList(0, MAX_QUERY_WORDS);
+        }
+        if (words.isEmpty() || mostlySymbols(rawQuery)) {
+            // "_", "$", ".*", "->", "#{x}": search the text exactly as typed
+            SearchResponse literal = literalSearch(request, rawQuery, deadline);
+            if (literal.resultCount() > 0 || words.isEmpty()) {
+                return literal;
+            }
         }
         try (Directory directory = new NIOFSDirectory(indexDir); DirectoryReader reader = DirectoryReader.open(directory)) {
             IndexSearcher searcher = new IndexSearcher(reader);
-            Query query = buildQuery(queryText, words, request);
-            int candidates = Math.max(60, request.topK() * 12);
-            ScoreDoc[] hits = searcher.search(query, candidates).scoreDocs;
+            searcher.setTimeout(new org.apache.lucene.index.QueryTimeoutImpl(TIME_BUDGET_MS));
+            Query query;
+            ScoreDoc[] hits;
+            try {
+                query = buildQuery(queryText, words, request);
+                int candidates = Math.max(60, request.topK() * 12);
+                hits = searcher.search(query, candidates).scoreDocs;
+            } catch (IndexSearcher.TooManyClauses e) {
+                // a very long question: search with its first words only
+                words = words.subList(0, Math.min(8, words.size()));
+                query = buildQuery(String.join(" ", words.stream().map(SymbolTokens.Word::whole).toList()), words, request);
+                hits = searcher.search(query, Math.max(60, request.topK() * 12)).scoreDocs;
+            }
 
             String normalizedQuery = normalizeForExact(queryText);
             List<Evidence> scored = new ArrayList<>();
             Map<Evidence, String> fullText = new java.util.IdentityHashMap<>();
             for (ScoreDoc hit : hits) {
+                if (System.nanoTime() > deadline && !scored.isEmpty()) {
+                    break; // out of time: answer with what was found so far
+                }
                 var doc = searcher.storedFields().document(hit.doc);
                 String text = doc.get(SearchIndex.S_TEXT);
                 String title = doc.get(SearchIndex.S_TITLE);
@@ -141,6 +192,13 @@ public final class SearchService {
                 scored.add(ev);
                 fullText.put(ev, text);
             }
+            if (scored.isEmpty()) {
+                // nothing by words: the exact text may still be there (symbols, odd spellings, very long identifiers)
+                SearchResponse literal = literalSearch(request, rawQuery, deadline);
+                if (literal.resultCount() > 0) {
+                    return literal;
+                }
+            }
             scored.sort((a, b) -> Double.compare(b.score(), a.score()));
             SearchResponse response = assemble(request, scored);
             List<AnswerComposer.Candidate> answerFrom = new ArrayList<>();
@@ -151,6 +209,96 @@ public final class SearchService {
         } catch (IOException e) {
             throw new StoreException("Cannot read search index: " + e.getMessage(), e);
         }
+    }
+
+    // ------------------------------------------------------------------ exact text ("search anything")
+
+    /** True when the question is mostly symbols ("_", "->", "$PATH" is not): words alone cannot find it. */
+    static boolean mostlySymbols(String q) {
+        String t = q.strip();
+        if (t.isEmpty()) {
+            return false;
+        }
+        long letters = t.codePoints().filter(Character::isLetterOrDigit).count();
+        return letters * 2 < t.codePoints().filter(c -> !Character.isWhitespace(c)).count();
+    }
+
+    /**
+     * Finds the question exactly as typed (any characters, case ignored) in the collected text: for symbols, odd
+     * identifiers, very long tokens and anything words cannot match. Filters (tags, topics, age) still apply.
+     */
+    SearchResponse literalSearch(SearchRequest request, String rawQuery, long deadline) {
+        String needle = rawQuery.strip().toLowerCase(Locale.ROOT);
+        if (needle.isEmpty()) {
+            return empty(request);
+        }
+        try (Directory directory = new NIOFSDirectory(indexDir); DirectoryReader reader = DirectoryReader.open(directory)) {
+            IndexSearcher searcher = new IndexSearcher(reader);
+            BooleanQuery.Builder all = new BooleanQuery.Builder();
+            all.add(new org.apache.lucene.search.MatchAllDocsQuery(), BooleanClause.Occur.MUST);
+            addFilter(all, SearchIndex.F_TAG, request.tags(), true);
+            addFilter(all, SearchIndex.F_CAT, request.categories(), false);
+            addAgeFilters(all, request.age());
+            ScoreDoc[] docs = searcher.search(all.build(), Math.max(1, reader.maxDoc())).scoreDocs;
+            List<Evidence> found = new ArrayList<>();
+            for (ScoreDoc d : docs) {
+                if (System.nanoTime() > deadline) {
+                    break;
+                }
+                var doc = searcher.storedFields().document(d.doc);
+                String text = doc.get(SearchIndex.S_TEXT);
+                String title = doc.get(SearchIndex.S_TITLE);
+                String lowerText = text == null ? "" : text.toLowerCase(Locale.ROOT);
+                String lowerTitle = title == null ? "" : title.toLowerCase(Locale.ROOT);
+                int at = lowerText.indexOf(needle);
+                boolean inTitle = lowerTitle.contains(needle);
+                if (at < 0 && !inTitle) {
+                    continue;
+                }
+                int count = 0;
+                for (int i = at; i >= 0 && count < 50; i = lowerText.indexOf(needle, i + Math.max(1, needle.length()))) {
+                    count++;
+                }
+                String section = emptyToNull(doc.get(SearchIndex.S_SECTION));
+                String sourceUrl = emptyToNull(doc.get(SearchIndex.S_URL));
+                List<String> cats = split(doc.get(SearchIndex.S_CATS));
+                List<String> flags = InjectionHeuristics.suspicious(text) || InjectionHeuristics.suspicious(title)
+                        ? List.of(InjectionHeuristics.FLAG) : List.of();
+                found.add(new Evidence(0, doc.get(SearchIndex.F_TYPE), doc.get(SearchIndex.F_QID),
+                        emptyToNull(doc.get(SearchIndex.F_AID)), title, around(text, at, needle.length(), request.maxPassageChars()),
+                        sourceUrl, emptyToNull(doc.get(SearchIndex.S_QURL)),
+                        cats, cats.stream().map(taxonomy::displayName).toList(), split(doc.get(SearchIndex.S_TAGS)),
+                        "1".equals(doc.get(SearchIndex.S_ACCEPTED)), parseInt(doc.get(SearchIndex.S_VOTES)), emptyToNull(doc.get(SearchIndex.S_AUTHOR)),
+                        emptyToNull(doc.get(SearchIndex.S_CREATED)), emptyToNull(doc.get(SearchIndex.S_QCREATED)),
+                        emptyToNull(doc.get(SearchIndex.S_MODIFIED)), emptyToNull(doc.get(SearchIndex.S_SYNCED)),
+                        round(count + (inTitle ? 5 : 0)), 1.0, doc.get(SearchIndex.S_STATUS), flags, true,
+                        section, sectionUrl(sourceUrl, emptyToNull(doc.get(SearchIndex.S_SECTION_HEADING))), sectionIndex(doc), List.of()));
+            }
+            found.sort((a, b) -> Double.compare(b.score(), a.score()));
+            SearchResponse response = assemble(request, found);
+            return withAnswer(response, AnswerComposer.compose(rawQuery, List.of(), List.of()));
+        } catch (IOException e) {
+            throw new StoreException("Cannot read search index: " + e.getMessage(), e);
+        }
+    }
+
+    /** The lines around the first place the text was found (whole lines, so code is not cut mid-line). */
+    static String around(String text, int at, int length, int maxChars) {
+        if (text == null || text.isEmpty()) {
+            return "";
+        }
+        if (at < 0 || text.length() <= maxChars) {
+            return text.length() <= maxChars ? text.strip() : text.substring(0, maxChars) + "...";
+        }
+        int start = Math.max(0, at - maxChars / 3);
+        int lineStart = text.lastIndexOf('\n', start);
+        start = lineStart >= 0 && at - lineStart < maxChars / 2 ? lineStart + 1 : start;
+        int end = Math.min(text.length(), start + maxChars);
+        int lineEnd = text.indexOf('\n', Math.max(at + length, end - 1));
+        if (lineEnd > 0 && lineEnd - start <= maxChars + 200) {
+            end = lineEnd;
+        }
+        return (start > 0 ? "...\n" : "") + text.substring(start, end).strip() + (end < text.length() ? "\n..." : "");
     }
 
     // ------------------------------------------------------------------ query building
