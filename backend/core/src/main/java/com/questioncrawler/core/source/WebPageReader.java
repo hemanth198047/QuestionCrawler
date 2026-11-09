@@ -78,6 +78,10 @@ public final class WebPageReader {
         if (first == null) {
             throw new SourceException(SourceException.Kind.NOT_FOUND, "'" + link + "' is not a web address");
         }
+        if (ShortLinks.schemeGuessed(link)) {
+            // Typed without http:// or https:// (casc-docs/): http first, https if http does not answer.
+            first = reachableScheme(first);
+        }
         String signedIn = null;
         for (int attempt = 0; attempt < 3; attempt++) {
             Outcome o = follow(first);
@@ -108,6 +112,35 @@ public final class WebPageReader {
             }
         }
         throw new SourceException(SourceException.Kind.FORBIDDEN, "The site still asks for a sign-in after signing in through the browser: " + Redirects.show(first));
+    }
+
+    /** Per site: whether an address typed without a scheme is reached with http or https (asked once). */
+    private final Map<String, String> schemes = new ConcurrentHashMap<>();
+
+    /** http://name/... when it answers; otherwise https://name/... when that answers; otherwise the http address. */
+    private URI reachableScheme(URI httpFirst) {
+        String known = schemes.get(httpFirst.getRawAuthority().toLowerCase(Locale.ROOT));
+        if (known != null) {
+            return known.equals("https") ? ShortLinks.withHttps(httpFirst) : httpFirst;
+        }
+        URI chosen = probeScheme(httpFirst);
+        schemes.put(httpFirst.getRawAuthority().toLowerCase(Locale.ROOT), chosen.getScheme());
+        return chosen;
+    }
+
+    private URI probeScheme(URI httpFirst) {
+        try {
+            http.get(httpFirst, null);
+            return httpFirst;
+        } catch (IOException e) {
+            URI https = ShortLinks.withHttps(httpFirst);
+            try {
+                http.get(https, null);
+                return https;
+            } catch (IOException ignored) {
+                return httpFirst; // the error for the http address is reported when it is read
+            }
+        }
     }
 
     private record Outcome(WebPage page, URI needsSignIn, String why) {}
@@ -235,32 +268,17 @@ public final class WebPageReader {
     }
 
     private static URI next(URI current, String location) throws IllegalArgumentException {
+        // Plain http is allowed: company short links and intranet pages often use it. Nothing secret is sent with
+        // these requests except the cookies of a browser sign-in to that very site.
         URI next = current.resolve(location.strip().replace(" ", "%20"));
-        if ("https".equalsIgnoreCase(current.getScheme()) && "http".equalsIgnoreCase(next.getScheme())
-                && next.getHost() != null && next.getHost().contains(".")) {
-            // Never step down from https to plain http on a named site; an intranet name (go/x) may be http.
-            throw new IllegalArgumentException("the link steps down from https to unencrypted http: " + Redirects.show(next));
+        if (next.getScheme() == null || !(next.getScheme().equalsIgnoreCase("http") || next.getScheme().equalsIgnoreCase("https"))) {
+            throw new IllegalArgumentException("the link leads to '" + next.getScheme() + "', not a web page: " + Redirects.show(next));
         }
         return next;
     }
 
     static URI toUri(String text) {
-        String t = text == null ? "" : text.strip();
-        if (t.isEmpty()) {
-            return null;
-        }
-        if (!t.matches("(?i)^https?://.*")) {
-            t = t.matches("^[A-Za-z0-9.\\-]+(:\\d+)?/.*") || t.matches("^[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}$") ? "http://" + t : null;
-        }
-        if (t == null) {
-            return null;
-        }
-        try {
-            URI u = URI.create(t.replace(" ", "%20"));
-            return u.getHost() == null ? null : u;
-        } catch (IllegalArgumentException e) {
-            return null;
-        }
+        return ShortLinks.webAddress(text);
     }
 
     // ================================================================== HTTP

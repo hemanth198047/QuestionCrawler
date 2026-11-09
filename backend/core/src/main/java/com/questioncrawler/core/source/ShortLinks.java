@@ -121,7 +121,7 @@ public final class ShortLinks {
                         + "|(?<mdlink>\\[(?<text>[^\\]\\n]*)\\]\\((?<target>[^)\\s]+)(?<rest>[^)\\n]*)\\))"
                         + "|<(?<auto>https?://[^>\\s]+)>"
                         + "|(?<url>https?://[^\\s<>()\\[\\]\"'`]+)"
-                        + "|(?<bare>(?<![\\w/.:@\\-])(?i:" + bare + ")/[A-Za-z0-9][\\w\\-./~%+#=?&]*)");
+                        + "|(?<bare>(?<![\\w/.:@\\-])(?i:" + bare + ")/(?:[A-Za-z0-9][\\w\\-./~%+#=?&]*)?)");
     }
 
     public boolean enabled() {
@@ -144,7 +144,12 @@ public final class ShortLinks {
             return false;
         }
         String path = uri.getRawPath() == null ? "" : uri.getRawPath();
-        return isShortHost(uri.getHost()) && path.replace("/", "").length() > 0;
+        String host = uri.getHost().toLowerCase(Locale.ROOT);
+        if (!schemeGuessed(text) && !host.contains(".") && !host.equals("localhost")) {
+            return true; // http://casc-docs/...: a one-word intranet name, the way company short links are written
+        }
+        // A short-link name you added yourself (casc-docs) is a link on its own too: casc-docs/ opens its start page.
+        return isShortHost(uri.getHost()) && (path.replace("/", "").length() > 0 || options.extraHosts().contains(uri.getHost().toLowerCase(Locale.ROOT)));
     }
 
     private boolean isShortHost(String host) {
@@ -160,15 +165,47 @@ public final class ShortLinks {
 
     /** "go/xyz" (no scheme, as people type them) becomes http://go/xyz. */
     private static URI toUri(String text) {
-        String t = text.matches("(?i)^https?://.*") ? text : text.matches("^[A-Za-z0-9.\\-]+/.*") ? "http://" + text : null;
+        return webAddress(text);
+    }
+
+    /**
+     * A typed address as a web address. Without http:// or https:// (casc-docs, casc-docs/, casc-docs/page,
+     * go.corp.com/x, wiki:8080/page) http:// is assumed first; callers try https:// when http does not answer.
+     */
+    public static URI webAddress(String text) {
+        String t = text == null ? "" : text.strip();
+        if (t.isEmpty() || t.contains(" ")) {
+            return null;
+        }
+        if (!t.matches("(?i)^https?://.*")) {
+            if (t.matches("(?i)^[a-z][a-z0-9+.\\-]*://.*") || t.startsWith("/") || t.startsWith("mailto:")) {
+                return null; // another scheme (ftp://, file://) or a path, not a web address
+            }
+            t = t.matches("^[A-Za-z0-9.\\-]+(:\\d+)?(/.*)?$") ? "http://" + t : null;
+        }
         if (t == null) {
             return null;
         }
         try {
-            return URI.create(t.replace(" ", "%20"));
+            URI u = URI.create(t);
+            if (u.getHost() == null) {
+                return null;
+            }
+            // casc-docs (no slash) becomes http://casc-docs/
+            return u.getRawPath() == null || u.getRawPath().isEmpty() ? URI.create(t + "/") : u;
         } catch (IllegalArgumentException e) {
             return null;
         }
+    }
+
+    /** True when the address was typed without http:// or https://. */
+    static boolean schemeGuessed(String text) {
+        return text != null && !text.strip().matches("(?i)^https?://.*");
+    }
+
+    /** The same address with https:// instead of http://. */
+    static URI withHttps(URI u) {
+        return URI.create("https" + u.toString().substring(u.getScheme().length()));
     }
 
     /** Where a short link leads (looked up once, then remembered). */
@@ -179,12 +216,12 @@ public final class ShortLinks {
         if (known != null) {
             return known;
         }
-        Lookup found = lookUp(key);
+        Lookup found = lookUp(key, schemeGuessed(link));
         cache.put(key, found);
         return new Lookup(link.strip(), found.target(), found.problem());
     }
 
-    private Lookup lookUp(String link) {
+    private Lookup lookUp(String link, boolean schemeGuessed) {
         if (!options.enabled()) {
             return new Lookup(link, null, "expanding short links is switched off");
         }
@@ -201,6 +238,13 @@ public final class ShortLinks {
             try {
                 answer = fetcher.fetch(current);
             } catch (IOException e) {
+                if (hop == 0 && schemeGuessed && "http".equalsIgnoreCase(current.getScheme())) {
+                    // typed without http:// or https:// and http does not answer: try https
+                    schemeGuessed = false;
+                    current = withHttps(current);
+                    hop--;
+                    continue;
+                }
                 unreachableHosts.add(host);
                 return new Lookup(link, null, "the short-link service " + host + " could not be reached (" + e.getClass().getSimpleName() + ")");
             }
@@ -298,7 +342,8 @@ public final class ShortLinks {
                 return true;
             }
         }
-        return lower.contains("://go.") || lower.contains("://goto.") || lower.contains("://golinks.");
+        return lower.contains("://go.") || lower.contains("://goto.") || lower.contains("://golinks.")
+                || Pattern.compile("https?://[a-z0-9\\-]+[/:]").matcher(lower).find(); // http://casc-docs/...
     }
 
     private String expandText(String text) {
@@ -342,8 +387,8 @@ public final class ShortLinks {
         while (m.find()) {
             List<String> candidates = new ArrayList<>();
             if (m.group("mdlink") != null) {
-                candidates.add(m.group("text"));
-                candidates.add(m.group("target"));
+                // [go/vpn](real address) was expanded already: the short link is read, not its address a second time
+                candidates.add(isShortLink(m.group("text").strip()) ? m.group("text") : m.group("target"));
             } else if (m.group("auto") != null) {
                 candidates.add(m.group("auto"));
             } else if (m.group("url") != null || m.group("bare") != null) {
@@ -373,9 +418,12 @@ public final class ShortLinks {
         for (String key : keys) {
             String value = values.get(key);
             if (value == null || value.isBlank() || key.endsWith("Env") || key.equals("network.shortLinkHosts") || key.startsWith("storage.")
-                    || key.endsWith("File") || key.endsWith("Dir") || key.endsWith("Dirs") || key.endsWith("curlPath")) {
+                    || key.endsWith("File") || key.endsWith("Dir") || key.endsWith("Dirs") || key.endsWith("curlPath")
+                    || key.startsWith("sync.") || key.equals("source.type") || key.equals("source.links.list") || key.equals("source.systemId")
+                    || key.startsWith("network.proxy") || key.equals("network.noProxy") || key.startsWith("api.key")) {
                 continue;
             }
+            boolean addressKey = key.toLowerCase(Locale.ROOT).endsWith("url");
             List<String> parts = new ArrayList<>();
             List<String> said = new ArrayList<>();
             boolean changed = false;
@@ -391,16 +439,51 @@ public final class ShortLinks {
                     }
                     said.add(p + " could not be expanded: " + l.problem());
                 }
+                if (addressKey && schemeGuessed(p) && webAddress(p) != null) {
+                    // An address typed without http:// or https:// (casc-docs/, wiki.corp.com): use the one that answers.
+                    String fixed = withScheme(p);
+                    parts.add(fixed);
+                    said.add(p + " is used as " + fixed);
+                    changed = true;
+                    continue;
+                }
                 parts.add(p);
             }
             if (changed) {
                 values.put(key, String.join(",", parts));
             }
             if (!said.isEmpty()) {
-                notes.put(key, "Short link: " + String.join("; ", said) + (changed ? ". The real address is used." : "."));
+                notes.put(key, (said.stream().allMatch(x -> x.contains(" is used as ")) ? "Address: " : "Short link: ")
+                        + String.join("; ", said) + (changed ? ". The real address is used." : "."));
             }
         }
         return notes;
+    }
+
+    /**
+     * An address typed without a scheme, with the scheme that works: https when http is not answered or only sends
+     * you on to https on the same site, otherwise http (many intranet sites and short links are plain http).
+     */
+    String withScheme(String typed) {
+        URI http = webAddress(typed);
+        String asTyped = typed.strip();
+        try {
+            Hop answer = fetcher.fetch(http);
+            if (answer.status() >= 300 && answer.status() < 400 && answer.location() != null) {
+                URI to = http.resolve(answer.location().strip());
+                if ("https".equalsIgnoreCase(to.getScheme()) && http.getHost().equalsIgnoreCase(to.getHost())) {
+                    return "https://" + asTyped;
+                }
+            }
+            return "http://" + asTyped;
+        } catch (IOException | RuntimeException e) {
+            try {
+                fetcher.fetch(withHttps(http));
+                return "https://" + asTyped;
+            } catch (IOException | RuntimeException again) {
+                return "http://" + asTyped;
+            }
+        }
     }
 
     // ================================================================== remembering answers between runs

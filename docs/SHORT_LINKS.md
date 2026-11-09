@@ -17,6 +17,21 @@ There are two separate features:
 | *Also read short links found in what you collected* (`source.links.fromCollected`, on by default) | Also reads the pages behind every short link written in the pages, questions and answers already collected from your other sources. Collect those first |
 | *Sign-in method* (`source.auth.method`) | **Open a browser window when a page needs a sign-in** (default), or **No sign-in** to skip those pages |
 
+**Plain http and names without http/https.** You can type a link the way people say it:
+
+| You type | Read as |
+|---|---|
+| `casc-docs` or `casc-docs/` | `http://casc-docs/`, or `https://casc-docs/` if http does not answer |
+| `casc-docs/guides/vpn` | `http://casc-docs/guides/vpn` (https if http does not answer) |
+| `wiki.mycompany.com/hr` | `http://wiki.mycompany.com/hr`, then wherever the site redirects (often to https) |
+| `http://casc-docs/x` | as typed: plain http is allowed |
+
+- Redirects are followed between http and https in either direction.
+- When collecting, a one-word intranet address written with `http://` (such as `http://casc-docs/x`) counts as a short link.
+  Without `http://`, a name in the text (`casc-docs/`) counts only after you add it under *Your short-link services*.
+- In the Connect address fields, an address typed without `http://` or `https://` is completed when you save or run
+  Check access. https is used when the site only answers on https, or when it immediately redirects http to https.
+
 What happens for each link:
 
 1. The short link is expanded: every redirect, short link after short link, up to the real page.
