@@ -237,6 +237,9 @@ public final class ShortLinks {
             Hop answer;
             try {
                 answer = fetcher.fetch(current);
+            } catch (RuntimeException e) {
+                // an unexpected answer from the short-link service: the link stays as it was, nothing else is affected
+                return new Lookup(link, null, "the short-link service gave an answer that could not be read (" + e.getClass().getSimpleName() + ")");
             } catch (IOException e) {
                 if (hop == 0 && schemeGuessed && "http".equalsIgnoreCase(current.getScheme())) {
                     // typed without http:// or https:// and http does not answer: try https
@@ -558,7 +561,8 @@ public final class ShortLinks {
             HttpResponse<InputStream> r = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
             String body;
             try (InputStream in = r.body()) {
-                body = new String(in.readNBytes(64 * 1024), StandardCharsets.UTF_8);
+                // some answers (for example HEAD-like or empty redirects through a proxy) come without a body
+                body = in == null ? "" : new String(in.readNBytes(64 * 1024), StandardCharsets.UTF_8);
             }
             return new Hop(r.statusCode(), r.headers().firstValue("Location").orElse(null), body);
         } catch (InterruptedException e) {

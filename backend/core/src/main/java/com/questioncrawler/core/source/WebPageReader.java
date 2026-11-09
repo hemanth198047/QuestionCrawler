@@ -328,7 +328,7 @@ public final class WebPageReader {
             HttpResponse<InputStream> r = client.send(b.build(), HttpResponse.BodyHandlers.ofInputStream());
             String type = r.headers().firstValue("Content-Type").orElse("").toLowerCase(Locale.ROOT);
             String body;
-            try (InputStream in = r.body()) {
+            try (InputStream in = r.body() == null ? InputStream.nullInputStream() : r.body()) {
                 boolean gzip = r.headers().firstValue("Content-Encoding").map(v -> v.equalsIgnoreCase("gzip")).orElse(false);
                 InputStream src = gzip ? new java.util.zip.GZIPInputStream(in) : in;
                 byte[] bytes = src.readNBytes(MAX_BYTES);

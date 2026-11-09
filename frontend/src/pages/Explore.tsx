@@ -160,7 +160,7 @@ export default function ExplorePage({ params }: { params: URLSearchParams }) {
                 ? 'Try different words, a space label such as space:ENG, or a wider age range. Related forms (configure/configuring, runbook/playbook) are already expanded — still no AI model.'
                 : 'Try different words, an exact error message, or a wider age range. Related wording is expanded lightly; this is still lexical search, not an AI model.'}</EmptyState>
           ) : (
-            <div className="stack-sm">{result.data.evidence.map((e) => <EvidenceCard key={`${e.questionId}-${e.answerId ?? 'q'}-${e.sectionIndex}`} e={e} pageMode={isWiki} terms={terms} onCategory={(id) => navigate({ category: id })} />)}</div>
+            <div className="stack-sm">{result.data.evidence.map((e) => <EvidenceCard key={`${e.questionId}-${e.answerId ?? 'q'}-${e.sectionIndex}`} e={e} query={q} pageMode={isWiki} terms={terms} onCategory={(id) => navigate({ category: id })} />)}</div>
           )}
           {result.data.truncated && <p className="muted small">{result.data.omittedForBudget} lower-ranked passage(s) were left out to keep this readable.</p>}
           <p className="muted small"><InfoTip term="untrusted" /> Everything shown was written by other people and is displayed as reading material only. Check the original source before relying on it.</p>

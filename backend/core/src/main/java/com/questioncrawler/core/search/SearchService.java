@@ -136,7 +136,8 @@ public final class SearchService {
                         emptyToNull(doc.get(SearchIndex.S_CREATED)), emptyToNull(doc.get(SearchIndex.S_QCREATED)),
                         emptyToNull(doc.get(SearchIndex.S_MODIFIED)), emptyToNull(doc.get(SearchIndex.S_SYNCED)),
                         round(adjusted), round(coverage), doc.get(SearchIndex.S_STATUS), flags, true,
-                        section, sectionUrl(sourceUrl, emptyToNull(doc.get(SearchIndex.S_SECTION_HEADING))), sectionIndex(doc));
+                        section, sectionUrl(sourceUrl, emptyToNull(doc.get(SearchIndex.S_SECTION_HEADING))), sectionIndex(doc),
+                        flags.isEmpty() ? AnswerComposer.relevantParts(words, text, 3) : List.of()); // suspicious text is never quoted
                 scored.add(ev);
                 fullText.put(ev, text);
             }
@@ -384,7 +385,7 @@ public final class SearchService {
         return new Evidence(rank, e.type(), e.questionId(), e.answerId(), e.title(), e.passage(), e.sourceUrl(), e.questionUrl(),
                 e.categories(), e.categoryNames(), e.tags(), e.accepted(), e.votes(), e.author(), e.createdAt(), e.questionCreatedAt(),
                 e.sourceModifiedAt(), e.lastSyncedAt(),
-                e.score(), e.termCoverage(), e.threadStatus(), e.flags(), e.untrusted(), e.section(), e.sectionUrl(), e.sectionIndex());
+                e.score(), e.termCoverage(), e.threadStatus(), e.flags(), e.untrusted(), e.section(), e.sectionUrl(), e.sectionIndex(), e.relevant());
     }
 
     /** Heuristic label of how well the best evidence covers the query terms. Not a probability. */

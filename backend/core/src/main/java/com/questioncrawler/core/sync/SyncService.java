@@ -400,7 +400,12 @@ public final class SyncService {
         private void storeFetched(String id, Question raw, RunState state, boolean reconciling) {
             Question normalized = ContentNormalizer.normalize(raw);
             if (shortLinks != null && shortLinks.enabled()) {
-                normalized = shortLinks.expand(normalized);
+                try {
+                    normalized = shortLinks.expand(normalized);
+                } catch (RuntimeException e) {
+                    // expanding short links is a convenience: it must never stop a collection
+                    warnings.add("Short links in " + terms().item() + " " + id + " were left as they are: " + e.getMessage());
+                }
             }
             String hash = Hashes.sha256(Json.writeCompact(normalized));
             Optional<ThreadRecord> existing = store.loadThread(system, id);

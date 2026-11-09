@@ -291,6 +291,56 @@ public final class AnswerComposer {
         return out.append("…").toString();
     }
 
+    /**
+     * The parts of one passage that answer the question: up to {@code max} sentences, list blocks, tables or code
+     * blocks that contain the most of the question's words, in the order they appear on the page. A short sentence
+     * keeps the sentence after it for context. Empty when the passage is already short or nothing matches well.
+     */
+    public static List<String> relevantParts(List<SymbolTokens.Word> words, String text, int max) {
+        if (words == null || words.isEmpty() || text == null || text.strip().length() < 300) {
+            return List.of();
+        }
+        List<Unit> units = units(text);
+        if (units.size() < 3) {
+            return List.of();
+        }
+        List<List<String>> tokens = new ArrayList<>();
+        for (Unit u : units) {
+            tokens.add(SymbolTokens.expand(u.text()));
+        }
+        double[] weights = weights(words, tokens);
+        double[] cov = new double[units.size()];
+        double best = 0;
+        for (int i = 0; i < units.size(); i++) {
+            cov[i] = weightedCoverage(words, weights, tokens.get(i)) - (units.get(i).text().length() < 25 ? 0.15 : 0);
+            best = Math.max(best, cov[i]);
+        }
+        double floor = Math.max(0.34, 0.6 * best);
+        List<Integer> picked = new ArrayList<>();
+        java.util.stream.IntStream.range(0, units.size()).boxed()
+                .filter(i -> cov[i] >= floor)
+                .sorted((a, b) -> Double.compare(cov[b], cov[a]))
+                .limit(Math.max(1, max))
+                .forEach(picked::add);
+        picked.sort(Integer::compare);
+        List<String> out = new ArrayList<>();
+        Set<Integer> used = new HashSet<>();
+        for (int i : picked) {
+            if (!used.add(i)) {
+                continue;
+            }
+            Unit u = units.get(i);
+            String part = u.text().strip();
+            // a short sentence alone says little: add the next sentence of the same paragraph
+            if (u.kind() == Kind.SENTENCE && part.length() < 120 && i + 1 < units.size()
+                    && units.get(i + 1).kind() == Kind.SENTENCE && units.get(i + 1).block() == u.block() && used.add(i + 1)) {
+                part = part + " " + units.get(i + 1).text().strip();
+            }
+            out.add(part.length() > 700 ? part.substring(0, 700).replaceFirst("\\s+\\S*$", "") + " …" : part);
+        }
+        return out;
+    }
+
     /** Splits Markdown into sentences, lists, tables and code blocks, in order. */
     static List<Unit> units(String markdown) {
         List<Unit> out = new ArrayList<>();

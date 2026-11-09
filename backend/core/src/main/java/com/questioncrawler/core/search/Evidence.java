@@ -33,7 +33,20 @@ public record Evidence(
         boolean untrusted,
         String section,
         String sectionUrl,
-        int sectionIndex) {
+        int sectionIndex,
+        /** The sentences, steps or code of this passage that answer the question (in page order); empty when the passage is short. */
+        List<String> relevant) {
+
+    /** Without relevant parts (they are added by the search). */
+    public Evidence(int rank, String type, String questionId, String answerId, String title, String passage, String sourceUrl,
+                    String questionUrl, List<String> categories, List<String> categoryNames, List<String> tags, boolean accepted,
+                    Integer votes, String author, String createdAt, String questionCreatedAt, String sourceModifiedAt, String lastSyncedAt,
+                    double score, double termCoverage, String threadStatus, List<String> flags, boolean untrusted, String section,
+                    String sectionUrl, int sectionIndex) {
+        this(rank, type, questionId, answerId, title, passage, sourceUrl, questionUrl, categories, categoryNames, tags, accepted, votes,
+                author, createdAt, questionCreatedAt, sourceModifiedAt, lastSyncedAt, score, termCoverage, threadStatus, flags, untrusted,
+                section, sectionUrl, sectionIndex, List.of());
+    }
 
     /**
      * {@code section} is the heading path of the page section this passage comes from (Install › Windows), or null;
@@ -41,5 +54,6 @@ public record Evidence(
      * is the passage's position in the page (-1 for answers).
      */
     public Evidence {
+        relevant = relevant == null ? List.of() : List.copyOf(relevant);
     }
 }

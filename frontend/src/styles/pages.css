@@ -244,3 +244,13 @@ button.rm-node:hover { background: var(--bg-sunken); }
 
 /* Organize: one tab per source */
 .source-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* "Relevant to your question": the parts of a result that answer it */
+.ev-relevant { background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--accent, #4f6bed); border-radius: var(--r-md); padding: 12px 14px; margin-bottom: 10px; }
+.ev-relevant-head { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13px; color: var(--ink-2); margin-bottom: 6px; }
+.ev-relevant-part { font-size: 14.5px; padding: 6px 0; border-top: 1px dashed var(--line); }
+.ev-relevant-part:first-of-type { border-top: 0; }
+.ev-relevant-part .md > p { font-size: 14.5px; margin: 0; }
+.ev-more { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; background: none; border: 0; padding: 0; color: var(--ink-3); font-size: 13px; cursor: pointer; }
+.ev-more:hover { color: var(--ink); }
+mark.hl { background: color-mix(in srgb, var(--warn, #f5b041) 30%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }

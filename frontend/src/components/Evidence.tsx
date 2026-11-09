@@ -1,12 +1,17 @@
-import { CheckCircle2, ExternalLink, HelpCircle, MessageSquareText, ShieldAlert, ThumbsUp, User } from 'lucide-react'
+import { CheckCircle2, ChevronDown, ExternalLink, HelpCircle, MessageSquareText, ShieldAlert, Target, ThumbsUp, User } from 'lucide-react'
+import { useState } from 'react'
 import { safeUrl } from '../lib/url'
 import { dateOnly, timeAgo } from '../lib/format'
 import type { Evidence } from '../types/api'
 import { Badge, Chip, InfoTip } from './ui'
 import { termsFor, type Terms } from '../lib/terms'
 import { Markdown } from './Markdown'
+import { highlightPattern } from '../lib/highlight'
 
-export function EvidenceCard({ e, onCategory, pageMode, terms }: { e: Evidence; onCategory?: (id: string) => void; pageMode?: boolean; terms?: Terms }) {
+export function EvidenceCard({ e, onCategory, pageMode, terms, query }: { e: Evidence; onCategory?: (id: string) => void; pageMode?: boolean; terms?: Terms; query?: string }) {
+  const [whole, setWhole] = useState(false)
+  const hl = highlightPattern(query)
+  const relevant = e.relevant ?? []
   const t = terms ?? termsFor(null)
   const href = safeUrl(e.sourceUrl)
   const isAnswer = e.type === 'answer'
@@ -32,7 +37,15 @@ export function EvidenceCard({ e, onCategory, pageMode, terms }: { e: Evidence; 
         {e.flags.length > 0 && (
           <div className="ev-flag"><ShieldAlert size={16} /> This text contains wording that looks like instructions to an AI assistant. It is shown only as reading material and is never acted on.</div>
         )}
-        <div className="ev-passage"><Markdown text={e.passage} compact /></div>
+        {relevant.length > 0 && (
+          <div className="ev-relevant">
+            <div className="ev-relevant-head"><Target size={15} /> Relevant to your question</div>
+            {relevant.map((part, n) => <div key={n} className="ev-relevant-part"><Markdown text={part} compact highlight={hl} /></div>)}
+            <button type="button" className="ev-more" onClick={() => setWhole(!whole)} aria-expanded={whole}>
+              <ChevronDown size={14} style={{ transform: whole ? 'rotate(180deg)' : undefined }} /> {whole ? 'Hide the whole passage' : 'Show the whole passage'}</button>
+          </div>
+        )}
+        {(relevant.length === 0 || whole) && <div className="ev-passage"><Markdown text={e.passage} compact highlight={hl} /></div>}
         <div className="ev-foot">
           <div className="row" style={{ gap: 6 }}>
             {e.categoryNames.slice(0, 3).map((n, i) => <Chip key={n} onClick={onCategory ? () => onCategory(e.categories[i]) : undefined}>{n}</Chip>)}

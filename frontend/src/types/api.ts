@@ -77,6 +77,8 @@ export interface Evidence {
   threadStatus: string; flags: string[]; untrusted: boolean
   /** Heading path of the page section this passage comes from (Install › Windows), or null */
   section: string | null; sectionUrl: string | null; sectionIndex: number
+  /** The sentences, steps or code of this passage that answer the question (empty when the passage is short) */
+  relevant?: string[]
 }
 export interface AnswerPoint {
   text: string; kind: 'sentence' | 'list' | 'table' | 'code'; evidenceRank: number; questionId: string; answerId: string | null

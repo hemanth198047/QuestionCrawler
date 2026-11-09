@@ -14,6 +14,23 @@ function safeHref(href: string): string | null {
   return null
 }
 
+/** Words to highlight while a Markdown block renders (set by Markdown's `highlight` prop for that render only). */
+let HIGHLIGHT: RegExp | null = null
+
+function plain(text: string, key: string): ReactNode[] {
+  if (!HIGHLIGHT || !text) return [text]
+  const out: ReactNode[] = []
+  let last = 0
+  let n = 0
+  for (const m of text.matchAll(HIGHLIGHT)) {
+    if (m.index! > last) out.push(text.slice(last, m.index))
+    out.push(<mark key={`${key}h${n++}`} className="hl">{m[0]}</mark>)
+    last = m.index! + m[0].length
+  }
+  if (last < text.length) out.push(text.slice(last))
+  return out
+}
+
 function inline(text: string, keyBase = ''): ReactNode[] {
   const out: ReactNode[] = []
   const re = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*\s][^*]*\*)|(\[[^\]]+\]\([^)\s]+\))|(https?:\/\/[^\s<)]+)/g
@@ -21,11 +38,11 @@ function inline(text: string, keyBase = ''): ReactNode[] {
   let m: RegExpExecArray | null
   let i = 0
   while ((m = re.exec(text))) {
-    if (m.index > last) out.push(text.slice(last, m.index))
-    const tok = m[0]
     const k = `${keyBase}${i++}`
+    if (m.index > last) out.push(...plain(text.slice(last, m.index), `${k}p`))
+    const tok = m[0]
     if (tok.startsWith('`')) out.push(<code key={k} className="md-code">{tok.slice(1, -1)}</code>)
-    else if (tok.startsWith('**')) out.push(<strong key={k}>{tok.slice(2, -2)}</strong>)
+    else if (tok.startsWith('**')) out.push(<strong key={k}>{plain(tok.slice(2, -2), `${k}s`)}</strong>)
     else if (tok.startsWith('*')) out.push(<em key={k}>{tok.slice(1, -1)}</em>)
     else if (tok.startsWith('[')) {
       const mm = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(tok)
@@ -37,7 +54,7 @@ function inline(text: string, keyBase = ''): ReactNode[] {
     }
     last = m.index + tok.length
   }
-  if (last < text.length) out.push(text.slice(last))
+  if (last < text.length) out.push(...plain(text.slice(last), `${keyBase}e`))
   return out
 }
 
@@ -51,7 +68,16 @@ export function CodeBlock({ code, lang }: { code: string; lang?: string }) {
   )
 }
 
-export function Markdown({ text, compact }: { text: string; compact?: boolean }) {
+export function Markdown({ text, compact, highlight }: { text: string; compact?: boolean; highlight?: RegExp | null }) {
+  HIGHLIGHT = highlight ?? null
+  try {
+    return renderMarkdown(text, compact)
+  } finally {
+    HIGHLIGHT = null
+  }
+}
+
+function renderMarkdown(text: string, compact?: boolean) {
   const lines = text.split('\n')
   const blocks: ReactNode[] = []
   let i = 0
