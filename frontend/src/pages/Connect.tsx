@@ -1,4 +1,4 @@
-import { BookOpen, Building2, Globe, Layers, MessagesSquare, Play, Save, ShieldCheck, Sparkles } from 'lucide-react'
+import { BookOpen, Building2, Globe, Layers, Link2, MessagesSquare, Play, Save, ShieldCheck, Sparkles } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { checkConnection, getConfig, getLastConnection, getPresets, saveConfig, validateConfig } from '../api'
 import { ConfluenceSpacePicker } from '../components/ConfluenceSpacePicker'
@@ -16,7 +16,7 @@ import { go, useRemote } from '../lib/useRemote'
 import { SignInWindowHint } from '../components/SignInWindowHint'
 import type { ConfigField, ConnectionReport, Issue, Preset } from '../types/api'
 
-const ICONS: Record<string, React.ReactNode> = { sparkles: <Sparkles size={20} />, globe: <Globe size={20} />, layers: <Layers size={20} />, building: <Building2 size={20} />, book: <BookOpen size={20} />, messages: <MessagesSquare size={20} /> }
+const ICONS: Record<string, React.ReactNode> = { sparkles: <Sparkles size={20} />, globe: <Globe size={20} />, layers: <Layers size={20} />, building: <Building2 size={20} />, book: <BookOpen size={20} />, messages: <MessagesSquare size={20} />, link: <Link2 size={20} /> }
 
 export default function ConnectPage() {
   const toast = useToast()
@@ -102,7 +102,7 @@ export default function ConnectPage() {
       {source === 'fixture' ? (
         <Banner tone="info" title="Demo data needs nothing else">Sample questions are built into the app: no address, no sign-in, no network settings. Go to Collect, then Explore. Choose a real system above whenever you’re ready.</Banner>
       ) : (<>
-        <Section num={2} title="Where is it?" hint={source === 'stackexchange' ? 'The public site’s address.' : 'The address of your site. For Confluence you can paste any page or space address.'}>
+        <Section num={2} title={source === 'links' ? 'Which links?' : 'Where is it?'} hint={source === 'stackexchange' ? 'The public site’s address.' : source === 'links' ? 'Short links (go/xyz, bit.ly/...) or page addresses. Each one is expanded and the page it leads to is read.' : 'The address of your site. For Confluence you can paste any page or space address.'}>
           {fieldsFor('source').filter((f) => f.key !== 'source.type').map(field)}
           {source === 'live' && <ApiDocsPanel values={draft} onUse={(patch) => { setDraft({ ...draft, ...patch }); toast('ok', 'Settings filled in from the documentation') }} />}
           {more('source', 'address')}
@@ -110,11 +110,12 @@ export default function ConnectPage() {
 
         <Section num={3} title={source === 'stackexchange' ? 'Sign-in (optional)' : 'How do you sign in?'} hint={source === 'stackexchange' ? 'Public sites need no account. An application key only raises the daily limit.' : 'Choose the way you already sign in. Only what that way needs is asked; passwords and tokens are never stored.'}>
           {fieldsFor('signin').map(field)}
+          {source === 'links' && draft['source.auth.method'] !== 'none' && <Banner tone="info" title="Nothing else to fill in">When a link leads to a page behind your company login, the app opens that login in Edge or Chrome. Sign in as usual; the window closes by itself and reading continues. You sign in once per site.</Banner>}
           {source === 'confluence' && draft['source.auth.method'] === 'browser' && <Banner tone="info" title="Nothing else to fill in">When the app needs Confluence it opens your company login page in Edge or Chrome. Sign in as usual; the window closes by itself. You can try it in step 4 with “Sign in with my browser”.</Banner>}
           {more('signin', 'sign-in')}
         </Section>
 
-        <Section num={4} title="What to collect" hint={source === 'confluence' ? 'Pick the spaces; every page in them is collected. Labels narrow it down.' : source === 'jive' ? 'Pick the places; tags narrow it down.' : 'Which tags, and how far back.'}>
+        <Section num={4} title="What to collect" hint={source === 'links' ? 'Every link listed above is read. Nothing else to choose here.' : source === 'confluence' ? 'Pick the spaces; every page in them is collected. Labels narrow it down.' : source === 'jive' ? 'Pick the places; tags narrow it down.' : 'Which tags, and how far back.'}>
           {source === 'confluence' && <ConfluenceSpacePicker values={draft} chosen={(draft['source.confluence.spaces'] ?? '').split(',').map((x) => x.trim()).filter(Boolean)}
             onChange={(keys) => setDraft({ ...draft, 'source.confluence.spaces': keys.join(',') })} />}
           {fieldsFor('topic').map(field)}

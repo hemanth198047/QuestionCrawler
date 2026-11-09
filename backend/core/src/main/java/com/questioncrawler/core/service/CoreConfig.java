@@ -54,7 +54,9 @@ public record CoreConfig(
         JiveOptions jive,
         SharePointOptions sharepoint,
         /** Expanding short links (go/xyz, bit.ly, ...) in collected content. */
-        com.questioncrawler.core.source.ShortLinks.Options shortLinks) {
+        com.questioncrawler.core.source.ShortLinks.Options shortLinks,
+        /** The Links source: short links and page addresses to read. */
+        com.questioncrawler.core.source.LinksOptions links) {
 
     public static Path defaultStorageRoot() {
         return Path.of(System.getProperty("user.home"), ".questioncrawler", "data");
@@ -236,13 +238,17 @@ public record CoreConfig(
                     prefixes = "/v1.0/";
                 }
             }
+        } else if (type.equals("links")) {
+            if (systemId.isEmpty()) {
+                systemId = "links";
+            }
         } else if (systemId.isEmpty()) {
             systemId = "internal-qa";
         }
 
         String authMethodDefault = confluenceSource
                 ? (confluence.cloud() ? "basic-env" : "token")
-                : (jiveSource ? "basic-env" : (sharepointSource ? "token" : "none"));
+                : (jiveSource ? "basic-env" : (sharepointSource ? "token" : type.equals("links") ? "browser" : "none"));
         String authMethod = p.getProperty("source.auth.method", authMethodDefault).strip();
         String tokenEnvDefault = confluenceSource
                 ? (confluence.cloud() ? "CONFLUENCE_API_TOKEN" : "CONFLUENCE_PAT")
@@ -281,7 +287,7 @@ public record CoreConfig(
         List<Path> fixtureDirs = csv(p.getProperty("source.fixture.dirs", "")).stream().map(s -> resolve(base, s)).toList();
         return new CoreConfig(file, storage, taxonomyFile, type, settings, fixtureDirs,
                 intValue(p, "source.fixture.pageSize", 2),
-                csv(p.getProperty("sync.tags", "")),
+                type.equals("links") && p.getProperty("sync.tags", "").isBlank() ? List.of("all") : csv(p.getProperty("sync.tags", "")),
                 TagMode.valueOf(p.getProperty("sync.tagMode", "ANY").strip().toUpperCase()),
                 Boolean.parseBoolean(p.getProperty("sync.partialTags", "false").strip()),
                 Duration.ofMinutes(intValue(p, "sync.overlapMinutes", 60)),
@@ -299,7 +305,9 @@ public record CoreConfig(
                 com.questioncrawler.core.source.ShortLinks.Options.from(key -> {
                     String value = p.getProperty(key);
                     return key.equals("source.caCertFile") && value != null && !value.isBlank() ? resolve(base, value.strip()).toString() : value;
-                }));
+                }),
+                new com.questioncrawler.core.source.LinksOptions(com.questioncrawler.core.source.LinksOptions.parse(p.getProperty("source.links.list", "")),
+                        Boolean.parseBoolean(p.getProperty("source.links.fromCollected", "true").strip())));
     }
 
     public static CoreConfig forStorage(Path storageRoot) {
@@ -310,13 +318,16 @@ public record CoreConfig(
 
     public List<String> validate() {
         List<String> problems = new ArrayList<>();
-        if (!List.of("fixture", "live", "stackexchange", "confluence", "jive", "sharepoint").contains(sourceType)) {
-            problems.add("source.type must be 'fixture', 'live', 'stackexchange', 'confluence', 'jive' or 'sharepoint' (was '" + sourceType + "')");
+        if (!List.of("fixture", "live", "stackexchange", "confluence", "jive", "sharepoint", "links").contains(sourceType)) {
+            problems.add("source.type must be 'fixture', 'live', 'stackexchange', 'confluence', 'jive', 'sharepoint' or 'links' (was '" + sourceType + "')");
+        }
+        if (sourceType.equals("links") && links.links().isEmpty() && !links.fromCollected()) {
+            problems.add("source.links.list is empty: add the short links or page addresses to read (or turn on source.links.fromCollected)");
         }
         if (source.authMethod().equalsIgnoreCase("tvm") && !sourceType.equals("confluence")) {
             problems.add("source.auth.method=tvm (Token Vending Machine) is only supported for source.type=confluence");
         }
-        if (source.authMethod().equalsIgnoreCase("browser") && !sourceType.equals("confluence")) {
+        if (source.authMethod().equalsIgnoreCase("browser") && !sourceType.equals("confluence") && !sourceType.equals("links")) {
             problems.add("source.auth.method=browser (sign in with my browser) is only for Confluence; the internal Q&A site uses its REST API "
                     + "with an access key (and token if needed)");
         }
@@ -339,7 +350,7 @@ public record CoreConfig(
                 problems.add("source.stackexchange.apiBaseUrl is not a valid URL");
             }
         }
-        if (tags.isEmpty()) {
+        if (tags.isEmpty() && !sourceType.equals("links")) {
             problems.add("sync.tags is empty: at least one target tag is required to run 'sync'");
         }
         if (sourceType.equals("live") || sourceType.equals("confluence") || sourceType.equals("jive")
@@ -486,6 +497,16 @@ public record CoreConfig(
         if (sourceType.equals("jive")) {
             // Dedicated adapter — separate from Confluence / SharePoint / Stack Exchange.
             return new JiveAdapter(source, jive, new HttpSourceClient(source, env), env);
+        }
+        if (sourceType.equals("links")) {
+            // Short links and page addresses, read as pages (browser sign-in when a site asks for it).
+            var net = shortLinks == null ? com.questioncrawler.core.source.ShortLinks.Options.OFF : shortLinks;
+            var finder = new com.questioncrawler.core.source.ShortLinks(new com.questioncrawler.core.source.ShortLinks.Options(true, net.extraHosts(),
+                    net.proxy(), net.caCertFile(), net.timeout()), env);
+            var reader = com.questioncrawler.core.source.WebPageReader.create(net, confluence == null ? ConfluenceOptions.Browser.DEFAULT : confluence.browser(),
+                    !"none".equalsIgnoreCase(source.authMethod()), env);
+            return new com.questioncrawler.core.source.LinksAdapter(source.systemId(), links.links(), links.fromCollected(),
+                    storageRoot.resolve("threads"), finder, reader);
         }
         if (sourceType.equals("sharepoint")) {
             // Dedicated adapter — separate from Confluence / Jive / Stack Exchange.

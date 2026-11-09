@@ -140,6 +140,29 @@ public final class BrowserLogin {
         return this;
     }
 
+    private volatile boolean webPages;
+
+    /**
+     * For reading ordinary web pages (the Links source): a page of the site that loads in the window, is not a login
+     * page and does not end on a login address also counts as "signed in", not only API data.
+     */
+    public BrowserLogin acceptingWebPages() {
+        this.webPages = true;
+        return this;
+    }
+
+    /** An ordinary page of the site (not the login, not a redirect to it): proof that the browser is signed in. */
+    public static boolean showsPage(HttpSourceClient.Response r) {
+        if (r == null || needsSignIn(r) || r.status() < 200 || r.status() >= 300) {
+            return false;
+        }
+        if (r.finalUrl() != null && LOGIN_URL.matcher(r.finalUrl().split("[?#]", 2)[0]).find()) {
+            return false;
+        }
+        String body = r.body() == null ? "" : r.body();
+        return !body.isBlank() && !looksLikeLoginPage(body);
+    }
+
     /** True when the app reads this site through the browser window (the site signs you in in a way only the browser can). */
     public boolean readsThroughBrowser() {
         Session s = readsThroughBrowser;
@@ -414,7 +437,7 @@ public final class BrowserLogin {
         for (String url : urls) {
             try {
                 HttpSourceClient.Response r = session.fetchInPage(url, origin, Map.of());
-                if (r != null && showsContent(r)) {
+                if (r != null && (showsContent(r) || (webPages && showsPage(r)))) {
                     return true;
                 }
             } catch (IOException | RuntimeException e) {

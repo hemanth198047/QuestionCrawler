@@ -130,6 +130,9 @@ public final class Workspace {
         Map<String, String> shortLinkNotes = new com.questioncrawler.core.source.ShortLinks(
                 com.questioncrawler.core.source.ShortLinks.Options.from(v::get), env).expandSettings(v, new ArrayList<>(v.keySet()));
         String type = v.getOrDefault("source.type", "fixture");
+        if (type.equals("links")) {
+            return checkLinks(v);
+        }
         List<String> tags = Arrays.stream(v.getOrDefault("sync.tags", "").split(",")).map(TagFilter::normalize).filter(t -> !t.isEmpty()).toList();
         String target;
         String site = "";
@@ -270,6 +273,63 @@ public final class Workspace {
             knowledgeBase.store().writeState(CONNECTION_STATE, report);
         } catch (RuntimeException ignored) {
             // the report is still returned even if it cannot be remembered
+        }
+        return report;
+    }
+
+    /**
+     * The Links source: reads the first links now (expanding short links, and opening the browser sign-in when a site
+     * asks for it), and says for each one where it led and whether its page could be read.
+     */
+    private ConnectionReport checkLinks(Map<String, String> v) {
+        long t0 = System.nanoTime();
+        List<ConnectionReport.Stage> stages = new ArrayList<>();
+        List<ConnectionReport.Fact> facts = new ArrayList<>();
+        int ok = 0;
+        int total;
+        String problem = null;
+        try {
+            var adapter = (com.questioncrawler.core.source.LinksAdapter) CoreConfig.load(null, v).createAdapter(env);
+            List<String> all = adapter.links();
+            total = all.size();
+            if (total == 0) {
+                problem = "There are no links to read yet. Add short links or page addresses, or collect another source first (its short links are read too).";
+            } else {
+                Map<String, String> tried = adapter.tryLinks(5);
+                for (Map.Entry<String, String> e : tried.entrySet()) {
+                    facts.add(new ConnectionReport.Fact(e.getKey(), e.getValue()));
+                    if (e.getValue().startsWith("OK")) {
+                        ok++;
+                    }
+                }
+                if (total > tried.size()) {
+                    facts.add(new ConnectionReport.Fact("Not tried now", (total - tried.size()) + " more link(s): they are read when you collect"));
+                }
+            }
+        } catch (RuntimeException e) {
+            total = 0;
+            problem = "The links could not be read: " + e.getMessage();
+        }
+        long ms = (System.nanoTime() - t0) / 1_000_000;
+        String status = problem != null ? "FAIL" : ok == facts.stream().filter(f -> !f.label().equals("Not tried now")).count() ? "PASS" : ok > 0 ? "WARN" : "FAIL";
+        String summary = problem != null ? problem
+                : ok + " of the first " + Math.min(total, 5) + " link(s) were read" + (status.equals("PASS") ? "." : "; see why the others failed below.");
+        List<ConnectionReport.Need> needs = status.equals("PASS") ? List.of() : List.of(new ConnectionReport.Need(
+                "Pages that open for you", "A page that needs your company login is read after you sign in in the browser window that opens. "
+                + "Pages you cannot open in your own browser cannot be read either.", "You"));
+        stages.add(new ConnectionReport.Stage("links", "Links", "Do the links lead to pages we can read?", status, summary, facts, needs, ms));
+        String verdict = status.equals("PASS") ? "READY" : status.equals("WARN") ? "NEEDS_ATTENTION" : "BLOCKED";
+        ConnectionReport report = new ConnectionReport(clock.instant().toString(), "links", "links", verdict,
+                status.equals("PASS") ? "Your links can be read" : status.equals("WARN") ? "Some links can be read" : "The links cannot be read yet", summary,
+                status.equals("PASS") ? 100 : status.equals("WARN") ? 60 : 10, stages,
+                new ConnectionReport.Route("WEB_PAGES", "Web pages behind the links", "Each short link is expanded and the page it leads to is read; "
+                        + "a browser window opens for sites that need your sign-in.", true, List.of("Save the settings", "Collect")),
+                List.of(new ConnectionReport.Requirement("links", "Links to read", total > 0 ? "MET" : "MISSING", total + " link(s)")));
+        try {
+            knowledgeBase.store().init();
+            knowledgeBase.store().writeState(CONNECTION_STATE, report);
+        } catch (RuntimeException ignored) {
+            // still returned
         }
         return report;
     }
@@ -827,6 +887,7 @@ public final class Workspace {
             case "confluence" -> "Confluence" + (config.source().baseUrl().isBlank() ? "" : ": " + config.source().baseUrl());
             case "jive" -> "Jive" + (config.source().baseUrl().isBlank() ? "" : ": " + config.source().baseUrl());
             case "sharepoint" -> "SharePoint" + (config.source().baseUrl().isBlank() ? "" : ": " + config.source().baseUrl());
+            case "links" -> "Links (" + config.links().links().size() + " listed" + (config.links().fromCollected() ? " + short links in collected items" : "") + ")";
             default -> "Internal site";
         };
         int questions = 0;

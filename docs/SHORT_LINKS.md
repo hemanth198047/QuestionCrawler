@@ -1,6 +1,56 @@
 # Short links (go/xyz, bit.ly, aka.ms, ...)
 
-QuestionCrawler expands short links in two places. Both are on by default (*Connect → 4. Company network → Expand short links*).
+There are two separate features:
+
+- **The Links source** (a source of its own, like Confluence): it expands short links and **reads the pages they lead to**,
+  signing in through a browser window when a site needs your company login.
+- **Expanding short links** in settings and in collected content. This rewrites short links to their real addresses but does not
+  read the pages behind them.
+
+## The Links source: read the pages behind short links
+
+*Connect → Source → **Links (short links and web pages)***.
+
+| Setting | What to put |
+|---|---|
+| *Links to read* (`source.links.list`) | Short links or page addresses, for example `go/vpn`, `https://go.mycompany.com/onboarding`, `https://bit.ly/abc` or `https://intranet.mycompany.com/hr/leave` |
+| *Also read short links found in what you collected* (`source.links.fromCollected`, on by default) | Also reads the pages behind every short link written in the pages, questions and answers already collected from your other sources. Collect those first |
+| *Sign-in method* (`source.auth.method`) | **Open a browser window when a page needs a sign-in** (default), or **No sign-in** to skip those pages |
+
+What happens for each link:
+
+1. The short link is expanded: every redirect, short link after short link, up to the real page.
+2. The page is read.
+   - **If the site sends you to its login** (SSO, SAML, Okta, Entra ID, `/login`, ...), your company login opens in Edge/Chrome,
+     exactly as for Confluence. You sign in once for that site, the window closes by itself, and reading continues. The other
+     links on that site use the same sign-in.
+   - Sites that sign you in with your Windows login are read through the browser window itself, which is kept minimised.
+   - If you close the window without signing in, that site's pages are skipped for the rest of the run and reported. The other
+     sites continue.
+3. The page's main content (`<main>`/`<article>`, without menus) is kept as a **page**. It records the real address, the link you
+   gave, and the tags `link`, `site:<host>` and `short-link`. It can be searched, organised and quoted like a Confluence page.
+
+**Check access** reads the first 5 links now (opening the sign-in window if needed) and shows, for each one, where it led and the
+page title, or why it failed. Every run reads all the links again, so pages stay current. Only web pages are read; PDFs, images and
+downloads are skipped with a note.
+
+```properties
+source.type=links
+source.links.list=go/vpn,https://bit.ly/abc,https://intranet.mycompany.com/hr/leave
+source.links.fromCollected=true
+source.auth.method=browser
+# optional, as for Confluence: source.browser.path, source.browser.profileDir, source.browser.timeoutSeconds
+```
+
+**Safety**
+- Only GET requests are made.
+- Cookies from a browser sign-in are sent only to the site they belong to.
+- The short-link service gets no cookie, password or token.
+- Nothing is ever written to any site.
+
+## Expanding short links (settings and collected content)
+
+QuestionCrawler expands short links in two places. Both are on by default (*Connect → Company network → Expand short links*).
 
 ## 1. Short links pasted into the settings
 

@@ -15,7 +15,7 @@ public record Terms(String item, String items, boolean hasAnswers, String answer
     public static Terms of(String sourceType) {
         String t = sourceType == null ? "" : sourceType.strip().toLowerCase(java.util.Locale.ROOT);
         return switch (t) {
-            case "confluence", "sharepoint" -> PAGES;
+            case "confluence", "sharepoint", "links" -> PAGES;
             case "jive" -> POSTS;
             default -> QUESTIONS;
         };
@@ -24,13 +24,13 @@ public record Terms(String item, String items, boolean hasAnswers, String answer
     /** For a source adapter (by its kind, so this package needs no source classes). */
     public static Terms ofAdapter(Object adapter) {
         String name = adapter == null ? "" : adapter.getClass().getSimpleName();
-        return name.startsWith("Confluence") || name.startsWith("SharePoint") ? PAGES : name.startsWith("Jive") ? POSTS : QUESTIONS;
+        return name.startsWith("Confluence") || name.startsWith("SharePoint") || name.startsWith("Links") ? PAGES : name.startsWith("Jive") ? POSTS : QUESTIONS;
     }
 
     /** For a stored system id (confluence, jive, sharepoint by default; a site name for Stack Exchange). */
     public static Terms ofSystem(String systemId) {
         String s = systemId == null ? "" : systemId.toLowerCase(java.util.Locale.ROOT);
-        return s.startsWith("confluence") || s.startsWith("sharepoint") ? PAGES : s.startsWith("jive") ? POSTS : QUESTIONS;
+        return s.startsWith("confluence") || s.startsWith("sharepoint") || s.startsWith("links") ? PAGES : s.startsWith("jive") ? POSTS : QUESTIONS;
     }
 
     /** A readable name for a stored system id when nothing better is known ("stackoverflow" -> "Stack Overflow"). */
@@ -40,6 +40,7 @@ public record Terms(String item, String items, boolean hasAnswers, String answer
             case "confluence" -> "Confluence";
             case "jive" -> "Jive";
             case "sharepoint" -> "SharePoint";
+            case "links" -> "Links";
             case "fixture" -> "Demo data";
             case "internal-qa" -> "Internal Q&A site";
             case "stackoverflow" -> "Stack Overflow";

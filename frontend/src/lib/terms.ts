@@ -38,10 +38,10 @@ const POSTS: Terms = {
   answer: 'reply', answers: 'replies', Answers: 'Replies', created: 'created', collect: 'Collect posts', pageLike: true,
 }
 
-/** Words for a source type (source.type: confluence, sharepoint, jive, stackexchange, live, fixture). */
+/** Words for a source type (source.type: confluence, sharepoint, links, jive, stackexchange, live, fixture). */
 export function termsFor(sourceType: string | null | undefined): Terms {
   const t = (sourceType ?? '').toLowerCase()
-  if (t === 'confluence' || t === 'sharepoint') return PAGES
+  if (t === 'confluence' || t === 'sharepoint' || t === 'links') return PAGES
   if (t === 'jive') return POSTS
   return QUESTIONS
 }
@@ -49,7 +49,7 @@ export function termsFor(sourceType: string | null | undefined): Terms {
 /** Words for one stored item, from the system it was collected from (confluence, jive, sharepoint, or a site name). */
 export function termsForSystem(systemId: string | null | undefined): Terms {
   const s = (systemId ?? '').toLowerCase()
-  if (s.startsWith('confluence') || s.startsWith('sharepoint')) return PAGES
+  if (s.startsWith('confluence') || s.startsWith('sharepoint') || s.startsWith('links')) return PAGES
   if (s.startsWith('jive')) return POSTS
   return QUESTIONS
 }

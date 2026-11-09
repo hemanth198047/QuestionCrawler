@@ -332,6 +332,33 @@ public final class ShortLinks {
         return sb.toString();
     }
 
+    /** The short links written in a text (also those already expanded as [go/x](real address)), in order, without repeats. */
+    public List<String> findIn(String text) {
+        List<String> found = new ArrayList<>();
+        if (text == null || text.isEmpty() || !mayContainShortLink(text)) {
+            return found;
+        }
+        Matcher m = linkPattern.matcher(text);
+        while (m.find()) {
+            List<String> candidates = new ArrayList<>();
+            if (m.group("mdlink") != null) {
+                candidates.add(m.group("text"));
+                candidates.add(m.group("target"));
+            } else if (m.group("auto") != null) {
+                candidates.add(m.group("auto"));
+            } else if (m.group("url") != null || m.group("bare") != null) {
+                candidates.add((m.group("url") != null ? m.group("url") : m.group("bare")).replaceAll("[.,;:!?]+$", ""));
+            }
+            for (String c : candidates) {
+                String t = c == null ? "" : c.strip();
+                if (isShortLink(t) && !found.contains(t)) {
+                    found.add(t);
+                }
+            }
+        }
+        return found;
+    }
+
     // ================================================================== in settings
 
     /**

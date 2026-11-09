@@ -78,9 +78,12 @@ public final class ConfigService {
     private static final List<String> CONFLUENCE = List.of("confluence");
     private static final List<String> JIVE = List.of("jive");
     private static final List<String> SHAREPOINT = List.of("sharepoint");
-    private static final List<String> BROWSER_SOURCES = List.of("confluence");
-    private static final List<String> REMOTE = List.of("stackexchange", "live", "confluence", "jive", "sharepoint");
-    private static final List<String> AUTH_TOKEN = List.of("live", "confluence", "jive", "sharepoint");
+    private static final List<String> BROWSER_SOURCES = List.of("confluence", "links");
+    private static final List<String> LINKS = List.of("links");
+    /** Tags do not apply to the Links source (every listed link is read). */
+    private static final List<String> TAGGED = List.of("fixture", "stackexchange", "live", "confluence", "jive", "sharepoint");
+    private static final List<String> REMOTE = List.of("stackexchange", "live", "confluence", "jive", "sharepoint", "links");
+    private static final List<String> AUTH_TOKEN = List.of("live", "confluence", "jive", "sharepoint", "links");
     private static final List<String> LIVE_WIKI = List.of("live", "confluence", "jive", "sharepoint");
 
     private final Function<String, String> env;
@@ -116,7 +119,12 @@ public final class ConfigService {
                                 new Option("confluence", "Confluence", "Cloud or Server/DC wiki pages via REST (separate from Jive/SharePoint)"),
                                 new Option("jive", "Jive", "Community content via Core REST API v3 (separate from Confluence/SharePoint)"),
                                 new Option("sharepoint", "SharePoint", "Site pages / list items via Microsoft Graph (separate from Confluence/Jive)"),
-                                new Option("live", "Our internal Q&A site", "Needs API documentation (Stack Exchange–style)")),
+                                new Option("live", "Our internal Q&A site", "Needs API documentation (Stack Exchange–style)"),
+                                new Option("links", "Links (short links and web pages)", "go/xyz, bit.ly/... or any page address: expanded and read; a browser window opens when a site needs your sign-in")),
+                        f("source.links.list", "Links to read", "Short links (go/vpn, https://go.mycompany.com/onboarding, https://bit.ly/abc) or page addresses, one per entry (press Enter after each). Each one is expanded to the page it leads to, and that page is read and kept like a wiki page.",
+                                Type.TAGS, "", "go/vpn", LINKS, false, null),
+                        f("source.links.fromCollected", "Also read short links found in what you collected", "Reads the pages behind every short link that appears in the pages, questions and answers already collected from your other sources (Confluence, Q&A, Jive, SharePoint). Collect those sources first.",
+                                Type.SWITCH, "true", null, LINKS, false, null),
                         f("source.siteUrl", "Site address", "The home page of the Stack Exchange site, for example https://stackoverflow.com/.",
                                 Type.URL, "https://stackoverflow.com/", "https://stackoverflow.com/", SE, false, null),
                         f("source.baseUrl", "Site address", "Confluence: your site, for example https://acme.atlassian.net (pasting any page or space address also works). Jive: the community, for example https://community.example.com. SharePoint: the site, for example https://contoso.sharepoint.com/sites/Engineering. Internal Q&A: the API address, or leave empty to take it from the documentation.",
@@ -162,6 +170,8 @@ public final class ConfigService {
                         f("source.auth.method", "Sign-in method", "Pick the way you already sign in to this system. Only the choices that work for it are shown. Passwords and tokens are never stored; at most the NAME of an environment variable that holds one.",
                                 Type.SELECT, "none", null, AUTH_TOKEN, false, null,
                                 new Option("browser", "Sign in with my browser", "Recommended for company Confluence: your usual company login page opens in Edge/Chrome, you sign in, the app continues. Nothing to set up", List.of("confluence")),
+                                new Option("browser", "Open a browser window when a page needs a sign-in", "Recommended: like Confluence, your company login opens in Edge/Chrome, you sign in once per site, the window closes and reading continues", List.of("links")),
+                                new Option("none", "No sign-in (skip pages that need one)", "Only pages that open without a login are read; the others are listed as skipped", List.of("links")),
                                 new Option("tvm", "Company token service (Kerberos)", "Your company's Token Vending Machine gives a short-lived token using your Windows/Kerberos login", List.of("confluence")),
                                 new Option("basic-env", "Email or username + API token / password", "Confluence Cloud: your email and an API token. Jive: a username and password", List.of("confluence", "jive")),
                                 new Option("token", "Access token (Bearer header)", "Sent as 'Authorization: Bearer': Confluence Server/Data Center personal access token, Jive OAuth token, SharePoint (Microsoft Graph) token, or an internal API that wants a Bearer token", List.of("confluence", "jive", "sharepoint", "live")),
@@ -239,16 +249,16 @@ public final class ConfigService {
                         f("source.sharepoint.listIds", "List ids", "Optional comma-separated Graph list ids when collecting list items (content mode listItems or both).",
                                 Type.TAGS, "", "", SHAREPOINT, false, null).when("source.sharepoint.contentMode", "listItems", "both"),
                         f("sync.tags", "Tags / labels", "Press Enter after each one. Stack Exchange: question tags. Confluence: page labels. Jive: content tags. SharePoint: words in page titles. Type all (or *) to collect everything in the chosen space, place or site.",
-                                Type.TAGS, "", "all", ALL, false, null)
+                                Type.TAGS, "", "all", TAGGED, false, null)
                                 .helpFor("confluence", "Confluence page labels. Keep all to collect every page in the chosen spaces, or name labels (press Enter after each) to collect only pages that carry them.")
                                 .helpFor("jive", "Jive content tags. Keep all to collect everything in the chosen places, or name tags (press Enter after each).")
                                 .helpFor("sharepoint", "Words that must appear in the page title or description. Keep all to collect every page of the site.")
                                 .helpFor("stackexchange", "Question tags exactly as the site writes them, for example artificial-intelligence (press Enter after each). Use “Find tags on the site” below to look them up."),
-                        f("sync.tagMode", "With several tags or labels, collect items that have", "Any of them (wider) or all of them (narrower).", Type.SELECT, "ANY", null, ALL, false, null,
+                        f("sync.tagMode", "With several tags or labels, collect items that have", "Any of them (wider) or all of them (narrower).", Type.SELECT, "ANY", null, TAGGED, false, null,
                                 new Option("ANY", "Any of them", "At least one"),
                                 new Option("ALL", "All of them", "Every one")),
                         f("sync.partialTags", "Match part of a tag", "Also accept tags that merely contain your text. Leave off for exact matching.",
-                                Type.SWITCH, "false", null, ALL, true, null),
+                                Type.SWITCH, "false", null, TAGGED, true, null),
                         f("sync.maxQuestionAge", "Only collect items newer than", "Limits the download to recent questions or pages, for example 30d, 6m or 1y. Empty means everything.",
                                 Type.AGE, "", "1y", ALL, false, null),
                         f("source.confluence.contentTypes", "Content types", "Usually just page. Add blogpost only if you want blog posts too.",
@@ -388,6 +398,8 @@ public final class ConfigService {
                                 Map.entry("source.followRedirects", "same-host"),
                                 Map.entry("source.allowedHosts", "contoso.sharepoint.com,graph.microsoft.com"),
                                 Map.entry("source.allowedPathPrefixes", "/v1.0/"))),
+                new Preset("links", "Links (short links and web pages)", "Short links (go/xyz, bit.ly/...) and page addresses: each is expanded and the page it leads to is read. When a site needs your company login, a browser window opens, you sign in, and reading continues.", "link",
+                        Map.of("source.type", "links", "source.auth.method", "browser", "source.links.fromCollected", "true", "sync.tags", "all", "sync.maxQuestionAge", "")),
                 new Preset("internal", "Our internal Q&A site", "Your company's Stack Overflow-style site, through its REST API. Paste the link to its Swagger page and we read every endpoint for you.", "building",
                         Map.of("source.type", "live", "source.baseUrl", "", "api.swaggerUrl", "", "sync.tags", "")));
     }
@@ -452,7 +464,16 @@ public final class ConfigService {
         v.putAll(submitted);
         List<Issue> issues = new ArrayList<>();
         String type = v.getOrDefault("source.type", "fixture");
-        if (!List.of("fixture", "stackexchange", "live", "confluence", "jive", "sharepoint").contains(type)) {
+        if (type.equals("links")) {
+            boolean any = !v.getOrDefault("source.links.list", "").isBlank();
+            boolean fromCollected = Boolean.parseBoolean(v.getOrDefault("source.links.fromCollected", "true"));
+            if (!any && !fromCollected) {
+                issues.add(new Issue("source.links.list", "error", "There is nothing to read yet.", "Add short links or page addresses, or turn on 'Also read short links found in what you collected'."));
+            } else if (!any) {
+                issues.add(new Issue("source.links.list", "info", "Only the short links found in what you already collected will be read.", "Collect your other sources first, or add links here."));
+            }
+        }
+        if (!List.of("fixture", "stackexchange", "live", "confluence", "jive", "sharepoint", "links").contains(type)) {
             issues.add(new Issue("source.type", "error", "Choose one of the listed sources.", "Pick Demo data, Stack Overflow / Stack Exchange, Confluence, Jive, SharePoint, or Our internal Q&A site."));
         }
         if (type.equals("stackexchange")) {
@@ -646,7 +667,9 @@ public final class ConfigService {
             checkEnvName(issues, "network.proxyPasswordEnv", v.get("network.proxyPasswordEnv"), false);
         }
         String tags = v.getOrDefault("sync.tags", "").strip();
-        if (tags.isEmpty()) {
+        if (type.equals("links")) {
+            // every link listed is read; tags do not apply
+        } else if (tags.isEmpty()) {
             issues.add(new Issue("sync.tags", "warning", "No tags yet, so there is nothing to collect.", "Add at least one tag, for example artificial-intelligence."));
         } else if (com.questioncrawler.core.source.TagFilter.asksForAll(java.util.Arrays.asList(tags.split(",")))) {
             if (tags.split(",").length > 1) {
@@ -863,6 +886,18 @@ public final class ConfigService {
             }
             if (merged.getOrDefault("source.followRedirects", "").isBlank()) {
                 merged.put("source.followRedirects", "same-host");
+            }
+        }
+        if (type.equals("links")) {
+            String auth = merged.getOrDefault("source.auth.method", "").strip();
+            if (!auth.equals("browser") && !auth.equals("none")) {
+                merged.put("source.auth.method", "browser");
+            }
+            if (merged.getOrDefault("source.systemId", "").isBlank()) {
+                merged.put("source.systemId", "links");
+            }
+            if (merged.getOrDefault("sync.tags", "").isBlank()) {
+                merged.put("sync.tags", "all");
             }
         }
         if (type.equals("sharepoint")) {
