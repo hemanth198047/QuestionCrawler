@@ -135,10 +135,42 @@ public final class KnowledgeBase {
             upgradeIndexIfOlder(); // the new index format must exist before new pages are added to it
         }
         Pipeline pipeline = new Pipeline();
+        com.questioncrawler.core.source.ShortLinks links = shortLinks();
         try {
-            return new SyncService(store, adapter, pipeline, retrier, clock).withProgress(progress).withGate(gate, every).run(options);
+            return new SyncService(store, adapter, pipeline, retrier, clock).withProgress(progress).withGate(gate, every)
+                    .withShortLinks(links).run(options);
         } finally {
             pipeline.close();
+            rememberShortLinks(links);
+        }
+    }
+
+    private static final String SHORT_LINKS_STATE = "short-links";
+
+    /** The short-link expander, with what earlier runs already found out (each link is looked up once). */
+    private com.questioncrawler.core.source.ShortLinks shortLinks() {
+        if (config.shortLinks() == null || !config.shortLinks().enabled()) {
+            return null;
+        }
+        var links = new com.questioncrawler.core.source.ShortLinks(config.shortLinks(), System::getenv);
+        try {
+            @SuppressWarnings("unchecked")
+            Map<String, String> known = store.readState(SHORT_LINKS_STATE, Map.class).orElse(Map.of());
+            links.remember(known);
+        } catch (RuntimeException ignored) {
+            // nothing remembered yet
+        }
+        return links;
+    }
+
+    private void rememberShortLinks(com.questioncrawler.core.source.ShortLinks links) {
+        if (links == null) {
+            return;
+        }
+        try {
+            store.writeState(SHORT_LINKS_STATE, new java.util.TreeMap<>(links.known()));
+        } catch (RuntimeException ignored) {
+            // looked up again next time
         }
     }
 

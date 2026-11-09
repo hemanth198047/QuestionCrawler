@@ -125,6 +125,10 @@ public final class Workspace {
         if (draft != null) {
             v.putAll(draft);
         }
+        // Short links pasted as addresses (go/xyz, bit.ly/...) are checked as the address they lead to.
+        Map<String, String> beforeLinks = new java.util.HashMap<>(v);
+        Map<String, String> shortLinkNotes = new com.questioncrawler.core.source.ShortLinks(
+                com.questioncrawler.core.source.ShortLinks.Options.from(v::get), env).expandSettings(v, new ArrayList<>(v.keySet()));
         String type = v.getOrDefault("source.type", "fixture");
         List<String> tags = Arrays.stream(v.getOrDefault("sync.tags", "").split(",")).map(TagFilter::normalize).filter(t -> !t.isEmpty()).toList();
         String target;
@@ -233,8 +237,33 @@ public final class Workspace {
             report = withBrowserProblem(withoutBrowser, accessStage(report));
             autoBrowser = false;
         }
+        Map<String, String> toApply = new java.util.LinkedHashMap<>();
         if (autoBrowser) {
-            report = report.withSettingsToApply(Map.of("source.auth.method", "browser"));
+            toApply.put("source.auth.method", "browser");
+        }
+        if (!shortLinkNotes.isEmpty()) {
+            List<ConnectionReport.Fact> facts = new ArrayList<>();
+            boolean allFound = true;
+            for (Map.Entry<String, String> note : shortLinkNotes.entrySet()) {
+                facts.add(new ConnectionReport.Fact(note.getKey(), note.getValue().replaceFirst("^Short link: ", "")));
+                String now = v.get(note.getKey());
+                if (now != null && !now.equals(beforeLinks.get(note.getKey()))) {
+                    toApply.put(note.getKey(), now);
+                } else {
+                    allFound = false;
+                }
+            }
+            List<ConnectionReport.Stage> stages = new ArrayList<>();
+            stages.add(new ConnectionReport.Stage("shortlinks", "Short links", "Where do the short links lead?", allFound ? "PASS" : "WARN",
+                    allFound ? "Short links were expanded: the real addresses are checked and put into the form (save to keep them)."
+                            : "A short link could not be expanded; it is used as typed. Paste the address it leads to instead, or add your short-link service under Company network.",
+                    facts, List.of(), 0));
+            stages.addAll(report.stages());
+            report = new ConnectionReport(report.checkedAt(), report.target(), report.sourceType(), report.verdict(), report.headline(), report.detail(),
+                    report.score(), stages, report.route(), report.requirements(), report.settingsToApply());
+        }
+        if (!toApply.isEmpty()) {
+            report = report.withSettingsToApply(toApply);
         }
         try {
             knowledgeBase.store().init();

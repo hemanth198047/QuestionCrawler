@@ -64,8 +64,10 @@ export default function ConnectPage() {
       const r = await checkConnection(draft)
       setReport(r); setSelected(r.stages.find((s) => s.status === 'FAIL' || s.status === 'WARN')?.id ?? r.stages[0].id)
       if (r.settingsToApply && Object.keys(r.settingsToApply).length > 0) {
-        setDraft((d) => ({ ...(d ?? {}), ...r.settingsToApply }))
-        toast('info', 'Your site uses a company login page, so “Sign in with my browser” is now selected. Save to keep it.')
+        const apply = r.settingsToApply
+        setDraft((d) => ({ ...(d ?? {}), ...apply }))
+        if (apply['source.auth.method'] === 'browser') toast('info', 'Your site uses a company login page, so “Sign in with my browser” is now selected. Save to keep it.')
+        if (Object.keys(apply).some((k) => k !== 'source.auth.method')) toast('info', 'Short links were replaced by the addresses they lead to. Save to keep them.')
       }
       window.focus()
     } catch (e) { setCheckError(e instanceof Error ? e.message : 'The check could not run') }

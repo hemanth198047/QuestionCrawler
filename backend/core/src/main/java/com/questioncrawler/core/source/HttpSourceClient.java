@@ -391,6 +391,11 @@ public final class HttpSourceClient {
     // ---------------------------------------------------------------- TLS
 
     /** Default trust store PLUS the organization CA. Certificate verification is never disabled. */
+    /** The company certificate as a TLS context (also used to look up short links). */
+    public static SSLContext sslContextFor(java.nio.file.Path caFile) {
+        return buildSslContext(caFile);
+    }
+
     private static SSLContext buildSslContext(java.nio.file.Path caFile) {
         try {
             KeyStore combined = KeyStore.getInstance(KeyStore.getDefaultType());

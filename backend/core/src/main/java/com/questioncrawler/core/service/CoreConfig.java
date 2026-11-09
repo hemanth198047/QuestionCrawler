@@ -52,7 +52,9 @@ public record CoreConfig(
         boolean explicitKeyName,
         ConfluenceOptions confluence,
         JiveOptions jive,
-        SharePointOptions sharepoint) {
+        SharePointOptions sharepoint,
+        /** Expanding short links (go/xyz, bit.ly, ...) in collected content. */
+        com.questioncrawler.core.source.ShortLinks.Options shortLinks) {
 
     public static Path defaultStorageRoot() {
         return Path.of(System.getProperty("user.home"), ".questioncrawler", "data");
@@ -293,7 +295,11 @@ public record CoreConfig(
                 !p.getProperty("api.keyName", "").isBlank(),
                 confluence,
                 jive,
-                sharepoint);
+                sharepoint,
+                com.questioncrawler.core.source.ShortLinks.Options.from(key -> {
+                    String value = p.getProperty(key);
+                    return key.equals("source.caCertFile") && value != null && !value.isBlank() ? resolve(base, value.strip()).toString() : value;
+                }));
     }
 
     public static CoreConfig forStorage(Path storageRoot) {

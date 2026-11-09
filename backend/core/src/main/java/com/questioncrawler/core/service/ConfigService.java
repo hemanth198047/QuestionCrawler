@@ -277,6 +277,10 @@ public final class ConfigService {
                                 Type.ENV_NAME, "", "PROXY_USER", REMOTE, true, null),
                         f("network.proxyPasswordEnv", "Proxy password variable name", "Name of the environment variable that holds the proxy password. The password itself is never stored in a file.",
                                 Type.ENV_NAME, "", "PROXY_PASSWORD", REMOTE, true, null),
+                        f("network.expandShortLinks", "Expand short links", "Short links (go/xyz, https://go.mycompany.com/xyz, bit.ly, aka.ms, ...) are looked up to find where they really lead: in the addresses you paste here, and in the collected pages, questions and answers (the short name stays visible, the real address is added). Only the short-link service is asked; no sign-in or token is sent to it.",
+                                Type.SWITCH, "true", null, REMOTE, false, null),
+                        f("network.shortLinkHosts", "Your short-link services", "Host names of your company's short-link services, if they are not recognised already. go/, goto/, go.<company>, bit.ly, tinyurl.com, aka.ms, t.co and other common ones are recognised without this.",
+                                Type.TAGS, "", "go.mycompany.com, s.corp", REMOTE, true, null).when("network.expandShortLinks", "true"),
                         f("source.followRedirects", "Follow redirects", "Internal sites often answer with a redirect (HTTP 301/302/307/308) to the real address, for example from http to https or to a gateway. By default they are followed, up to 5 in a row; a redirect down to plain http is never followed. Credentials are sent along, so choose 'Same host only' if you do not trust where a redirect might lead.",
                                 Type.SELECT, "all", null, REMOTE, false, null,
                                 new Option("all", "Yes, follow them", "Recommended for internal sites"),
@@ -768,6 +772,11 @@ public final class ConfigService {
     public SaveResult save(Path file, Map<String, String> submitted) {
         Map<String, String> merged = read(file);
         submitted.forEach((k, val) -> merged.put(k, val == null ? "" : val.strip()));
+        // Short links pasted as addresses (go/confluence-dgf, https://bit.ly/...) are saved as the address they lead to.
+        List<Issue> shortLinkNotes = new java.util.ArrayList<>();
+        new com.questioncrawler.core.source.ShortLinks(com.questioncrawler.core.source.ShortLinks.Options.from(merged::get), env)
+                .expandSettings(merged, submitted.keySet())
+                .forEach((key, note) -> shortLinkNotes.add(new Issue(key, "info", note, null)));
         // Friendliness: the host allow-list follows the address the user typed.
         String type = merged.getOrDefault("source.type", "fixture");
         if (type.equals("confluence")) {
@@ -885,7 +894,8 @@ public final class ConfigService {
                 merged.put("source.allowedHosts", hosts.isBlank() ? "graph.microsoft.com" : hosts + ",graph.microsoft.com");
             }
         }
-        List<Issue> issues = validate(merged);
+        List<Issue> issues = new java.util.ArrayList<>(shortLinkNotes);
+        issues.addAll(validate(merged));
         boolean blocked = issues.stream().anyMatch(i -> i.level().equals("error"));
         if (blocked) {
             return new SaveResult(false, view(file, merged), issues);

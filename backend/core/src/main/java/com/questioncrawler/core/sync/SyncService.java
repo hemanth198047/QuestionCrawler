@@ -68,6 +68,14 @@ public final class SyncService {
     private volatile ContinueGate gate = ContinueGate.ALWAYS;
 
     /** Asked after every 100,000 questions and answers whether to continue (there is no other limit). */
+    private com.questioncrawler.core.source.ShortLinks shortLinks;
+
+    /** Short links in collected content are followed by where they really lead. */
+    public SyncService withShortLinks(com.questioncrawler.core.source.ShortLinks links) {
+        this.shortLinks = links;
+        return this;
+    }
+
     public SyncService withGate(ContinueGate continueGate) {
         return withGate(continueGate, ContinueGate.EVERY);
     }
@@ -391,6 +399,9 @@ public final class SyncService {
 
         private void storeFetched(String id, Question raw, RunState state, boolean reconciling) {
             Question normalized = ContentNormalizer.normalize(raw);
+            if (shortLinks != null && shortLinks.enabled()) {
+                normalized = shortLinks.expand(normalized);
+            }
             String hash = Hashes.sha256(Json.writeCompact(normalized));
             Optional<ThreadRecord> existing = store.loadThread(system, id);
             String now = clock.instant().toString();
