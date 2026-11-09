@@ -1,3 +1,4 @@
+import { cleanTitle } from '../lib/cleanText'
 import { BookOpenCheck, ExternalLink, SearchX } from 'lucide-react'
 import { safeUrl } from '../lib/url'
 import type { DirectAnswer } from '../types/api'
@@ -39,7 +40,7 @@ export function AnswerCard({ answer }: { answer: DirectAnswer }) {
             <div key={i} className="answer-point">
               <blockquote style={{ margin: 0 }}><Markdown text={p.text} compact /></blockquote>
               <div className="row small muted" style={{ gap: 12, marginTop: 8, flexWrap: 'wrap' }}>
-                <span>From <a href={inApp}><b>{p.title}</b>{p.section ? ` › ${p.section}` : ''}</a>{p.evidenceRank > 0 ? ` · result ${p.evidenceRank} below` : ''}</span>
+                <span>From <a href={inApp}><b>{cleanTitle(p.title)}</b>{p.section ? ` › ${cleanTitle(p.section)}` : ''}</a>{p.evidenceRank > 0 ? ` · result ${p.evidenceRank} below` : ''}</span>
                 {original && <a href={original} target="_blank" rel="noreferrer noopener">Open original{p.section ? ' at this section' : ''} <ExternalLink size={12} style={{ verticalAlign: -1 }} /></a>}
               </div>
             </div>

@@ -285,12 +285,16 @@ public final class HtmlToMarkdown {
                     String text = buffers.pop().toString();
                     String href = hrefs.pop();
                     String label = text.strip();
-                    if (href.isEmpty()) {
+                    // The ¶ / # / § "link to this heading" marks of documentation sites are not content.
+                    boolean markOnly = label.isEmpty() || PERMALINK_MARK.matcher(label).matches();
+                    if (markOnly && (href.isEmpty() || href.startsWith("#"))) {
+                        // dropped
+                    } else if (href.isEmpty()) {
                         cur().append(text);
                     } else if (label.isEmpty()) {
                         cur().append('<').append(href).append('>');
                     } else {
-                        cur().append('[').append(label.replace("]", "\\]")).append("](").append(href).append(')');
+                        cur().append('[').append(label.replace("[", "(").replace("]", ")")).append("](").append(href).append(')');
                     }
                 }
             }
@@ -494,6 +498,8 @@ public final class HtmlToMarkdown {
         return "";
     }
 
+    private static final Pattern PERMALINK_MARK = Pattern.compile("[\\s¶§#🔗⚓\u00a7\u00b6]+|link|permalink|anchor", Pattern.CASE_INSENSITIVE);
+
     private static final Pattern ENTITY = Pattern.compile("&(#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);");
 
     static String decode(String text) {
@@ -518,23 +524,22 @@ public final class HtmlToMarkdown {
                 return new String(Character.toChars(Integer.parseInt(body.substring(2), 16)));
             }
             if (body.startsWith("#")) {
-                return new String(Character.toChars(Integer.parseInt(body.substring(1))));
+                int cp = Integer.parseInt(body.substring(1));
+                if (cp >= 0x80 && cp <= 0x9F) { // old pages write Windows-1252 numbers: &#146; is ’
+                    return new String(new byte[] {(byte) cp}, java.nio.charset.Charset.forName("windows-1252"));
+                }
+                return new String(Character.toChars(cp));
             }
         } catch (IllegalArgumentException e) {
             return original;
         }
-        return switch (body) {
-            case "amp" -> "&";
-            case "lt" -> "<";
-            case "gt" -> ">";
-            case "quot" -> "\"";
-            case "apos" -> "'";
-            case "nbsp" -> " ";
-            case "hellip" -> "…";
-            case "mdash" -> "—";
-            case "ndash" -> "–";
-            case "copy" -> "©";
-            default -> original;
-        };
+        if (body.equals("nbsp")) {
+            return " ";
+        }
+        String named = HtmlEntities.BY_NAME.get(body);
+        if (named == null) {
+            named = HtmlEntities.BY_NAME.get(body.toLowerCase(java.util.Locale.ROOT));
+        }
+        return named == null ? original : named;
     }
 }

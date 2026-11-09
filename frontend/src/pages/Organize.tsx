@@ -1,3 +1,4 @@
+import { cleanTitle } from '../lib/cleanText'
 import { ArrowRight, FolderTree, Layers, Lightbulb, Plus, RotateCcw, Save, Sparkles, Trash2, Wand2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { discoverTopics, getCategories, getCategory, getTaxonomy, reindex, resetTaxonomy, saveTaxonomy, tryTaxonomy } from '../api'
@@ -73,7 +74,7 @@ function Browse({ selected }: { selected: string | null }) {
             <ul className="qlist">
               {listing.data.questions.map((q) => { const QT = termsOf(q.source); return (
                 <li key={`${q.source}:${q.id}`}><a href={`#/question/${encodeURIComponent(q.source + ':' + q.id)}`}>
-                  <strong>{q.title}</strong>
+                  <strong>{cleanTitle(q.title)}</strong>
                   <span className="muted small">{QT.Item} {QT.created} {timeAgo(q.createdAt)} · {dateOnly(q.createdAt)}{QT.hasAnswers ? ` · ${count(q.answerCount, QT.answer, QT.answers)}` : ''}{!current && sources.length > 1 ? ` · ${sources.find((x) => x.system === q.source)?.label ?? q.source}` : ''}</span>
                   <span className="row" style={{ gap: 6 }}>{!QT.pageLike && q.hasAcceptedAnswer && <Badge tone="ok">Accepted answer</Badge>}{!QT.pageLike && q.answerCount === 0 && <Badge tone="warn">Unanswered</Badge>}{q.status !== 'ACTIVE' && <Badge tone="warn">{q.status.toLowerCase().replace('_', ' ')}</Badge>}</span>
                   <ArrowRight size={16} className="qarrow" /></a></li>
@@ -324,7 +325,7 @@ function DiscoverTopics() {
                 <p className="muted small">{t.description}</p>
                 <div className="topic-stats"><b>{t.size}</b> grouped · <b>{t.matches}</b> placed by the rules</div>
                 <div className="row" style={{ gap: 6 }}>{t.topTerms.slice(0, 6).map((w) => <Chip key={w}>{w}</Chip>)}{t.topTags.map((g) => <Chip key={g} active>tag: {g}</Chip>)}</div>
-                <div className="topic-samples">{t.samples.map((sm) => <a key={sm.id} href={`#/question/${encodeURIComponent(sm.id)}`}>{sm.title}</a>)}</div>
+                <div className="topic-samples">{t.samples.map((sm) => <a key={sm.id} href={`#/question/${encodeURIComponent(sm.id)}`}>{cleanTitle(sm.title)}</a>)}</div>
                 <details className="small"><summary>Rules that will be used</summary>
                   <ul className="plainlist">{t.rules.map((r, n) => <li key={n}>{r.type === 'tag' ? `tag “${r.pattern}”` : `the word “${r.pattern}”`} <span className="muted">({r.weight} pts)</span></li>)}</ul></details>
               </Card>

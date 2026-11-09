@@ -21,9 +21,70 @@ public final class ContentNormalizer {
         }
         String text = body.replace("\uFEFF", "");
         if (format == BodyFormat.HTML) {
-            return HtmlToMarkdown.convert(text);
+            return cleanText(HtmlToMarkdown.convert(text));
         }
-        return cleanMarkdown(text);
+        return cleanMarkdown(cleanText(text));
+    }
+
+    private static final java.util.regex.Pattern INVISIBLE = java.util.regex.Pattern.compile("[\u200B-\u200D\u2060\uFEFF\u00AD\u2028\u2029\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]");
+    private static final java.util.regex.Pattern HEADING_MARK = java.util.regex.Pattern.compile("(?m)^(#{1,6} .*?)[ \t]*[¶§⚓🔗]+[ \t]*$");
+    /** Text that was UTF-8 but read as Windows-1252 ("donâ€™t", "Ã©"): one lead character and 1-3 continuation characters. */
+    private static final java.util.regex.Pattern MOJIBAKE = java.util.regex.Pattern.compile(
+            "[\u00C2-\u00F4][\u0080-\u00BF\u0152\u0153\u0160\u0161\u0178\u017D\u017E\u0192\u02C6\u02DC\u2013\u2014\u2018-\u201A\u201C-\u201E\u2020-\u2022\u2026\u2030\u2039\u203A\u20AC\u2122]{1,3}");
+
+    /**
+     * Removes what should never be shown: invisible characters (zero-width spaces, soft hyphens, control characters),
+     * non-breaking spaces (become plain spaces), garbled characters from a wrong character set ("donâ€™t" becomes
+     * "don’t"), and the ¶ / § marks documentation sites put after headings.
+     */
+    public static String cleanText(String text) {
+        if (text == null || text.isEmpty()) {
+            return text == null ? "" : text;
+        }
+        String t = repairMojibake(text);
+        t = INVISIBLE.matcher(t).replaceAll("").replace('\u00A0', ' ').replace('\u202F', ' ').replace("\uFFFD", "");
+        return HEADING_MARK.matcher(t).replaceAll("$1");
+    }
+
+    static String repairMojibake(String text) {
+        java.util.regex.Matcher m = MOJIBAKE.matcher(text);
+        if (!m.find()) {
+            return text;
+        }
+        m.reset();
+        StringBuilder out = new StringBuilder();
+        int last = 0;
+        java.nio.charset.Charset cp1252 = java.nio.charset.Charset.forName("windows-1252");
+        while (m.find()) {
+            out.append(text, last, m.start());
+            String bad = m.group();
+            String fixed = null;
+            byte[] bytes = new byte[bad.length()];
+            boolean ok = true;
+            for (int i = 0; i < bad.length() && ok; i++) {
+                char c = bad.charAt(i);
+                if (c <= 0xFF) {
+                    bytes[i] = (byte) c;
+                } else {
+                    byte[] b = String.valueOf(c).getBytes(cp1252);
+                    ok = b.length == 1 && b[0] != '?';
+                    bytes[i] = ok ? b[0] : 0;
+                }
+            }
+            if (ok) {
+                try {
+                    fixed = java.nio.charset.StandardCharsets.UTF_8.newDecoder()
+                            .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                            .decode(java.nio.ByteBuffer.wrap(bytes)).toString();
+                } catch (java.nio.charset.CharacterCodingException e) {
+                    fixed = null;
+                }
+            }
+            out.append(fixed != null && !fixed.isEmpty() ? fixed : bad);
+            last = m.end();
+        }
+        out.append(text.substring(last));
+        return out.toString();
     }
 
     /** Titles are plain text on most sites but often arrive HTML-escaped. */
@@ -31,7 +92,7 @@ public final class ContentNormalizer {
         if (title == null) {
             return "";
         }
-        return HtmlToMarkdown.decode(title.replaceAll("<[^>]+>", "")).replaceAll("\\s+", " ").strip();
+        return cleanText(HtmlToMarkdown.decode(title.replaceAll("<[^>]+>", ""))).replaceAll("[¶§]+\\s*$", "").replaceAll("\\s+", " ").strip();
     }
 
     public static Question normalize(Question raw) {

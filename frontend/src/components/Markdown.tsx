@@ -1,5 +1,6 @@
 import { plainHeading } from '../lib/format'
 import { Fragment, type ReactNode } from 'react'
+import { cleanText, plainText } from '../lib/cleanText'
 import { Copy } from 'lucide-react'
 
 /**
@@ -17,7 +18,8 @@ function safeHref(href: string): string | null {
 /** Words to highlight while a Markdown block renders (set by Markdown's `highlight` prop for that render only). */
 let HIGHLIGHT: RegExp | null = null
 
-function plain(text: string, key: string): ReactNode[] {
+function plain(raw: string, key: string): ReactNode[] {
+  const text = plainText(raw)
   if (!HIGHLIGHT || !text) return [text]
   const out: ReactNode[] = []
   let last = 0
@@ -47,7 +49,7 @@ function inline(text: string, keyBase = ''): ReactNode[] {
     else if (tok.startsWith('[')) {
       const mm = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(tok)
       const href = mm ? safeHref(mm[2]) : null
-      out.push(href ? <a key={k} href={href} target="_blank" rel="noreferrer noopener nofollow">{mm![1]}</a> : <span key={k}>{mm ? mm[1] : tok}</span>)
+      out.push(href ? <a key={k} href={href} target="_blank" rel="noreferrer noopener nofollow">{plain(mm![1], `${k}l`)}</a> : <span key={k}>{plain(mm ? mm[1] : tok, `${k}l`)}</span>)
     } else {
       const href = safeHref(tok)
       out.push(href ? <a key={k} href={href} target="_blank" rel="noreferrer noopener nofollow">{tok}</a> : tok)
@@ -71,7 +73,7 @@ export function CodeBlock({ code, lang }: { code: string; lang?: string }) {
 export function Markdown({ text, compact, highlight }: { text: string; compact?: boolean; highlight?: RegExp | null }) {
   HIGHLIGHT = highlight ?? null
   try {
-    return renderMarkdown(text, compact)
+    return renderMarkdown(cleanText(text), compact)
   } finally {
     HIGHLIGHT = null
   }
@@ -113,7 +115,7 @@ function renderMarkdown(text: string, compact?: boolean) {
     if (/^\s*\|.*\|\s*$/.test(line) && i + 1 < lines.length && /^\s*\|?\s*:?-{3,}/.test(lines[i + 1])) {
       const rows: string[][] = []
       while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) {
-        if (!/^\s*\|?\s*:?-{3,}/.test(lines[i])) rows.push(lines[i].trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim()))
+        if (!/^\s*\|?\s*:?-{3,}/.test(lines[i])) rows.push(lines[i].trim().replace(/^\|/, '').replace(/(?<!\\)\|$/, '').split(/(?<!\\)\|/).map((c) => c.trim()))
         i++
       }
       blocks.push(<div key={key++} className="md-table"><table><thead><tr>{rows[0].map((c, n) => <th key={n}>{inline(c)}</th>)}</tr></thead>

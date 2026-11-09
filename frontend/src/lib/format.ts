@@ -1,3 +1,4 @@
+import { cleanText, cleanTitle } from './cleanText'
 /** Human-friendly formatting. Unknown values are said to be unknown, never invented. */
 export function timeAgo(iso: string | null | undefined, now = Date.now()): string {
   if (!iso) return 'unknown time'
@@ -74,5 +75,5 @@ export function friendlyRule(raw: string): string {
 
 /** Heading text without Markdown emphasis or links, the same way the search index names a section. */
 export function plainHeading(text: string): string {
-  return text.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*_`]/g, '').replace(/\s+/g, ' ').trim()
+  return cleanTitle(cleanText(text).replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*_`]/g, ''))
 }

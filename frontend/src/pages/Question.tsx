@@ -1,3 +1,4 @@
+import { cleanTitle } from '../lib/cleanText'
 import { ArrowLeft, Award, CalendarDays, ExternalLink, Pencil, RotateCcw, ShieldAlert, ThumbsUp, User } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { clearOverride, getCategories, getQuestion, setOverride } from '../api'
@@ -30,7 +31,7 @@ function AnswerCard({ a }: { a: Answer }) {
 function FocusSection({ section, ready }: { section?: string | null; ready: boolean }) {
   useEffect(() => {
     if (!ready || !section) return
-    const own = section.split(' › ').pop() ?? section
+    const own = plainHeading(section.split(' › ').pop() ?? section)
     const t = window.setTimeout(() => {
       const el = Array.from(document.querySelectorAll<HTMLElement>('[data-heading]')).find((h) => h.dataset.heading === own)
       if (!el) return
@@ -123,7 +124,7 @@ export default function QuestionPage({ id, focusAnswerId, focusSection }: { id: 
       <header className="rise">
         <div className="row" style={{ marginBottom: 12 }}>{v.thread.status !== 'ACTIVE' && <Badge tone="warn">{v.thread.status.toLowerCase().replace('_', ' ')}</Badge>}
           {v.categoryNames.map((n) => <Badge key={n} tone="brand">{n}</Badge>)}</div>
-        <h1 style={{ fontSize: 30 }}>{q.title}</h1>
+        <h1 style={{ fontSize: 30 }}>{cleanTitle(q.title)}</h1>
         <p className="muted" style={{ marginTop: 12 }}>{isWiki
           ? <>{q.createdAt ? <>Created {timeAgo(q.createdAt)} ({dateOnly(q.createdAt)}){q.author ? ` by ${q.author}` : ''} · </> : null}{wikiKind} {t.item}{href ? ` from ${hostOf(href)}` : ''}{!q.createdAt && v.thread.retrievedAt ? ` · saved ${timeAgo(v.thread.retrievedAt)}` : ''}{showWikiReplies ? ` · ${answers.length} repl${answers.length === 1 ? 'y' : 'ies'}` : ''}</>
           : <>Asked {timeAgo(q.createdAt)} ({dateOnly(q.createdAt)}) by {q.author ?? 'unknown'} · {q.score ?? '?'} votes · {answers.length} answer{answers.length === 1 ? '' : 's'}</>}</p>

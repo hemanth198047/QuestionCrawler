@@ -7,6 +7,7 @@ import { Badge, Chip, InfoTip } from './ui'
 import { termsFor, type Terms } from '../lib/terms'
 import { Markdown } from './Markdown'
 import { highlightPattern } from '../lib/highlight'
+import { cleanTitle } from '../lib/cleanText'
 
 export function EvidenceCard({ e, onCategory, pageMode, terms, query }: { e: Evidence; onCategory?: (id: string) => void; pageMode?: boolean; terms?: Terms; query?: string }) {
   const [whole, setWhole] = useState(false)
@@ -32,8 +33,8 @@ export function EvidenceCard({ e, onCategory, pageMode, terms, query }: { e: Evi
         </div>
         <h3 className="ev-title"><a href={e.answerId
           ? `#/question/${encodeURIComponent(e.questionId)}?answer=${encodeURIComponent(e.answerId)}`
-          : `#/question/${encodeURIComponent(e.questionId)}${e.section ? `?section=${encodeURIComponent(e.section)}` : ''}`}>{e.title}</a></h3>
-        {e.section && <div className="muted small ev-section" title="The section of the page this passage comes from">§ {e.section}</div>}
+          : `#/question/${encodeURIComponent(e.questionId)}${e.section ? `?section=${encodeURIComponent(e.section)}` : ''}`}>{cleanTitle(e.title)}</a></h3>
+        {e.section && <div className="muted small ev-section" title="The section of the page this passage comes from">§ {cleanTitle(e.section)}</div>}
         {e.flags.length > 0 && (
           <div className="ev-flag"><ShieldAlert size={16} /> This text contains wording that looks like instructions to an AI assistant. It is shown only as reading material and is never acted on.</div>
         )}

@@ -316,6 +316,40 @@ public final class WebPageReader {
         };
     }
 
+    private static final Pattern CHARSET = Pattern.compile("(?i)charset\\s*=\\s*[\"']?([\\w\\-:.]+)");
+
+    /**
+     * The page's text in the right character set: the server's Content-Type, else the page's own {@code <meta charset>},
+     * else UTF-8, and Windows-1252 when the bytes are not valid UTF-8 (older intranet pages).
+     */
+    static String decodePage(byte[] bytes, String contentType) {
+        java.nio.charset.Charset cs = null;
+        Matcher m = CHARSET.matcher(contentType == null ? "" : contentType);
+        if (!m.find()) {
+            String head = new String(bytes, 0, Math.min(bytes.length, 4096), StandardCharsets.ISO_8859_1);
+            m = CHARSET.matcher(head);
+            if (!m.find()) {
+                m = null;
+            }
+        }
+        if (m != null) {
+            try {
+                cs = java.nio.charset.Charset.forName(m.group(1));
+            } catch (RuntimeException ignored) {
+                cs = null;
+            }
+        }
+        if (cs == null || cs.equals(StandardCharsets.UTF_8)) {
+            try {
+                return StandardCharsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                        .decode(java.nio.ByteBuffer.wrap(bytes)).toString();
+            } catch (java.nio.charset.CharacterCodingException e) {
+                return new String(bytes, cs == null ? java.nio.charset.Charset.forName("windows-1252") : StandardCharsets.UTF_8);
+            }
+        }
+        return new String(bytes, cs);
+    }
+
     private static ShortLinks.Hop send(HttpClient client, URI uri, String cookie, Duration timeout) throws IOException {
         HttpRequest.Builder b = HttpRequest.newBuilder(uri).timeout(timeout)
                 .header("User-Agent", "Mozilla/5.0 (QuestionCrawler page reader)")
@@ -335,16 +369,7 @@ public final class WebPageReader {
                 if (r.statusCode() >= 200 && r.statusCode() < 300 && !type.isEmpty() && !type.contains("html") && !type.contains("text") && !type.contains("xml")) {
                     return new ShortLinks.Hop(415, null, type.split(";")[0]);
                 }
-                java.nio.charset.Charset cs = StandardCharsets.UTF_8;
-                Matcher m = Pattern.compile("charset=([\\w\\-]+)").matcher(type);
-                if (m.find()) {
-                    try {
-                        cs = java.nio.charset.Charset.forName(m.group(1));
-                    } catch (RuntimeException ignored) {
-                        // UTF-8
-                    }
-                }
-                body = new String(bytes, cs);
+                body = decodePage(bytes, type);
             }
             return new ShortLinks.Hop(r.statusCode(), r.headers().firstValue("Location").orElse(null), body);
         } catch (InterruptedException e) {
