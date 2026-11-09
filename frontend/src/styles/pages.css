@@ -124,8 +124,8 @@ button.rm-node:hover { background: var(--bg-sunken); }
 .copilot { background: linear-gradient(135deg, #fff, var(--brand-50)); border-color: var(--brand-100); }
 
 /* ---------- Question ---------- */
-.qlayout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 28px; align-items: start; } .qside { position: sticky; top: 24px; }
-@media (max-width: 1000px) { .qlayout { grid-template-columns: 1fr; } .qside { position: static; } }
+.qlayout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 28px; align-items: start; } .qlayout > .stack { min-width: 0; overflow: hidden; } .qside { position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow-y: auto; z-index: 1; }
+@media (max-width: 1180px) { .qlayout { grid-template-columns: 1fr; } .qside { position: static; max-height: none; overflow: visible; } }
 .ribbon { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--ok); background: var(--ok-bg); border-radius: 99px; padding: 4px 12px; margin-bottom: 14px; }
 .ribbon.neutral { color: var(--ink-2); background: var(--mute-bg); }
 .answer.is-accepted { border-color: var(--ok); box-shadow: 0 0 0 3px rgba(29,154,104,.1), var(--shadow-sm); }

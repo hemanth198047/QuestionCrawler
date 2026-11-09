@@ -42,8 +42,8 @@ function inline(text: string, keyBase = ''): ReactNode[] {
     if (m.index > last) out.push(...plain(text.slice(last, m.index), `${k}p`))
     const tok = m[0]
     if (tok.startsWith('`')) out.push(<code key={k} className="md-code">{tok.slice(1, -1)}</code>)
-    else if (tok.startsWith('**')) out.push(<strong key={k}>{plain(tok.slice(2, -2), `${k}s`)}</strong>)
-    else if (tok.startsWith('*')) out.push(<em key={k}>{tok.slice(1, -1)}</em>)
+    else if (tok.startsWith('**')) out.push(<strong key={k}>{inline(tok.slice(2, -2), `${k}s`)}</strong>)
+    else if (tok.startsWith('*')) out.push(<em key={k}>{inline(tok.slice(1, -1), `${k}e`)}</em>)
     else if (tok.startsWith('[')) {
       const mm = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(tok)
       const href = mm ? safeHref(mm[2]) : null

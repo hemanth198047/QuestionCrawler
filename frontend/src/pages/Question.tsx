@@ -112,8 +112,8 @@ export default function QuestionPage({ id, focusAnswerId, focusSection }: { id: 
   const isJive = sourceSystem.startsWith('jive')
   const isSharePoint = sourceSystem.startsWith('sharepoint')
   const t = termsForSystem(v.thread.sourceSystem)
-  const isWiki = isConfluence || isJive || isSharePoint
-  const wikiKind = isJive ? 'Jive' : isConfluence ? 'Confluence' : isSharePoint ? 'SharePoint' : 'Wiki'
+  const isWiki = isConfluence || isJive || isSharePoint || t.pageLike
+  const wikiKind = isJive ? 'Jive' : isConfluence ? 'Confluence' : isSharePoint ? 'SharePoint' : sourceSystem.startsWith('links') ? 'Web' : 'Wiki'
   const showWikiReplies = isJive && answers.length > 0
   return (
     <div className="stack" style={{ gap: 24 }}>
@@ -125,7 +125,7 @@ export default function QuestionPage({ id, focusAnswerId, focusSection }: { id: 
           {v.categoryNames.map((n) => <Badge key={n} tone="brand">{n}</Badge>)}</div>
         <h1 style={{ fontSize: 30 }}>{q.title}</h1>
         <p className="muted" style={{ marginTop: 12 }}>{isWiki
-          ? <>Created {timeAgo(q.createdAt)} ({dateOnly(q.createdAt)}) by {q.author ?? 'unknown'} · {wikiKind} {t.item}{showWikiReplies ? ` · ${answers.length} repl${answers.length === 1 ? 'y' : 'ies'}` : ''}</>
+          ? <>{q.createdAt ? <>Created {timeAgo(q.createdAt)} ({dateOnly(q.createdAt)}){q.author ? ` by ${q.author}` : ''} · </> : null}{wikiKind} {t.item}{href ? ` from ${hostOf(href)}` : ''}{!q.createdAt && v.thread.retrievedAt ? ` · saved ${timeAgo(v.thread.retrievedAt)}` : ''}{showWikiReplies ? ` · ${answers.length} repl${answers.length === 1 ? 'y' : 'ies'}` : ''}</>
           : <>Asked {timeAgo(q.createdAt)} ({dateOnly(q.createdAt)}) by {q.author ?? 'unknown'} · {q.score ?? '?'} votes · {answers.length} answer{answers.length === 1 ? '' : 's'}</>}</p>
       </header>
       {v.thread.statusReason && <Banner tone="warn" title="Status">{v.thread.statusReason}</Banner>}
@@ -153,8 +153,9 @@ export default function QuestionPage({ id, focusAnswerId, focusSection }: { id: 
           <Card>
             <h4>About this {t.item}</h4>
             <dl className="facts one">
-              <div><dt>{isWiki ? 'Created' : 'Asked'}</dt><dd>{dateOnly(q.createdAt)}</dd></div>
-              <div><dt>Last changed on the site</dt><dd>{dateOnly(q.modifiedAt)} ({timeAgo(q.modifiedAt)})</dd></div>
+              {q.createdAt && <div><dt>{isWiki ? 'Created' : 'Asked'}</dt><dd>{dateOnly(q.createdAt)}</dd></div>}
+              {q.modifiedAt && <div><dt>Last changed on the site</dt><dd>{dateOnly(q.modifiedAt)} ({timeAgo(q.modifiedAt)})</dd></div>}
+              {href && <div><dt>Address</dt><dd className="small">{href}</dd></div>}
               <div><dt>Saved on this computer</dt><dd>{timeAgo(v.thread.retrievedAt)}</dd></div>
             </dl>
             {href && <Button style={{ marginTop: 14, width: '100%' }} icon={<ExternalLink size={15} />} onClick={() => window.open(href, '_blank', 'noopener,noreferrer')}>Open original</Button>}
@@ -176,4 +177,8 @@ export default function QuestionPage({ id, focusAnswerId, focusSection }: { id: 
       </div>
     </div>
   )
+}
+
+function hostOf(url: string): string {
+  try { return new URL(url).host } catch { return url }
 }

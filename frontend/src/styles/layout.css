@@ -41,3 +41,9 @@
 .side-sources li { font-size: 14px; line-height: 1.25; }
 .side-sources li strong { display: inline; font-size: 20px; letter-spacing: -0.02em; }
 .side-source-name { font-size: 12px; color: var(--ink-3); }
+
+/* Content never pushes a column wider than its space (wide tables, long addresses, code): it wraps or scrolls inside. */
+.main, .main > * { min-width: 0; }
+.stack > *, .stack-sm > *, .grid-2 > *, .grid-3 > *, .grid-4 > *, .qlayout > *, .card, .ev-main, .ev-passage, .ev-relevant { min-width: 0; max-width: 100%; }
+.card, .banner { overflow-wrap: anywhere; }
+img, video, svg, canvas, iframe { max-width: 100%; height: auto; }
