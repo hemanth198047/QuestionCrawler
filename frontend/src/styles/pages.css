@@ -285,7 +285,7 @@ mark.hl { background: color-mix(in srgb, var(--warn, #f5b041) 30%, transparent);
 @media (max-width: 640px) { .bestplace { grid-template-columns: 24px minmax(0, 1fr); } .bestplace-go { display: none; } }
 
 /* matching places on the page */
-.md-b { border-radius: 8px; transition: opacity .25s, background .25s; scroll-margin-top: 110px; }
+.md-b, .md-h { border-radius: 8px; transition: opacity .25s, background .25s; scroll-margin-top: 120px; }
 .md-hit { box-shadow: inset 3px 0 0 var(--warn, #f5b041); padding-left: 12px; background: color-mix(in srgb, var(--warn, #f5b041) 6%, transparent); }
 .md-current { background: color-mix(in srgb, var(--warn, #f5b041) 18%, transparent); box-shadow: inset 4px 0 0 var(--warn, #f5b041), 0 0 0 2px color-mix(in srgb, var(--warn, #f5b041) 45%, transparent); animation: md-pulse 1.2s ease-out 1; }
 @keyframes md-pulse { from { box-shadow: inset 4px 0 0 var(--warn, #f5b041), 0 0 0 8px color-mix(in srgb, var(--warn, #f5b041) 40%, transparent); } }

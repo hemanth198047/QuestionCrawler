@@ -75,5 +75,5 @@ export function friendlyRule(raw: string): string {
 
 /** Heading text without Markdown emphasis or links, the same way the search index names a section. */
 export function plainHeading(text: string): string {
-  return cleanTitle(cleanText(text).replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*_`]/g, ''))
+  return cleanTitle(cleanText(text).replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*`]/g, '')) // underscores stay: casc_upload_manifest
 }

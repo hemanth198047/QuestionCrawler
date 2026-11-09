@@ -26,7 +26,7 @@ export function useHits(root: RefObject<HTMLElement | null>, terms: FindTerms | 
     // Read first, change classes after: reading text this way never makes the browser lay the page out again,
     // so pages with thousands of matches stay fast. At most 3000 places are listed.
     for (const node of el.querySelectorAll<HTMLElement>('.md-h, .md-b')) {
-      if (node.classList.contains('md-h')) { heading = node; continue }
+      if (node.classList.contains('md-h')) heading = node
       if (!node.classList.contains('md-hit')) continue
       if (found.length >= 3000) break
       const section = heading?.dataset.heading ?? null
@@ -67,5 +67,18 @@ export function showHit(hit: Hit | undefined) {
   if (!hit) return
   document.querySelectorAll('.md-current').forEach((e) => e.classList.remove('md-current'))
   hit.el.classList.add('md-current')
-  hit.el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  hit.el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  // Blocks far away are laid out only when they come near the screen, which can move the target: keep settling on it
+  // until it stays put (or the reader scrolls elsewhere).
+  let tries = 0
+  let last = NaN
+  const settle = () => {
+    if (!hit.el.classList.contains('md-current') || tries++ > 12) return
+    const top = hit.el.getBoundingClientRect().top
+    if (Math.abs(top - last) < 2 && top > 60 && top < window.innerHeight * 0.5) return
+    last = top
+    if (top < 100 || top > window.innerHeight * 0.45) hit.el.scrollIntoView({ behavior: 'auto', block: 'start' })
+    window.setTimeout(settle, 200)
+  }
+  window.setTimeout(settle, 600)
 }

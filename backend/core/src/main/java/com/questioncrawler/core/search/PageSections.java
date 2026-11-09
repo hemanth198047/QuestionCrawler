@@ -172,8 +172,8 @@ public final class PageSections {
         return t.startsWith("```") || t.startsWith("~~~");
     }
 
-    /** Heading text without Markdown emphasis, links and anchors. */
+    /** Heading text without Markdown emphasis (* and `), links and anchors. Underscores stay: they are part of names like casc_upload_manifest. */
     static String clean(String heading) {
-        return heading.replaceAll("\\[([^\\]]*)\\]\\([^)]*\\)", "$1").replaceAll("[*_`]", "").replaceAll("\\s+", " ").strip();
+        return heading.replaceAll("\\[([^\\]]*)\\]\\([^)]*\\)", "$1").replaceAll("[*`]", "").replaceAll("\\s+", " ").strip();
     }
 }

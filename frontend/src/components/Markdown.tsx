@@ -114,7 +114,12 @@ function renderMarkdown(text: string, compact?: boolean) {
     }
     if (/^\s*$/.test(line)) { i++; continue }
     const h = /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line)
-    if (h) { blocks.push(<p key={key++} className="md-h" data-heading={plainHeading(h[2])}>{inline(h[2])}</p>); i++; continue }
+    if (h) {
+      // a heading that matches what is looked for is itself a place to go (often the best one)
+      const hs = FIND ? coverage(plainText(h[2]), FIND) : 0
+      const hhit = FIND ? isMatch(hs, FIND) : false
+      blocks.push(<p key={key++} className={`md-h${hhit ? ' md-hit' : ''}`} data-heading={plainHeading(h[2])} data-score={FIND ? (hs + 0.01).toFixed(2) : undefined}>{inline(h[2])}</p>); i++; continue
+    }
     if (/^\s*>/.test(line)) {
       const buf: string[] = []
       while (i < lines.length && /^\s*>/.test(lines[i])) buf.push(lines[i++].replace(/^\s*>\s?/, ''))

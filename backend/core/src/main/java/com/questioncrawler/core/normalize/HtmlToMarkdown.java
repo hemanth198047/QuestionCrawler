@@ -20,6 +20,32 @@ public final class HtmlToMarkdown {
 
     private static final Pattern TOKEN = Pattern.compile("<!--.*?-->|<(/?)([a-zA-Z][a-zA-Z0-9]*)((?:\"[^\"]*\"|'[^']*'|[^>\"'])*)>", Pattern.DOTALL);
     private static final Pattern ATTR = Pattern.compile("([a-zA-Z_:][-a-zA-Z0-9_:.]*)\\s*=\\s*(\"([^\"]*)\"|'([^']*)'|([^\\s\"'>]+))");
+    /** Page parts marked as navigation, banner, footer or search by their role: never content. */
+    private static final Set<String> CHROME_ROLES = Set.of("navigation", "banner", "contentinfo", "search", "menubar", "toolbar");
+    /**
+     * Class names documentation sites use for sidebars, top bars, breadcrumbs and footers (Sphinx with Alabaster, Read
+     * the Docs, Furo, PyData and Book themes; MkDocs Material; Docusaurus; Confluence and SharePoint page chrome).
+     */
+    private static final java.util.regex.Pattern CHROME_CLASS = java.util.regex.Pattern.compile(
+            "(?i)(?:^|\\s)(sphinxsidebar|sphinxsidebarwrapper|related|footer|headerlink|wy-nav-side|wy-side-scroll|wy-nav-top|rst-versions|"
+                    + "rst-footer-buttons|breadcrumbs|wy-breadcrumbs|sidebar-drawer|sidebar-container|toc-drawer|bd-sidebar|bd-sidebar-primary|"
+                    + "bd-sidebar-secondary|bd-header|bd-footer|bd-toc|prev-next-area|prev-next-footer|header-article|navbar|md-sidebar|md-header|"
+                    + "md-footer|md-nav|theme-doc-sidebar-container|pagination-nav|table-of-contents|skip-link|skip-to-content|cookie-banner|"
+                    + "page-metadata|ia-secondary-container|ia-splitter-left)(?:\\s|$)");
+
+    /** True for page chrome: navigation, sidebars, headers, footers and "link to this heading" anchors. */
+    private static boolean isChrome(String tag, String attrs) {
+        if (attrs == null || attrs.isEmpty() || VOID.contains(tag)) {
+            return false;
+        }
+        String role = attr(attrs, "role");
+        if (role != null && CHROME_ROLES.contains(role.strip().toLowerCase(Locale.ROOT))) {
+            return true;
+        }
+        String cls = attr(attrs, "class");
+        return cls != null && CHROME_CLASS.matcher(cls).find();
+    }
+
     private static final Set<String> SKIP = Set.of("script", "style", "nav", "footer", "aside", "form", "button", "svg", "noscript", "iframe", "select", "template");
     private static final Set<String> VOID = Set.of("br", "hr", "img", "input", "meta", "link", "wbr", "source");
     private static final Set<String> BLOCK = Set.of("p", "div", "section", "article", "main", "header", "figure", "figcaption", "dl", "dt", "dd");
@@ -145,7 +171,7 @@ public final class HtmlToMarkdown {
 
     private void handleOpen(Tok t, int index) {
         String name = t.name();
-        if (SKIP.contains(name)) {
+        if (SKIP.contains(name) || isChrome(name, t.attrs())) {
             skipName = name;
             skipDepth = 1;
             return;
@@ -289,7 +315,8 @@ public final class HtmlToMarkdown {
                     boolean markOnly = label.isEmpty() || PERMALINK_MARK.matcher(label).matches();
                     if (markOnly && (href.isEmpty() || href.startsWith("#"))) {
                         // dropped
-                    } else if (href.isEmpty()) {
+                    } else if (href.isEmpty() || href.startsWith("#")) {
+                        // no address, or a jump within the page (Sphinx headings link back to the contents): just the text
                         cur().append(text);
                     } else if (label.isEmpty()) {
                         cur().append('<').append(href).append('>');
