@@ -254,3 +254,51 @@ button.rm-node:hover { background: var(--bg-sunken); }
 .ev-more { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; background: none; border: 0; padding: 0; color: var(--ink-3); font-size: 13px; cursor: pointer; }
 .ev-more:hover { color: var(--ink); }
 mark.hl { background: color-mix(in srgb, var(--warn, #f5b041) 30%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
+
+/* ---------------------------------------------------------------- find mode on a page */
+.findbar { position: sticky; top: 10px; z-index: 6; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 10px 14px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg, 16px); box-shadow: 0 6px 24px rgba(20, 24, 40, .08); }
+.findbar.is-active { border-color: color-mix(in srgb, var(--warn, #f5b041) 55%, var(--line)); }
+.findbar-q { display: flex; align-items: center; gap: 8px; flex: 1 1 320px; min-width: 0; color: var(--ink-3); }
+.findbar-label { font-size: 12.5px; font-weight: 650; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
+.findbar-q input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-size: 15.5px; color: var(--ink); padding: 6px 0; }
+.findbar-x { border: 0; background: var(--bg-sunken); color: var(--ink-3); border-radius: 999px; width: 26px; height: 26px; display: grid; place-items: center; cursor: pointer; }
+.findbar-tools { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.findbar-count { font-size: 13.5px; font-weight: 600; color: var(--ink-2); white-space: nowrap; } .findbar-count.none { color: var(--ink-3); font-weight: 500; }
+.findbar-nav { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.findbar-nav button { border: 0; background: var(--surface); padding: 5px 9px; cursor: pointer; color: var(--ink-2); display: grid; place-items: center; }
+.findbar-nav button + button { border-left: 1px solid var(--line); } .findbar-nav button:hover:not(:disabled) { background: var(--bg-sunken); } .findbar-nav button:disabled { opacity: .4; cursor: default; }
+.seg { display: inline-flex; background: var(--bg-sunken); border-radius: 10px; padding: 3px; gap: 2px; }
+.seg button { border: 0; background: transparent; border-radius: 8px; padding: 5px 10px; font-size: 13px; color: var(--ink-3); display: inline-flex; align-items: center; gap: 5px; cursor: pointer; white-space: nowrap; }
+.seg button.on { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, .1); font-weight: 600; }
+@media (max-width: 640px) { .seg button span { display: none; } .findbar-label { display: none; } }
+
+.bestplaces { border: 1px solid color-mix(in srgb, var(--warn, #f5b041) 45%, var(--line)); background: color-mix(in srgb, var(--warn, #f5b041) 7%, var(--surface)); border-radius: var(--r-lg, 16px); padding: 14px 16px; }
+.bestplaces-head { display: flex; align-items: center; gap: 7px; font-weight: 650; font-size: 14.5px; margin-bottom: 8px; color: var(--ink); }
+.bestplaces ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.bestplace { width: 100%; display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 10px; align-items: start; text-align: left; border: 1px solid transparent; background: var(--surface); border-radius: 12px; padding: 10px 12px; cursor: pointer; font: inherit; color: inherit; }
+.bestplace:hover { border-color: color-mix(in srgb, var(--warn, #f5b041) 60%, var(--line)); }
+.bestplace-n { width: 24px; height: 24px; border-radius: 999px; background: var(--warn, #f5b041); color: #3d2a00; font-weight: 700; font-size: 12.5px; display: grid; place-items: center; }
+.bestplace-body { display: grid; gap: 3px; min-width: 0; } .bestplace-sec { font-size: 12px; color: var(--ink-3); font-weight: 600; }
+.bestplace-text { font-size: 14px; line-height: 1.5; color: var(--ink-2); overflow-wrap: anywhere; }
+.bestplace-go { font-size: 12.5px; color: var(--brand, #4f6bed); font-weight: 600; white-space: nowrap; align-self: center; }
+@media (max-width: 640px) { .bestplace { grid-template-columns: 24px minmax(0, 1fr); } .bestplace-go { display: none; } }
+
+/* matching places on the page */
+.md-b { border-radius: 8px; transition: opacity .25s, background .25s; scroll-margin-top: 110px; }
+.md-hit { box-shadow: inset 3px 0 0 var(--warn, #f5b041); padding-left: 12px; background: color-mix(in srgb, var(--warn, #f5b041) 6%, transparent); }
+.md-current { background: color-mix(in srgb, var(--warn, #f5b041) 18%, transparent); box-shadow: inset 4px 0 0 var(--warn, #f5b041), 0 0 0 2px color-mix(in srgb, var(--warn, #f5b041) 45%, transparent); animation: md-pulse 1.2s ease-out 1; }
+@keyframes md-pulse { from { box-shadow: inset 4px 0 0 var(--warn, #f5b041), 0 0 0 8px color-mix(in srgb, var(--warn, #f5b041) 40%, transparent); } }
+.find-spot .md-b:not(.md-hit) { opacity: .35; } .find-spot .md-b:not(.md-hit):hover { opacity: 1; }
+.find-spot .md-h:not(.md-h-hit) { opacity: .5; }
+.find-only .md-b:not(.md-hit), .find-only .md-h:not(.md-h-hit) { display: none; }
+.find-only .answer:not(:has(.md-hit)), .find-spot .answer:not(:has(.md-hit)) { opacity: .5; } .find-only .answer:not(:has(.md-hit)) { display: none; }
+.qlayout:is(.find-spot, .find-only, .find-all) .qside { top: 96px; }
+
+/* the outline shows where the matches are */
+.outline-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.outline-item.no-match { opacity: .5; }
+.outline-item.has-match span:first-child { font-weight: 600; }
+.outline-count { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--warn, #f5b041); color: #3d2a00; font-size: 11.5px; font-weight: 700; display: inline-grid; place-items: center; }
+
+.ev-open { font-size: 13px; font-weight: 600; margin-right: 14px; }

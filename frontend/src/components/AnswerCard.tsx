@@ -14,7 +14,7 @@ const CONFIDENCE: Record<string, { label: string; tone: 'ok' | 'info' | 'warn' |
 }
 
 /** The best answer found in the collected pages: quoted word for word, each piece with the page and section it comes from. */
-export function AnswerCard({ answer }: { answer: DirectAnswer }) {
+export function AnswerCard({ answer, query }: { answer: DirectAnswer; query?: string }) {
   const t = useTerms()
   const from = t.pageLike ? `your ${t.items}` : 'your questions and answers'
   const conf = CONFIDENCE[answer.confidence] ?? CONFIDENCE.NONE
@@ -35,7 +35,7 @@ export function AnswerCard({ answer }: { answer: DirectAnswer }) {
       <div className="stack-sm" style={{ marginTop: 14 }}>
         {answer.points.map((p, i) => {
           const original = safeUrl(p.sectionUrl ?? p.sourceUrl)
-          const inApp = `#/question/${encodeURIComponent(p.questionId)}${p.answerId ? `?answer=${encodeURIComponent(p.answerId)}` : p.section ? `?section=${encodeURIComponent(p.section)}` : ''}`
+          const inApp = `#/question/${encodeURIComponent(p.questionId)}?${new URLSearchParams([...(p.answerId ? [['answer', p.answerId]] : p.section ? [['section', p.section]] : []), ...(query ? [['q', query]] : [])]).toString()}`
           return (
             <div key={i} className="answer-point">
               <blockquote style={{ margin: 0 }}><Markdown text={p.text} compact /></blockquote>

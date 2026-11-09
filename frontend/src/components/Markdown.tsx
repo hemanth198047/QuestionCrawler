@@ -1,6 +1,7 @@
 import { plainHeading } from '../lib/format'
 import { Fragment, type ReactNode } from 'react'
 import { cleanText, plainText } from '../lib/cleanText'
+import { coverage, isMatch, type FindTerms } from '../lib/highlight'
 import { Copy } from 'lucide-react'
 
 /**
@@ -70,13 +71,29 @@ export function CodeBlock({ code, lang }: { code: string; lang?: string }) {
   )
 }
 
-export function Markdown({ text, compact, highlight }: { text: string; compact?: boolean; highlight?: RegExp | null }) {
-  HIGHLIGHT = highlight ?? null
+/**
+ * {@code find}: what the reader is looking for. Every paragraph, list, table and code block is then marked with how much
+ * of it matches (data-score, class md-hit), so the page view can spotlight and jump between the matching places.
+ */
+export function Markdown({ text, compact, highlight, find }: { text: string; compact?: boolean; highlight?: RegExp | null; find?: FindTerms | null }) {
+  HIGHLIGHT = highlight ?? find?.re ?? null
+  FIND = find ?? null
   try {
     return renderMarkdown(cleanText(text), compact)
   } finally {
     HIGHLIGHT = null
+    FIND = null
   }
+}
+
+let FIND: FindTerms | null = null
+
+/** One block, marked with how well it matches what the reader looks for. */
+function block(key: number, raw: string, node: ReactNode): ReactNode {
+  if (!FIND) return node
+  const score = coverage(plainText(raw), FIND)
+  const hit = isMatch(score, FIND)
+  return <div key={key} className={`md-b${hit ? ' md-hit' : ''}`} data-score={score.toFixed(2)}>{node}</div>
 }
 
 function renderMarkdown(text: string, compact?: boolean) {
@@ -92,7 +109,7 @@ function renderMarkdown(text: string, compact?: boolean) {
       i++
       while (i < lines.length && !/^\s*(```+|~~~+)\s*$/.test(lines[i])) buf.push(lines[i++])
       i++
-      blocks.push(<CodeBlock key={key++} code={buf.join('\n')} lang={fence[2]} />)
+      blocks.push(block(key, buf.join('\n'), <CodeBlock key={key++} code={buf.join('\n')} lang={fence[2]} />))
       continue
     }
     if (/^\s*$/.test(line)) { i++; continue }
@@ -101,7 +118,7 @@ function renderMarkdown(text: string, compact?: boolean) {
     if (/^\s*>/.test(line)) {
       const buf: string[] = []
       while (i < lines.length && /^\s*>/.test(lines[i])) buf.push(lines[i++].replace(/^\s*>\s?/, ''))
-      blocks.push(<blockquote key={key++}>{inline(buf.join(' '))}</blockquote>)
+      blocks.push(block(key, buf.join(' '), <blockquote key={key++}>{inline(buf.join(' '))}</blockquote>))
       continue
     }
     if (/^\s*([-*]|\d+\.)\s+/.test(line)) {
@@ -109,7 +126,7 @@ function renderMarkdown(text: string, compact?: boolean) {
       const items: string[] = []
       while (i < lines.length && /^\s*([-*]|\d+\.)\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*([-*]|\d+\.)\s+/, ''))
       const Tag = ordered ? 'ol' : 'ul'
-      blocks.push(<Tag key={key++}>{items.map((it, n) => <li key={n}>{inline(it)}</li>)}</Tag>)
+      blocks.push(block(key, items.join('\n'), <Tag key={key++}>{items.map((it, n) => <li key={n}>{inline(it)}</li>)}</Tag>))
       continue
     }
     if (/^\s*\|.*\|\s*$/.test(line) && i + 1 < lines.length && /^\s*\|?\s*:?-{3,}/.test(lines[i + 1])) {
@@ -118,13 +135,13 @@ function renderMarkdown(text: string, compact?: boolean) {
         if (!/^\s*\|?\s*:?-{3,}/.test(lines[i])) rows.push(lines[i].trim().replace(/^\|/, '').replace(/(?<!\\)\|$/, '').split(/(?<!\\)\|/).map((c) => c.trim()))
         i++
       }
-      blocks.push(<div key={key++} className="md-table"><table><thead><tr>{rows[0].map((c, n) => <th key={n}>{inline(c)}</th>)}</tr></thead>
-        <tbody>{rows.slice(1).map((r, n) => <tr key={n}>{r.map((c, m) => <td key={m}>{inline(c)}</td>)}</tr>)}</tbody></table></div>)
+      blocks.push(block(key, rows.map((rw) => rw.join(' ')).join('\n'), <div key={key++} className="md-table"><table><thead><tr>{rows[0].map((c, n) => <th key={n}>{inline(c)}</th>)}</tr></thead>
+        <tbody>{rows.slice(1).map((r, n) => <tr key={n}>{r.map((c, m) => <td key={m}>{inline(c)}</td>)}</tr>)}</tbody></table></div>))
       continue
     }
     const buf: string[] = []
     while (i < lines.length && !/^\s*$/.test(lines[i]) && !/^\s*(```|~~~)/.test(lines[i]) && !/^\s*>/.test(lines[i]) && !/^\s*([-*]|\d+\.)\s+/.test(lines[i]) && !/^(#{1,6})\s/.test(lines[i])) buf.push(lines[i++])
-    blocks.push(<p key={key++}>{buf.map((b, n) => <Fragment key={n}>{n > 0 && ' '}{inline(b, `${n}-`)}</Fragment>)}</p>)
+    blocks.push(block(key, buf.join(' '), <p key={key++}>{buf.map((b, n) => <Fragment key={n}>{n > 0 && ' '}{inline(b, `${n}-`)}</Fragment>)}</p>))
   }
   return <div className={`md ${compact ? 'md-compact' : ''}`}>{blocks}</div>
 }

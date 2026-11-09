@@ -31,9 +31,7 @@ export function EvidenceCard({ e, onCategory, pageMode, terms, query }: { e: Evi
           {e.threadStatus !== 'ACTIVE' && <Badge tone="warn">{e.threadStatus.toLowerCase().replace('_', ' ')}</Badge>}
           {!pageMode && <InfoTip term={e.accepted ? 'accepted' : 'votes'} />}
         </div>
-        <h3 className="ev-title"><a href={e.answerId
-          ? `#/question/${encodeURIComponent(e.questionId)}?answer=${encodeURIComponent(e.answerId)}`
-          : `#/question/${encodeURIComponent(e.questionId)}${e.section ? `?section=${encodeURIComponent(e.section)}` : ''}`}>{cleanTitle(e.title)}</a></h3>
+        <h3 className="ev-title"><a href={inPage(e, query)}>{cleanTitle(e.title)}</a></h3>
         {e.section && <div className="muted small ev-section" title="The section of the page this passage comes from">§ {cleanTitle(e.section)}</div>}
         {e.flags.length > 0 && (
           <div className="ev-flag"><ShieldAlert size={16} /> This text contains wording that looks like instructions to an AI assistant. It is shown only as reading material and is never acted on.</div>
@@ -42,6 +40,7 @@ export function EvidenceCard({ e, onCategory, pageMode, terms, query }: { e: Evi
           <div className="ev-relevant">
             <div className="ev-relevant-head"><Target size={15} /> Relevant to your question</div>
             {relevant.map((part, n) => <div key={n} className="ev-relevant-part"><Markdown text={part} compact highlight={hl} /></div>)}
+            <a className="ev-open" href={inPage(e, query)}>Open the page at this place →</a>
             <button type="button" className="ev-more" onClick={() => setWhole(!whole)} aria-expanded={whole}>
               <ChevronDown size={14} style={{ transform: whole ? 'rotate(180deg)' : undefined }} /> {whole ? 'Hide the whole passage' : 'Show the whole passage'}</button>
           </div>
@@ -59,4 +58,14 @@ export function EvidenceCard({ e, onCategory, pageMode, terms, query }: { e: Evi
       </div>
     </article>
   )
+}
+
+/** The page view for a result, opened in find mode with the question asked (and at its section or answer). */
+function inPage(e: Evidence, query?: string): string {
+  const p = new URLSearchParams()
+  if (e.answerId) p.set('answer', e.answerId)
+  else if (e.section) p.set('section', e.section)
+  if (query && query.trim()) p.set('q', query.trim())
+  const qs = p.toString()
+  return `#/question/${encodeURIComponent(e.questionId)}${qs ? `?${qs}` : ''}`
 }

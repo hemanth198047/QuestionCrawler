@@ -59,3 +59,20 @@ All under `/api`. The Spring controllers and the test-scope dev server (`DevApiS
 
 `backend/core/src/test/java/.../DevApiServer.java` serves the same routes over the real logic without Spring. Compile the
 core module, then run `DevApiServer <port> <configFile>` and start Vite with `VITE_BACKEND_URL=http://127.0.0.1:<port>`.
+
+## Find mode: opening a page from a search
+
+When you open a result from **Explore**, the page opens in *find mode* with your question:
+
+- **The "Looking for" bar** stays at the top of the page while you scroll. It shows how many places on the page match ("1 of 3
+  places"). Use ▲ ▼, or the keys `n` / `p`, to jump between them. You can change the words in the bar (press Enter), or clear
+  them with ✕. The `f` key puts the cursor in the bar.
+- **"Where this page answers …"** lists the 3 best places as short previews, each with its section. Click one to jump to it.
+- The page opens at the best place, in the section the search result came from.
+- **Spotlight** (the default): matching paragraphs, steps, tables and code have a yellow edge and your words are highlighted;
+  the rest of the page is faded. Hover over faded text to read it.
+- **Only matches** shows just the matching places and their headings. **Whole page** shows everything with your words still
+  highlighted.
+- **On this page** marks the sections with matches and how many each one has; the other sections are faded.
+
+The bar is also on pages you open from Organize. Type what you're looking for in it to use find mode there.

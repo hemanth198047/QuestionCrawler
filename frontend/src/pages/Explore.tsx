@@ -150,7 +150,7 @@ export default function ExplorePage({ params }: { params: URLSearchParams }) {
               <Confidence level={result.data.confidence} /></div>
             {result.data.freshness && <span className={`small ${result.data.freshness.stale ? 'stale-note' : 'muted'}`}>{result.data.freshness.lastSuccessfulSyncAt ? `Knowledge updated ${timeAgo(result.data.freshness.lastSuccessfulSyncAt)}` : 'Never updated'}{result.data.freshness.stale ? ' · may be out of date' : ''}</span>}
           </div>
-          {result.data.answer && <AnswerCard answer={result.data.answer} />}
+          {result.data.answer && <AnswerCard answer={result.data.answer} query={q} />}
           {result.data.resultCount > 0 && <h3 className="muted" style={{ margin: '6px 0 0' }}>Where it comes from</h3>}
           {result.data.resultCount === 0 ? (
             <EmptyState icon={<MessageCircleQuestion size={30} />} title="Nothing matches that" action={<>
