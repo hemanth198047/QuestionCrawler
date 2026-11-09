@@ -81,6 +81,11 @@ public final class BrowserLogin {
             return null;
         }
 
+        /** Runs a small script in the page (for example: scroll to the end and list the result links). Null when not possible. */
+        default String run(String script, int seconds) throws IOException {
+            return null;
+        }
+
         @Override
         void close();
     }
@@ -866,6 +871,11 @@ public final class BrowserLogin {
                 // keep the last view
             }
             return v;
+        }
+
+        @Override
+        public synchronized String run(String script, int seconds) throws IOException {
+            return evaluate(script, seconds);
         }
 
         @Override

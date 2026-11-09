@@ -17,10 +17,17 @@ public record JiveOptions(
         int pageSize,
         boolean includePlaceTag,
         String username,
-        String usernameEnv) {
+        String usernameEnv,
+        /** Reading the web pages instead of the API: the search address, with {site}, {tag} and {after}. */
+        String searchUrl) {
 
     public static final JiveOptions DEFAULT = new JiveOptions(
-            "", List.of(), List.of("document", "discussion", "question"), false, 25, true, "", "");
+            "", List.of(), List.of("document", "discussion", "question"), false, 25, true, "", "", "");
+
+    public JiveOptions(String apiRoot, List<String> places, List<String> contentTypes, boolean collectComments, int pageSize,
+                       boolean includePlaceTag, String username, String usernameEnv) {
+        this(apiRoot, places, contentTypes, collectComments, pageSize, includePlaceTag, username, usernameEnv, "");
+    }
 
     public JiveOptions {
         apiRoot = apiRoot == null ? "" : apiRoot.strip();
@@ -31,6 +38,7 @@ public record JiveOptions(
         pageSize = pageSize <= 0 ? 25 : Math.min(pageSize, 100);
         username = username == null ? "" : username.strip();
         usernameEnv = usernameEnv == null ? "" : usernameEnv.strip();
+        searchUrl = searchUrl == null ? "" : searchUrl.strip();
     }
 
     /** Default Core REST root when {@link #apiRoot} is empty. */

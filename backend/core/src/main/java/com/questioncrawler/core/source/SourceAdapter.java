@@ -37,6 +37,10 @@ public interface SourceAdapter {
     /** Lists the answers of one question (accepted and unaccepted), one page at a time. */
     Page<Answer> listAnswers(String questionId, String cursor) throws SourceException;
 
+    /** The collection window of this run (30d, 1y, ... or null for everything), for sources that search by date. */
+    default void collectionWindow(String maxAge) {
+    }
+
     /** Cheap reachability check used by the doctor command. Returns a human-readable description. */
     String ping() throws SourceException;
 }

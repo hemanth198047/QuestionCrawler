@@ -131,6 +131,7 @@ public final class KnowledgeBase {
         }
         store.init();
         SourceAdapter adapter = adapterOverride != null ? adapterOverride : config.createAdapter();
+        adapter.collectionWindow(options.maxQuestionAge()); // sources that search by date (Jive web pages) use this run's window
         if (store.isInitialized()) {
             upgradeIndexIfOlder(); // the new index format must exist before new pages are added to it
         }

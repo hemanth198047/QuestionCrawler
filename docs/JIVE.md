@@ -12,6 +12,50 @@ QuestionCrawler can collect **Jive community content** into the same local knowl
 - Discussion/question replies are fetched as answers when the messages endpoint is available; optional comments
 - Incremental sync using the `after(…)` filter when the site supports it
 
+## Without the API: read Jive's web pages by tag (no token)
+
+When the API is not available, or you don't have a token, Jive can be read the way you read it yourself, through its
+search page. Go to *Connect → Jive* and set:
+
+- *Site address*: your Jive, for example `https://jive.xx.com`
+- *Sign-in method*: **Read the web pages through my browser (no API, no token)**
+- *Tags*: what to search for, for example `casc` (press Enter after each tag)
+
+On *Collect*, the time window becomes Jive's `after=`: 1 day → `day`, 7 days → `week`, 1 month → `month`, 3 months →
+`quarter`, 1 year → `year`. With *Everything*, `after` is left out.
+
+For each tag, the app:
+
+1. Opens `https://jive.xx.com/search.jspa?q=casc&after=year` in **one** Edge/Chrome window. It uses your usual company
+   login: if the window asks, sign in once. The window stays minimised otherwise.
+2. Reads the results to the **very end**, scrolling and clicking *More* / *Next* until no new results appear.
+3. Takes the links of the **Content** results only: documents, discussions, messages, blog posts, ideas, polls, videos and
+   questions. People, places, the search itself, tags, profile and sign-out links are never followed.
+4. Reads every one of those pages, directly when possible and through the browser when needed. It keeps the page's own text
+   without Jive's header, sidebar and footer, and stores it as a Jive **post**. Tags are the search tag, `jive` and
+   `type:document` / `type:discussion`.
+
+The same page found under several tags is stored once, carrying all of its tags. The search's tracking parameters
+(`?sr=search&searchId=…`) are removed from the stored address.
+
+**Check access** runs the search for the first tag now: it shows the search address, how many content pages it lists, a few
+examples, and whether the first page could be read.
+
+If your Jive's search page has another address, set *Jive search address* (advanced, `source.jive.searchUrl`). `{site}`,
+`{tag}` and `{after}` are filled in:
+
+```properties
+source.type=jive
+source.baseUrl=https://jive.xx.com
+source.auth.method=browser
+sync.tags=casc
+sync.maxQuestionAge=1y
+# source.jive.searchUrl={site}/search.jspa?q={tag}&after={after}
+```
+
+'all' is not possible in this mode: the search needs a word to search for. Place ids, content types and the API settings
+are not used, and are hidden on the Connect screen.
+
 ## Auth (secrets stay in environment variables)
 
 | Method | Config | Env var (name only in config) |

@@ -78,7 +78,7 @@ public final class ConfigService {
     private static final List<String> CONFLUENCE = List.of("confluence");
     private static final List<String> JIVE = List.of("jive");
     private static final List<String> SHAREPOINT = List.of("sharepoint");
-    private static final List<String> BROWSER_SOURCES = List.of("confluence", "links");
+    private static final List<String> BROWSER_SOURCES = List.of("confluence", "links", "jive");
     private static final List<String> LINKS = List.of("links");
     /** Tags do not apply to the Links source (every listed link is read). */
     private static final List<String> TAGGED = List.of("fixture", "stackexchange", "live", "confluence", "jive", "sharepoint");
@@ -163,7 +163,7 @@ public final class ConfigService {
                         f("source.confluence.apiRoot", "REST API root override", "Leave empty for the edition default (/wiki/rest/api on Cloud, /rest/api on Server/DC). Set only if your site uses a custom context path.",
                                 Type.TEXT, "", "/wiki/rest/api", CONFLUENCE, true, null),
                         f("source.jive.apiRoot", "REST API root override", "Leave empty for /api/core/v3. Set only if your site uses a custom context path.",
-                                Type.TEXT, "", "/api/core/v3", JIVE, true, null),
+                                Type.TEXT, "", "/api/core/v3", JIVE, true, null).when("source.auth.method", "basic-env", "token", "none", ""),
                         f("api.keyName", "Key parameter name", "How the key is called in each request. Leave empty to use what the Swagger documentation says (usually 'key').",
                                 Type.TEXT, "", "key", LIVE, true, null),
                         f("api.keyIn", "Send the key in", "Normally in the address (query). Choose 'header' if the documentation says so.",
@@ -182,6 +182,7 @@ public final class ConfigService {
                                 Type.SELECT, "none", null, AUTH_TOKEN, false, null,
                                 new Option("browser", "Sign in with my browser", "Recommended for company Confluence: your usual company login page opens in Edge/Chrome, you sign in, the app continues. Nothing to set up", List.of("confluence")),
                                 new Option("browser", "Read through my browser when needed", "Recommended: pages that need the company login (or that only your browser can reach) are opened in ONE Edge/Chrome window, kept minimised. It comes to the front only if you need to sign in, once for all sites behind the same login", List.of("links")),
+                                new Option("browser", "Read the web pages through my browser (no API, no token)", "For each tag, the Jive search page (your-site/search.jspa?q=TAG&after=year) opens in one Edge/Chrome window, is read to the very end, and every page in its Content results is read and kept. Your usual company login is used; nothing to set up", List.of("jive")),
                                 new Option("skip", "Don't use the browser", "Only pages that open without any login are read; the others are listed as skipped", List.of("links")),
                                 new Option("tvm", "Company token service (Kerberos)", "Your company's Token Vending Machine gives a short-lived token using your Windows/Kerberos login", List.of("confluence")),
                                 new Option("basic-env", "Email or username + API token / password", "Confluence Cloud: your email and an API token. Jive: a username and password", List.of("confluence", "jive")),
@@ -218,6 +219,8 @@ public final class ConfigService {
                                 Type.SWITCH, "false", null, CONFLUENCE, true, null).when("source.auth.method", "tvm"),
                         f("source.confluence.tvm.caCertFile", "Token service certificate file", "Only for curl, if the Token Vending Machine uses a company certificate authority curl does not trust yet.",
                                 Type.PATH, "", "C:\\certs\\company-ca.pem", CONFLUENCE, true, null).when("source.auth.method", "tvm"),
+                        f("source.jive.searchUrl", "Jive search address", "Only when reading Jive's web pages. Empty = {site}/search.jspa?q={tag}&after={after}: {site} is the Jive address above, {tag} each tag, {after} the collection window (day, week, month, quarter or year; left out for everything). Change it only if your Jive's search page has another address.",
+                                Type.TEXT, "", "{site}/search.jspa?q={tag}&after={after}", JIVE, true, null).when("source.auth.method", "browser"),
                         f("source.browser.path", "Browser program", "Only for 'Sign in with my browser'. Leave empty to use Edge or Chrome automatically. Otherwise the full path, for example C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe.",
                                 Type.PATH, "", "", BROWSER_SOURCES, true, null).when("source.auth.method", "browser"),
                         f("source.browser.profileDir", "Browser profile folder", "Only for 'Sign in with my browser'. The app's own browser profile, so your company login can remember you. Empty = ~/.questioncrawler/browser-profile.",
@@ -251,7 +254,7 @@ public final class ConfigService {
                         f("source.confluence.ancestorPageId", "Ancestor page id", "Advanced, optional. Instead of whole spaces, only collect the pages under this page id (a subtree).",
                                 Type.TEXT, "", "123456", CONFLUENCE, true, null),
                         f("source.jive.places", "Place ids", "Comma-separated Jive place/space ids to include (numeric ids). Strongly recommended so sync stays bounded.",
-                                Type.TAGS, "", "1006", JIVE, false, null),
+                                Type.TAGS, "", "1006", JIVE, false, null).when("source.auth.method", "basic-env", "token", "none", ""),
                         f("source.sharepoint.contentMode", "What to collect", "Site pages (default), list items, or both. Separate from Confluence/Jive content types.",
                                 Type.SELECT, "pages", null, SHAREPOINT, false, null,
                                 new Option("pages", "Site pages", "SharePoint site pages via Graph"),
@@ -275,11 +278,11 @@ public final class ConfigService {
                         f("source.confluence.contentTypes", "Content types", "Usually just page. Add blogpost only if you want blog posts too.",
                                 Type.TAGS, "page", "page", CONFLUENCE, true, null),
                         f("source.jive.contentTypes", "Content types", "Jive object types to collect. Defaults cover documents, discussions, and questions.",
-                                Type.TAGS, "document,discussion,question", "document,discussion,question", JIVE, true, null),
+                                Type.TAGS, "document,discussion,question", "document,discussion,question", JIVE, true, null).when("source.auth.method", "basic-env", "token", "none", ""),
                         f("source.confluence.collectComments", "Also collect page comments", "Downloads footer/inline page comments as thread comments. Uses more API requests. Failures are non-fatal.",
                                 Type.SWITCH, "false", null, CONFLUENCE, false, null),
                         f("source.jive.collectComments", "Also collect comments", "Downloads content comments as thread comments. Uses more API requests. Failures are non-fatal.",
-                                Type.SWITCH, "false", null, JIVE, false, null),
+                                Type.SWITCH, "false", null, JIVE, false, null).when("source.auth.method", "basic-env", "token", "none", ""),
                         f("api.collectComments", "Also collect comments", "Downloads the comments under questions and answers as extra context. Uses more API requests.",
                                 Type.SWITCH, "false", null, LIVE, false, null),
                         f("source.sharepoint.collectComments", "Also collect comments", "Reserved; SharePoint page comments are not collected in this version.",
@@ -335,13 +338,13 @@ public final class ConfigService {
                         f("source.confluence.pageSize", "Search page size", "How many pages Confluence returns per search request (1–50).",
                                 Type.NUMBER, "25", null, CONFLUENCE, true, null),
                         f("source.jive.pageSize", "List page size", "How many content items Jive returns per request (1–100).",
-                                Type.NUMBER, "25", null, JIVE, true, null),
+                                Type.NUMBER, "25", null, JIVE, true, null).when("source.auth.method", "basic-env", "token", "none", ""),
                         f("source.sharepoint.pageSize", "List page size", "How many pages/items Graph returns per request (1–100).",
                                 Type.NUMBER, "25", null, SHAREPOINT, true, null),
                         f("source.confluence.includeSpaceTag", "Add space:KEY tags", "Adds a synthetic space:ENG-style tag on each page for filtering and classification.",
                                 Type.SWITCH, "true", null, CONFLUENCE, true, null),
                         f("source.jive.includePlaceTag", "Add place:ID tags", "Adds a synthetic place:1006-style tag on each item for filtering and classification.",
-                                Type.SWITCH, "true", null, JIVE, true, null),
+                                Type.SWITCH, "true", null, JIVE, true, null).when("source.auth.method", "basic-env", "token", "none", ""),
                         f("source.sharepoint.includeSiteTag", "Add site:NAME tags", "Adds a synthetic site:Engineering-style tag on each item for filtering and classification.",
                                 Type.SWITCH, "true", null, SHAREPOINT, true, null),
                         f("source.fixture.pageSize", "Demo page size", "Only for the demo data: how many questions are shown per page of results.", Type.NUMBER, "2", null, List.of("fixture"), true, null))),
@@ -704,7 +707,10 @@ public final class ConfigService {
                             "Choose a space on Connect ('Show my spaces'), or pick a time window on the Collect page."));
                 }
             }
-            if (type.equals("jive")) {
+            if (type.equals("jive") && "browser".equals(v.getOrDefault("source.auth.method", ""))) {
+                issues.add(new Issue("sync.tags", "error", "Reading Jive's web pages searches tag by tag, so 'all' is not possible.",
+                        "Name the tags to search for, for example casc (press Enter after each)."));
+            } else if (type.equals("jive")) {
                 String places = v.getOrDefault("source.jive.places", "").strip();
                 String age = v.getOrDefault("sync.maxQuestionAge", "").strip();
                 if (places.isEmpty() && age.isEmpty()) {

@@ -133,6 +133,9 @@ public final class Workspace {
         if (type.equals("links")) {
             return checkLinks(v);
         }
+        if (type.equals("jive") && "browser".equalsIgnoreCase(v.getOrDefault("source.auth.method", ""))) {
+            return checkJiveWeb(v);
+        }
         List<String> tags = Arrays.stream(v.getOrDefault("sync.tags", "").split(",")).map(TagFilter::normalize).filter(t -> !t.isEmpty()).toList();
         String target;
         String site = "";
@@ -331,6 +334,54 @@ public final class Workspace {
                 new ConnectionReport.Route("WEB_PAGES", "Web pages behind the links", "Each page is read directly; a page that needs the company login (or that only your browser can reach) is read through one browser window; "
                         + "you sign in there once for every site behind the same login.", true, List.of("Save the settings", "Collect")),
                 List.of(new ConnectionReport.Requirement("links", "Links to read", total > 0 ? "MET" : "MISSING", total + " link(s)")));
+        try {
+            knowledgeBase.store().init();
+            knowledgeBase.store().writeState(CONNECTION_STATE, report);
+        } catch (RuntimeException ignored) {
+            // still returned
+        }
+        return report;
+    }
+
+    /** Jive read through its web pages: runs the search for the first tag now and reads the first page it lists. */
+    private ConnectionReport checkJiveWeb(Map<String, String> v) {
+        long t0 = System.nanoTime();
+        List<ConnectionReport.Fact> facts = new ArrayList<>();
+        String status;
+        String summary;
+        try {
+            CoreConfig cfg = CoreConfig.load(null, v);
+            var adapter = (com.questioncrawler.core.source.JiveWebAdapter) cfg.createAdapter(env);
+            adapter.collectionWindow(cfg.maxQuestionAge());
+            String tag = cfg.tags().stream().filter(t -> !TagFilter.asksForAll(List.of(t))).findFirst().orElse(null);
+            if (tag == null) {
+                status = "FAIL";
+                summary = "Name a tag to search for (for example casc): Jive's web pages are read tag by tag.";
+            } else {
+                Map<String, String> tried = adapter.trySearch(tag);
+                tried.forEach((k, val) -> facts.add(new ConnectionReport.Fact(k, val)));
+                String found = tried.getOrDefault("Content found", "0 page(s)");
+                boolean any = !found.startsWith("0 ");
+                boolean read = tried.getOrDefault("First page read", "").startsWith("OK");
+                status = tried.containsKey("Problem") ? "FAIL" : any && read ? "PASS" : any ? "WARN" : "WARN";
+                summary = tried.containsKey("Problem") ? "The search page could not be read: " + tried.get("Problem")
+                        : any ? "The search for '" + tag + "' lists " + found + (read ? "; the first one was read." : "; the first one could not be read (see below).")
+                        : "The search for '" + tag + "' shows no content. Check the tag, the time window, or the search address.";
+            }
+        } catch (RuntimeException e) {
+            status = "FAIL";
+            summary = "Jive's web pages could not be read: " + e.getMessage();
+        }
+        long ms = (System.nanoTime() - t0) / 1_000_000;
+        List<ConnectionReport.Stage> stages = List.of(new ConnectionReport.Stage("jive-web", "Jive search pages", "Does the Jive search list content we can read?",
+                status, summary, facts, status.equals("PASS") ? List.of() : List.of(new ConnectionReport.Need("A search that lists content",
+                        "The app opens your Jive's search for each tag in a browser window (your usual login), reads it to the end and reads every page in its Content results.", "You")), ms));
+        String verdict = status.equals("PASS") ? "READY" : status.equals("WARN") ? "NEEDS_ATTENTION" : "BLOCKED";
+        ConnectionReport report = new ConnectionReport(clock.instant().toString(), v.getOrDefault("source.baseUrl", ""), "jive", verdict,
+                status.equals("PASS") ? "Jive's pages can be read" : status.equals("WARN") ? "Jive's search needs a look" : "Jive's pages cannot be read yet",
+                summary, status.equals("PASS") ? 100 : status.equals("WARN") ? 60 : 10, stages,
+                new ConnectionReport.Route("WEB_PAGES", "Jive web pages, tag by tag", "Search page per tag → every page in its Content results, read through your browser.",
+                        true, List.of("Save the settings", "Collect")), List.of());
         try {
             knowledgeBase.store().init();
             knowledgeBase.store().writeState(CONNECTION_STATE, report);

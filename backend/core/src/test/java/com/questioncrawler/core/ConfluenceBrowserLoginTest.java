@@ -184,7 +184,9 @@ class ConfluenceBrowserLoginTest {
         assertEquals(List.of(), cfg.validate());
         assertEquals(120, cfg.confluence().browser().timeoutSeconds());
         assertTrue(cfg.createAdapter(k -> null) instanceof ConfluenceAdapter, "creating the adapter does not open a browser");
+        // Jive can be read through the browser too (its web pages, tag by tag): then 'all' is not a tag to search for
         CoreConfig jive = CoreConfig.load(file, Map.of("source.type", "jive"));
-        assertTrue(jive.validate().stream().anyMatch(p -> p.contains("browser")));
+        assertTrue(jive.validate().stream().anyMatch(p -> p.contains("tag by tag")), jive.validate().toString());
+        assertEquals(List.of(), CoreConfig.load(file, Map.of("source.type", "jive", "sync.tags", "casc")).validate());
     }
 }

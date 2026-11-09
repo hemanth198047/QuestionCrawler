@@ -31,7 +31,9 @@ public final class HtmlToMarkdown {
                     + "rst-footer-buttons|breadcrumbs|wy-breadcrumbs|sidebar-drawer|sidebar-container|toc-drawer|bd-sidebar|bd-sidebar-primary|"
                     + "bd-sidebar-secondary|bd-header|bd-footer|bd-toc|prev-next-area|prev-next-footer|header-article|navbar|md-sidebar|md-header|"
                     + "md-footer|md-nav|theme-doc-sidebar-container|pagination-nav|table-of-contents|skip-link|skip-to-content|cookie-banner|"
-                    + "page-metadata|ia-secondary-container|ia-splitter-left)(?:\\s|$)");
+                    + "page-metadata|ia-secondary-container|ia-splitter-left|"
+                    + "j-header-wrap|j-globalNav|j-global-nav|jive-header|j-footer|jive-footer|j-sidebar|jive-sidebar|j-breadcrumbs|"
+                    + "jive-breadcrumb|j-tabbar|j-side-panel|j-action-bar|j-content-actions|jive-content-footer-actions)(?:\\s|$)");
 
     /** True for page chrome: navigation, sidebars, headers, footers and "link to this heading" anchors. */
     private static boolean isChrome(String tag, String attrs) {

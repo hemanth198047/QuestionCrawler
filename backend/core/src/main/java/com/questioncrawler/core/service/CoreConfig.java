@@ -158,7 +158,8 @@ public record CoreConfig(
                 intValue(p, "source.jive.pageSize", 25),
                 Boolean.parseBoolean(p.getProperty("source.jive.includePlaceTag", "true").strip()),
                 p.getProperty("source.jive.username", ""),
-                p.getProperty("source.jive.usernameEnv", ""));
+                p.getProperty("source.jive.usernameEnv", ""),
+                p.getProperty("source.jive.searchUrl", ""));
         boolean sharepointSource = type.equals("sharepoint");
         SharePointOptions sharepoint = new SharePointOptions(
                 p.getProperty("source.sharepoint.tenantId", ""),
@@ -331,7 +332,7 @@ public record CoreConfig(
         if (source.authMethod().equalsIgnoreCase("tvm") && !sourceType.equals("confluence")) {
             problems.add("source.auth.method=tvm (Token Vending Machine) is only supported for source.type=confluence");
         }
-        if (source.authMethod().equalsIgnoreCase("browser") && !sourceType.equals("confluence") && !sourceType.equals("links")) {
+        if (source.authMethod().equalsIgnoreCase("browser") && !sourceType.equals("confluence") && !sourceType.equals("links") && !sourceType.equals("jive")) {
             problems.add("source.auth.method=browser (sign in with my browser) is only for Confluence; the internal Q&A site uses its REST API "
                     + "with an access key (and token if needed)");
         }
@@ -441,7 +442,11 @@ public record CoreConfig(
                         problems.add("Jive Basic auth needs source.jive.username or source.jive.usernameEnv");
                     }
                 }
-                if (TagFilter.asksForAll(tags) && !jive.hasBoundedScope() && maxQuestionAge == null) {
+                if (source.authMethod().equalsIgnoreCase("browser")) {
+                    if (TagFilter.asksForAll(tags)) {
+                        problems.add("Reading Jive's web pages searches tag by tag: name the tags in sync.tags (for example casc), not 'all'");
+                    }
+                } else if (TagFilter.asksForAll(tags) && !jive.hasBoundedScope() && maxQuestionAge == null) {
                     problems.add("Jive tag 'all' needs a place id or sync.maxQuestionAge window (refusing unbounded site sync)");
                 }
             }
@@ -497,6 +502,14 @@ public record CoreConfig(
         if (sourceType.equals("confluence")) {
             // Dedicated adapter — do not route through StackExchangeAdapter or LiveSourceAdapter.
             return ConfluenceAdapter.create(source, confluence, env);
+        }
+        if (sourceType.equals("jive") && "browser".equalsIgnoreCase(source.authMethod())) {
+            // Jive's web pages, tag by tag through its search page, in the browser window (no API, no token)
+            var net = shortLinks == null ? com.questioncrawler.core.source.ShortLinks.Options.OFF : shortLinks;
+            ConfluenceOptions.Browser browser = confluence == null ? ConfluenceOptions.Browser.DEFAULT : confluence.browser();
+            return com.questioncrawler.core.source.JiveWebAdapter.create(source.systemId(), source.baseUrl(), jive.searchUrl(),
+                    com.questioncrawler.core.source.BrowserPageReader.shared(browser, env),
+                    com.questioncrawler.core.source.WebPageReader.create(net, browser, true, env));
         }
         if (sourceType.equals("jive")) {
             // Dedicated adapter — separate from Confluence / SharePoint / Stack Exchange.
