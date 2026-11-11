@@ -154,3 +154,12 @@
 /* Long pages (big Sphinx or wiki pages): the browser lays out and paints only the blocks near the screen. The text stays
    in the page, so find mode, Ctrl+F and copying still work. This makes a 1,000-section page open about 8x faster. */
 .md > * { content-visibility: auto; contain-intrinsic-size: auto 60px; }
+
+/* Headings keep the page's structure: main sections larger than their sub-sections. */
+.md .md-h1 { font-size: 20px; font-weight: 700; margin-top: 22px; }
+.md .md-h2 { font-size: 17.5px; font-weight: 680; margin-top: 20px; }
+.md .md-h3 { font-size: 15.5px; font-weight: 650; margin-top: 16px; }
+.md .md-h4 { font-size: 15px; font-weight: 620; color: var(--ink-2); }
+.md > .md-h:first-child, .md > .md-b:first-child .md-h { margin-top: 0; }
+.md li > ul, .md li > ol { margin-top: 4px; }
+.md li + li { margin-top: 3px; }

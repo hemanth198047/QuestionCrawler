@@ -61,6 +61,24 @@ function inline(text: string, keyBase = ''): ReactNode[] {
   return out
 }
 
+interface ListItem { level: number; ordered: boolean; num: number; text: string }
+
+/** A list with its sub-lists: items indented under an item belong to it. */
+function listTree(items: ListItem[], start: number, end: number, keyBase: string): ReactNode {
+  const first = items[start]
+  const Tag = first.ordered ? 'ol' : 'ul'
+  const out: ReactNode[] = []
+  let k = start
+  while (k < end) {
+    const it = items[k]
+    let j = k + 1
+    while (j < end && items[j].level > it.level) j++
+    out.push(<li key={k}>{inline(it.text, `${keyBase}-${k}-`)}{j > k + 1 ? listTree(items, k + 1, j, `${keyBase}-${k}`) : null}</li>)
+    k = j
+  }
+  return <Tag start={first.ordered && first.num !== 1 ? first.num : undefined}>{out}</Tag>
+}
+
 export function CodeBlock({ code, lang }: { code: string; lang?: string }) {
   return (
     <div className="codeblock">
@@ -118,7 +136,7 @@ function renderMarkdown(text: string, compact?: boolean) {
       // a heading that matches what is looked for is itself a place to go (often the best one)
       const hs = FIND ? coverage(plainText(h[2]), FIND) : 0
       const hhit = FIND ? isMatch(hs, FIND) : false
-      blocks.push(<p key={key++} className={`md-h${hhit ? ' md-hit' : ''}`} data-heading={plainHeading(h[2])} data-score={FIND ? (hs + 0.01).toFixed(2) : undefined}>{inline(h[2])}</p>); i++; continue
+      blocks.push(<p key={key++} className={`md-h md-h${Math.min(h[1].length, 4)}${hhit ? ' md-hit' : ''}`} data-heading={plainHeading(h[2])} data-score={FIND ? (hs + 0.01).toFixed(2) : undefined}>{inline(h[2])}</p>); i++; continue
     }
     if (/^\s*>/.test(line)) {
       const buf: string[] = []
@@ -127,11 +145,13 @@ function renderMarkdown(text: string, compact?: boolean) {
       continue
     }
     if (/^\s*([-*]|\d+\.)\s+/.test(line)) {
-      const ordered = /^\s*\d+\./.test(line)
-      const items: string[] = []
-      while (i < lines.length && /^\s*([-*]|\d+\.)\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*([-*]|\d+\.)\s+/, ''))
-      const Tag = ordered ? 'ol' : 'ul'
-      blocks.push(block(key, items.join('\n'), <Tag key={key++}>{items.map((it, n) => <li key={n}>{inline(it)}</li>)}</Tag>))
+      // Lists keep their nesting (2 spaces per level) and their numbers (step 3 stays 3 after a code block).
+      const items: ListItem[] = []
+      while (i < lines.length && /^\s*([-*]|\d+\.)\s+/.test(lines[i])) {
+        const m = /^(\s*)([-*]|(\d+)\.)\s+(.*)$/.exec(lines[i++])!
+        items.push({ level: Math.floor(m[1].replace(/\t/g, '  ').length / 2), ordered: m[3] !== undefined, num: m[3] !== undefined ? Number(m[3]) : 1, text: m[4] })
+      }
+      blocks.push(block(key, items.map((it) => it.text).join('\n'), <Fragment key={key++}>{listTree(items, 0, items.length, `${key}`)}</Fragment>))
       continue
     }
     if (/^\s*\|.*\|\s*$/.test(line) && i + 1 < lines.length && /^\s*\|?\s*:?-{3,}/.test(lines[i + 1])) {

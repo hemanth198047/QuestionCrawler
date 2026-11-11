@@ -18,7 +18,7 @@ import java.util.regex.Pattern;
  */
 public final class HtmlToMarkdown {
 
-    private static final Pattern TOKEN = Pattern.compile("<!--.*?-->|<(/?)([a-zA-Z][a-zA-Z0-9]*)((?:\"[^\"]*\"|'[^']*'|[^>\"'])*)>", Pattern.DOTALL);
+    private static final Pattern TOKEN = Pattern.compile("<!--.*?-->|<![^>]*>|<\\?[^>]*>|<(/?)([a-zA-Z][a-zA-Z0-9]*)((?:\"[^\"]*\"|'[^']*'|[^>\"'])*)>", Pattern.DOTALL);
     private static final Pattern ATTR = Pattern.compile("([a-zA-Z_:][-a-zA-Z0-9_:.]*)\\s*=\\s*(\"([^\"]*)\"|'([^']*)'|([^\\s\"'>]+))");
     /** Page parts marked as navigation, banner, footer or search by their role: never content. */
     private static final Set<String> CHROME_ROLES = Set.of("navigation", "banner", "contentinfo", "search", "menubar", "toolbar");
@@ -48,7 +48,7 @@ public final class HtmlToMarkdown {
         return cls != null && CHROME_CLASS.matcher(cls).find();
     }
 
-    private static final Set<String> SKIP = Set.of("script", "style", "nav", "footer", "aside", "form", "button", "svg", "noscript", "iframe", "select", "template");
+    private static final Set<String> SKIP = Set.of("script", "style", "nav", "footer", "aside", "form", "button", "svg", "noscript", "iframe", "select", "template", "head", "title");
     private static final Set<String> VOID = Set.of("br", "hr", "img", "input", "meta", "link", "wbr", "source");
     private static final Set<String> BLOCK = Set.of("p", "div", "section", "article", "main", "header", "figure", "figcaption", "dl", "dt", "dd");
 
@@ -71,6 +71,12 @@ public final class HtmlToMarkdown {
     private final Deque<List<String>> rows = new ArrayDeque<>();
     private StringBuilder pre;
     private String preLang;
+    /** The code language a wrapper announced (Sphinx: div.highlight-yaml), for the next code block. */
+    private String pendingLang = "";
+    /** Open div elements: true for a note / warning box (rendered as a quote with a bold title). */
+    private final Deque<Boolean> divs = new ArrayDeque<>();
+    /** Inside the title paragraph of a note box ("Note", "Warning"). */
+    private boolean inBoxTitle;
     private int skipDepth;
     private String skipName;
     private boolean inInlineCode;
@@ -195,14 +201,42 @@ public final class HtmlToMarkdown {
                 buffers.push(new StringBuilder());
                 cur().append("#".repeat(name.charAt(1) - '0')).append(' ');
             }
-            case "p", "div", "section", "article", "main", "header", "figure", "figcaption", "dl", "dt", "dd" -> {
-                if (lists.isEmpty()) {
+            case "div" -> {
+                String cls = attr(t.attrs(), "class");
+                Matcher lang = CODE_LANG.matcher(cls);
+                if (lang.find()) {
+                    pendingLang = lang.group(1).toLowerCase(Locale.ROOT);
+                }
+                boolean box = NOTE_BOX.matcher(cls).find();
+                divs.push(box);
+                if (box) {
                     blankLine();
+                    buffers.push(new StringBuilder()); // collected, then written as a quote
                 } else {
-                    newline();
+                    blockBreak();
                 }
             }
-            case "br" -> cur().append('\n');
+            case "p" -> {
+                if (divs.contains(Boolean.TRUE) && ADMONITION_TITLE.matcher(attr(t.attrs(), "class")).find()) {
+                    blockBreak();
+                    inBoxTitle = true;
+                    cur().append("**");
+                } else {
+                    blockBreak();
+                }
+            }
+            case "dt" -> {
+                blankLine();
+                cur().append("**");
+            }
+            case "section", "article", "main", "header", "figure", "figcaption", "dl", "dd" -> blockBreak();
+            case "br" -> {
+                if (lists.isEmpty()) {
+                    cur().append('\n');
+                } else {
+                    cur().append(' '); // a list item stays on its line
+                }
+            }
             case "hr" -> {
                 blankLine();
                 cur().append("---");
@@ -214,7 +248,16 @@ public final class HtmlToMarkdown {
                 } else {
                     newline();
                 }
-                lists.push(new ListCtx(name.equals("ol")));
+                ListCtx ctx = new ListCtx(name.equals("ol"));
+                try { // <ol start="5">: numbering continues from there
+                    String start = attr(t.attrs(), "start");
+                    if (ctx.ordered && start != null && !start.isBlank()) {
+                        ctx.counter = Integer.parseInt(start.strip()) - 1;
+                    }
+                } catch (NumberFormatException ignored) {
+                    // numbered from 1
+                }
+                lists.push(ctx);
             }
             case "li" -> {
                 newline();
@@ -277,13 +320,40 @@ public final class HtmlToMarkdown {
                     blankLine();
                 }
             }
-            case "p", "div", "section", "article", "main", "header", "figure", "figcaption", "dl", "dt", "dd" -> {
-                if (lists.isEmpty()) {
+            case "div" -> {
+                boolean box = !divs.isEmpty() && divs.pop();
+                if (box && buffers.size() > 1) {
+                    String quoted = tidy(buffers.pop().toString());
+                    StringBuilder out = cur();
+                    for (String line : quoted.split("\n", -1)) {
+                        out.append(line.isBlank() ? ">" : "> " + line).append('\n');
+                    }
                     blankLine();
                 } else {
-                    newline();
+                    blockBreak();
                 }
             }
+            case "p" -> {
+                if (inBoxTitle) {
+                    inBoxTitle = false;
+                    StringBuilder out = cur();
+                    stripTrailingSpaces(out);
+                    out.append(":** "); // "**Note:** the text follows"
+                } else {
+                    blockBreak();
+                }
+            }
+            case "dt" -> {
+                StringBuilder out = cur();
+                stripTrailingSpaces(out);
+                if (out.length() >= 2 && out.substring(out.length() - 2).equals("**")) {
+                    out.setLength(out.length() - 2); // an empty term
+                } else {
+                    out.append("**");
+                }
+                newline();
+            }
+            case "section", "article", "main", "header", "figure", "figcaption", "dl", "dd" -> blockBreak();
             case "ul", "ol" -> {
                 if (!lists.isEmpty()) {
                     lists.pop();
@@ -351,7 +421,8 @@ public final class HtmlToMarkdown {
 
     private void startPre(int index) {
         pre = new StringBuilder();
-        preLang = "";
+        preLang = pendingLang.equals("default") || pendingLang.equals("none") || pendingLang.equals("text") ? "" : pendingLang;
+        pendingLang = "";
         for (int j = index + 1; j < tokens.size(); j++) {
             Tok next = tokens.get(j);
             if (next.text() && next.content().isBlank()) {
@@ -434,6 +505,33 @@ public final class HtmlToMarkdown {
     private static boolean endsWithNewline(StringBuilder sb) {
         return sb.length() > 0 && sb.charAt(sb.length() - 1) == '\n';
     }
+
+    /**
+     * A paragraph or block boundary. Outside lists: a blank line. Inside a list item: nothing right after the bullet or
+     * number, otherwise a space, so the item stays one line under its bullet (Sphinx, Confluence and Jive put
+     * paragraphs inside list items; a line break there would separate the text from its number).
+     */
+    private void blockBreak() {
+        if (lists.isEmpty()) {
+            blankLine();
+            return;
+        }
+        StringBuilder out = cur();
+        stripTrailingSpaces(out);
+        if (out.length() == 0 || endsWithNewline(out) || LIST_MARKER_END.matcher(out.subSequence(Math.max(0, out.length() - 12), out.length())).find()) {
+            if (out.length() > 0 && !endsWithNewline(out)) {
+                out.append(' ');
+            }
+            return;
+        }
+        out.append(' ');
+    }
+
+    private static final Pattern LIST_MARKER_END = Pattern.compile("(?:^|\\s)(?:-|\\d+\\.)$");
+    private static final Pattern CODE_LANG = Pattern.compile("(?:^|\\s)(?:highlight|language|lang)-([A-Za-z0-9+#_.-]+)");
+    private static final Pattern NOTE_BOX = Pattern.compile("(?i)(?:^|\\s)(admonition|confluence-information-macro|aui-message|"
+            + "panel-note|callout|alert)(?:\\s|$)");
+    private static final Pattern ADMONITION_TITLE = Pattern.compile("(?i)(?:^|\\s)(admonition-title|confluence-information-macro-title|title)(?:\\s|$)");
 
     private void newline() {
         StringBuilder out = cur();
