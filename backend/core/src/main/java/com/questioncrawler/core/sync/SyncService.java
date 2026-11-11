@@ -335,6 +335,10 @@ public final class SyncService {
                         } catch (ExecutionException e) {
                             if (e.getCause() instanceof SourceException se) {
                                 failure = se;
+                            } else if (e.getCause() instanceof StackOverflowError so) {
+                                // one exceptionally complex page: skipped and reported, the rest of the run continues
+                                failure = new SourceException(SourceException.Kind.FATAL, "This page is too complex to read (" + so.getClass().getSimpleName()
+                                        + "); it was skipped and the collection continued.", null, so);
                             } else if (e.getCause() instanceof RuntimeException re) {
                                 throw re; // programming error or simulated crash: let it propagate, run state is on disk
                             } else {
@@ -348,11 +352,17 @@ public final class SyncService {
                         if (abortReason != null) {
                             break;
                         }
+                        if (failure == null) {
+                            try {
+                                storeFetched(id, fetched, state, reconciling);
+                                collected += 1 + (fetched.answers() == null ? 0 : fetched.answers().size());
+                            } catch (StackOverflowError so) {
+                                failure = new SourceException(SourceException.Kind.FATAL, "This page is too complex to store (" + so.getClass().getSimpleName()
+                                        + "); it was skipped and the collection continued.", null, so);
+                            }
+                        }
                         if (failure != null) {
                             handleFailure(id, failure, reconciling);
-                        } else {
-                            storeFetched(id, fetched, state, reconciling);
-                            collected += 1 + (fetched.answers() == null ? 0 : fetched.answers().size());
                         }
                         fetchedCount++;
                         emit(reconciling ? SyncProgress.RECONCILING : SyncProgress.FETCHING,

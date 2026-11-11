@@ -18,7 +18,6 @@ import java.util.regex.Pattern;
  */
 public final class HtmlToMarkdown {
 
-    private static final Pattern TOKEN = Pattern.compile("<!--.*?-->|<![^>]*>|<\\?[^>]*>|<(/?)([a-zA-Z][a-zA-Z0-9]*)((?:\"[^\"]*\"|'[^']*'|[^>\"'])*)>", Pattern.DOTALL);
     private static final Pattern ATTR = Pattern.compile("([a-zA-Z_:][-a-zA-Z0-9_:.]*)\\s*=\\s*(\"([^\"]*)\"|'([^']*)'|([^\\s\"'>]+))");
     /** Page parts marked as navigation, banner, footer or search by their role: never content. */
     private static final Set<String> CHROME_ROLES = Set.of("navigation", "banner", "contentinfo", "search", "menubar", "toolbar");
@@ -119,22 +118,138 @@ public final class HtmlToMarkdown {
         return tidy(cur().toString());
     }
 
+    /**
+     * A tag may be this long when it looks like a tag (attributes such as name="..." right after its name): Jive and
+     * Confluence pages carry megabytes of inline data in attributes. Anything else that does not end soon is text.
+     */
+    private static final int MAX_TAG_CHARS = 8_000_000;
+    /** Without attributes near its start, a "<" whose ">" is further than this is ordinary text ("a<b" in code). */
+    private static final int MAX_PLAIN_TAG_CHARS = 2_000;
+
+    /**
+     * Splits the page into tags and text in one pass, without regular expressions: any length of page, any length of
+     * attribute (Jive and Confluence pages carry large inline data), and any number of stray "<" signs are read without
+     * deep recursion (a regular expression here overflowed the stack on long pages).
+     */
     private void tokenize(String html) {
-        Matcher m = TOKEN.matcher(html);
-        int last = 0;
-        while (m.find()) {
-            if (m.start() > last) {
-                tokens.add(new Tok(true, false, null, null, html.substring(last, m.start())));
+        int n = html.length();
+        int textStart = 0;
+        int i = 0;
+        int nextGt = -1;
+        while (i < n) {
+            int lt = html.indexOf('<', i);
+            if (lt < 0) {
+                break;
             }
-            last = m.end();
-            if (m.group(2) == null) {
-                continue; // comment
+            int end;
+            Tok tag = null;
+            if (html.startsWith("<!--", lt)) {
+                int close = html.indexOf("-->", lt + 4);
+                end = close < 0 ? n : close + 3; // a comment: dropped
+            } else if (lt + 1 < n && (html.charAt(lt + 1) == '!' || html.charAt(lt + 1) == '?')) {
+                int close = html.indexOf('>', lt + 2); // <!DOCTYPE ...>, <![CDATA[...]]>, <?xml ...?>: dropped
+                if (close < 0 || close - lt > MAX_TAG_CHARS) {
+                    i = lt + 1;
+                    continue;
+                }
+                end = close + 1;
+            } else {
+                int p = lt + 1;
+                boolean closing = p < n && html.charAt(p) == '/';
+                if (closing) {
+                    p++;
+                }
+                int nameStart = p;
+                if (p >= n || !isAsciiLetter(html.charAt(p))) {
+                    i = lt + 1; // "<" followed by a space, a digit, "=": text
+                    continue;
+                }
+                while (p < n && (isAsciiLetter(html.charAt(p)) || (html.charAt(p) >= '0' && html.charAt(p) <= '9'))) {
+                    p++;
+                }
+                String name = html.substring(nameStart, p).toLowerCase(Locale.ROOT);
+                if (nextGt < p) {
+                    nextGt = html.indexOf('>', p);
+                }
+                if (nextGt < 0) {
+                    break; // no ">" anywhere after this: the rest of the page is text
+                }
+                int q;
+                boolean looksLikeTag = p >= n || html.charAt(p) == '>' || html.charAt(p) == '/' || Character.isWhitespace(html.charAt(p));
+                if (!looksLikeTag) {
+                    i = lt + 1;
+                    continue;
+                }
+                int quoteAt = -1;
+                for (int k = p; k < nextGt && k < p + MAX_PLAIN_TAG_CHARS; k++) {
+                    char c = html.charAt(k);
+                    if (c == '"' || c == '\'') {
+                        quoteAt = k;
+                        break;
+                    }
+                }
+                int eq = html.indexOf('=', p);
+                boolean attributeNearStart = eq > p && eq < Math.min(nextGt, p + 200);
+                if (quoteAt < 0 && (nextGt - p <= MAX_PLAIN_TAG_CHARS || (attributeNearStart && nextGt - p <= MAX_TAG_CHARS))) {
+                    // the usual case: no quotes before the ">" (also a long unquoted attribute value); but a "<" in
+                    // between means this was text ("if a<b then c<d</p>"), not a tag running up to the next ">"
+                    int innerLt = html.indexOf('<', p);
+                    if (innerLt >= 0 && innerLt < nextGt) {
+                        i = lt + 1;
+                        continue;
+                    }
+                    q = nextGt;
+                } else if (quoteAt < 0 || html.lastIndexOf('=', quoteAt) < p) {
+                    i = lt + 1; // a far ">" and no attribute near the start: not a tag
+                    continue;
+                } else {
+                    // attributes with quoted values (which may contain ">" and be very long): skip over them
+                    int limit = Math.min(n, p + MAX_TAG_CHARS);
+                    q = p;
+                    char quote = 0;
+                    while (q < limit) {
+                        char c = html.charAt(q);
+                        if (quote != 0) {
+                            int close = html.indexOf(quote, q);
+                            if (close < 0 || close >= limit) {
+                                q = limit;
+                                break;
+                            }
+                            q = close + 1;
+                            quote = 0;
+                            continue;
+                        }
+                        if (c == '"' || c == '\'') {
+                            quote = c;
+                        } else if (c == '>') {
+                            break;
+                        }
+                        q++;
+                    }
+                    if (q >= limit) {
+                        i = lt + 1; // no end of tag: the "<" is text
+                        continue;
+                    }
+                }
+                tag = new Tok(false, closing, name, html.substring(p, q), null);
+                end = q + 1;
             }
-            tokens.add(new Tok(false, !m.group(1).isEmpty(), m.group(2).toLowerCase(Locale.ROOT), m.group(3), null));
+            if (lt > textStart) {
+                tokens.add(new Tok(true, false, null, null, html.substring(textStart, lt)));
+            }
+            if (tag != null) {
+                tokens.add(tag);
+            }
+            textStart = end;
+            i = end;
         }
-        if (last < html.length()) {
-            tokens.add(new Tok(true, false, null, null, html.substring(last)));
+        if (textStart < n) {
+            tokens.add(new Tok(true, false, null, null, html.substring(textStart)));
         }
+    }
+
+    private static boolean isAsciiLetter(char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
     }
 
     private StringBuilder cur() {
