@@ -6,8 +6,8 @@ import type { FindMode, Hit } from '../lib/findOnPage'
  * The bar that stays at the top of a page: what you are looking for (editable), how many places match, previous / next
  * (also the n and p keys), and how to show the page: spotlight on the matches, only the matches, or the whole page.
  */
-export function FindBar({ query, onQuery, hits, mode, onMode, current, onGo }: {
-  query: string; onQuery: (q: string) => void; hits: Hit[]; mode: FindMode; onMode: (m: FindMode) => void
+export function FindBar({ query, onQuery, ready = true, hits, mode, onMode, current, onGo }: {
+  query: string; onQuery: (q: string) => void; ready?: boolean; hits: Hit[]; mode: FindMode; onMode: (m: FindMode) => void
   current: number; onGo: (index: number) => void
 }) {
   const [draft, setDraft] = useState(query)
@@ -37,7 +37,7 @@ export function FindBar({ query, onQuery, hits, mode, onMode, current, onGo }: {
       </form>
       {has && (
         <div className="findbar-tools">
-          <span className={`findbar-count ${n === 0 ? 'none' : ''}`}>{n === 0 ? 'No place on this page matches' : `${current >= 0 ? current + 1 : '–'} of ${n} place${n === 1 ? '' : 's'}`}</span>
+          <span className={`findbar-count ${n === 0 ? 'none' : ''}`}>{!ready ? 'Reading the page…' : n === 0 ? 'No place on this page matches' : `${current >= 0 ? current + 1 : '–'} of ${n} place${n === 1 ? '' : 's'}`}</span>
           <div className="findbar-nav">
             <button type="button" onClick={() => step(-1)} disabled={n === 0} title="Previous place (p)" aria-label="Previous place"><ChevronUp size={16} /></button>
             <button type="button" onClick={() => step(1)} disabled={n === 0} title="Next place (n)" aria-label="Next place"><ChevronDown size={16} /></button>

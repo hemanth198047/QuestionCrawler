@@ -285,14 +285,18 @@ mark.hl { background: color-mix(in srgb, var(--warn, #f5b041) 30%, transparent);
 @media (max-width: 640px) { .bestplace { grid-template-columns: 24px minmax(0, 1fr); } .bestplace-go { display: none; } }
 
 /* matching places on the page */
-.md-b, .md-h { border-radius: 8px; transition: opacity .25s, background .25s; scroll-margin-top: 120px; }
+/* No transitions or see-through blocks here: a long page has thousands of blocks, and per-block opacity or animation
+   makes the browser composite each one separately (seconds on big Sphinx pages). Fading uses text colour instead. */
+.md-b, .md-h { border-radius: 8px; scroll-margin-top: 120px; }
 .md-hit { box-shadow: inset 3px 0 0 var(--warn, #f5b041); padding-left: 12px; background: color-mix(in srgb, var(--warn, #f5b041) 6%, transparent); }
 .md-current { background: color-mix(in srgb, var(--warn, #f5b041) 18%, transparent); box-shadow: inset 4px 0 0 var(--warn, #f5b041), 0 0 0 2px color-mix(in srgb, var(--warn, #f5b041) 45%, transparent); animation: md-pulse 1.2s ease-out 1; }
 @keyframes md-pulse { from { box-shadow: inset 4px 0 0 var(--warn, #f5b041), 0 0 0 8px color-mix(in srgb, var(--warn, #f5b041) 40%, transparent); } }
-.find-spot .md-b:not(.md-hit) { opacity: .35; } .find-spot .md-b:not(.md-hit):hover { opacity: 1; }
-.find-spot .md-h:not(.md-h-hit) { opacity: .5; }
+.find-spot .md-b:not(.md-hit), .find-spot .md-h:not(.md-h-hit) { color: var(--ink-4, #9aa0ad); }
+.find-spot .md-b:not(.md-hit) a { color: inherit; }
+.find-spot .md-b:not(.md-hit) .md-code { color: inherit; }
+.find-spot .md-b:not(.md-hit):hover { color: inherit; }
 .find-only .md-b:not(.md-hit), .find-only .md-h:not(.md-h-hit) { display: none; }
-.find-only .answer:not(:has(.md-hit)), .find-spot .answer:not(:has(.md-hit)) { opacity: .5; } .find-only .answer:not(:has(.md-hit)) { display: none; }
+.find-spot .answer.no-hit { color: var(--ink-4, #9aa0ad); } .find-only .answer.no-hit { display: none; }
 .qlayout:is(.find-spot, .find-only, .find-all) .qside { top: 96px; }
 
 /* the outline shows where the matches are */

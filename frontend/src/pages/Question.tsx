@@ -1,6 +1,7 @@
 import { cleanTitle } from '../lib/cleanText'
 import { ArrowLeft, Award, CalendarDays, ExternalLink, Pencil, RotateCcw, ShieldAlert, ThumbsUp, User } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { PageBody } from '../components/PageBody'
 import { BestPlaces, FindBar } from '../components/FindOnPage'
 import { bestOf, showHit, useHits, type FindMode } from '../lib/findOnPage'
 import { findTerms, type FindTerms } from '../lib/highlight'
@@ -13,7 +14,8 @@ import { safeUrl } from '../lib/url'
 import { termsForSystem } from '../lib/terms'
 import type { Answer, ThreadView } from '../types/api'
 
-function AnswerCard({ a, find }: { a: Answer; find?: FindTerms | null }) {
+/** An answer, drawn again only when it or what is looked for changes (not on every jump between places). */
+const AnswerCard = memo(function AnswerCard({ a, find }: { a: Answer; find?: FindTerms | null }) {
   const href = safeUrl(a.url)
   const comments = a.comments ?? []
   return (
@@ -28,7 +30,7 @@ function AnswerCard({ a, find }: { a: Answer; find?: FindTerms | null }) {
       {comments.length > 0 && <div className="comments"><h4>Comments</h4>{comments.map((c, i) => <p key={i} className="small"><b>{c.author ?? 'unknown'}:</b> {c.body}</p>)}</div>}
     </Card>
   )
-}
+})
 
 /** Scroll to (and briefly highlight) the page section a search result came from: the deepest heading of its path. */
 function FocusSection({ section, ready }: { section?: string | null; ready: boolean }) {
@@ -121,7 +123,10 @@ function ThreadPage({ v, reload, focusAnswerId, focusSection, findQuery }: { v: 
   const [mode, setMode] = useState<FindMode>('spot')
   const [current, setCurrent] = useState(-1)
   const layout = useRef<HTMLDivElement>(null)
-  const { hits, sections } = useHits(layout, terms, v)
+  // The page is drawn in pieces when it is long; its places are listed once all of it is on screen.
+  const [bodyDone, setBodyDone] = useState(false)
+  const markDone = useCallback(() => setBodyDone(true), [])
+  const { hits, sections } = useHits(layout, terms, bodyDone ? v : null)
   const best = useMemo(() => bestOf(hits, 3), [hits])
   const goTo = useCallback((i: number) => { setCurrent(i); showHit(hits[i]) }, [hits])
   const arrived = useRef(false)
@@ -161,13 +166,13 @@ function ThreadPage({ v, reload, focusAnswerId, focusSection, findQuery }: { v: 
           : <>Asked {timeAgo(q.createdAt)} ({dateOnly(q.createdAt)}) by {q.author ?? 'unknown'} · {q.score ?? '?'} votes · {answers.length} answer{answers.length === 1 ? '' : 's'}</>}</p>
       </header>
       {v.thread.statusReason && <Banner tone="warn" title="Status">{v.thread.statusReason}</Banner>}
-      <FindBar query={query} onQuery={(nq) => { setQuery(nq); setCurrent(-1); if (nq) setMode('spot') }} hits={hits} mode={mode} onMode={setMode} current={current} onGo={goTo} />
+      <FindBar query={query} onQuery={(nq) => { setQuery(nq); setCurrent(-1); setBodyDone(false); if (nq) setMode('spot') }} ready={bodyDone} hits={hits} mode={mode} onMode={setMode} current={current} onGo={goTo} />
       <div ref={layout} className={`qlayout ${terms && hits.length > 0 ? (mode === 'spot' ? 'find-spot' : mode === 'only' ? 'find-only' : 'find-all') : ''}`}>
         <div className="stack">
           {terms && <BestPlaces query={query} best={best} highlight={terms.re} onJump={(h) => goTo(hits.indexOf(h))} />}
           <Card className="rise">
             <div className="ribbon neutral">{t.Item}</div>
-            <Markdown text={q.body} find={terms} />
+            <PageBody key={query} text={q.body ?? ''} find={terms} onDone={markDone} />
             <div className="row" style={{ marginTop: 18, gap: 6 }}>{q.tags.map((t) => <Chip key={t} onClick={() => go(`/explore?q=${encodeURIComponent(q.title)}&tag=${encodeURIComponent(t)}`)}>{t}</Chip>)}</div>
           </Card>
           {!isWiki && <h2 id="answers">{answers.length === 0 ? 'No answers yet' : `${answers.length} answer${answers.length === 1 ? '' : 's'}`}</h2>}

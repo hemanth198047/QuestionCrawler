@@ -15,7 +15,7 @@ export function useHits(root: RefObject<HTMLElement | null>, terms: FindTerms | 
   const [sections, setSections] = useState<Record<string, number>>({})
   useLayoutEffect(() => {
     const el = root.current
-    if (!el) return
+    if (!el || version === null) return // the page is still being drawn
     el.querySelectorAll('.md-h-hit').forEach((h) => h.classList.remove('md-h-hit'))
     if (!terms) { setHits([]); setSections({}); return }
     const found: Hit[] = []
@@ -51,6 +51,8 @@ export function useHits(root: RefObject<HTMLElement | null>, terms: FindTerms | 
       }
     }
     headingsWithHits.forEach((h) => h.classList.add('md-h-hit'))
+    // answers without any place are faded / hidden by class (a :has() rule would be re-checked on every change)
+    el.querySelectorAll<HTMLElement>('.answer').forEach((a) => a.classList.toggle('no-hit', !a.querySelector('.md-hit')))
     setHits(found)
     setSections(counts)
   }, [root, terms, version])

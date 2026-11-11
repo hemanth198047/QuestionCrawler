@@ -36,7 +36,7 @@ function plain(raw: string, key: string): ReactNode[] {
 
 function inline(text: string, keyBase = ''): ReactNode[] {
   const out: ReactNode[] = []
-  const re = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*\s][^*]*\*)|(\[[^\]]+\]\([^)\s]+\))|(https?:\/\/[^\s<)]+)/g
+  const re = /(`[^`]+`)|(\*\*(?:[^*]|\*(?!\*)[^*]*\*)+?\*\*)|(\*[^*\s][^*]*\*)|(\[[^\]]+\]\([^)\s]+\))|(https?:\/\/[^\s<)]+)/g
   let last = 0
   let m: RegExpExecArray | null
   let i = 0

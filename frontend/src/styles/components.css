@@ -163,3 +163,7 @@
 .md > .md-h:first-child, .md > .md-b:first-child .md-h { margin-top: 0; }
 .md li > ul, .md li > ol { margin-top: 4px; }
 .md li + li { margin-top: 3px; }
+
+/* A long page drawn in pieces: the pieces read as one text. */
+.md + .md { margin-top: 12px; }
+.page-loading { margin-top: 14px; }
