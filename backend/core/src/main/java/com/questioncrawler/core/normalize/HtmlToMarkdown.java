@@ -51,7 +51,12 @@ public final class HtmlToMarkdown {
     private static final Set<String> VOID = Set.of("br", "hr", "img", "input", "meta", "link", "wbr", "source");
     private static final Set<String> BLOCK = Set.of("p", "div", "section", "article", "main", "header", "figure", "figcaption", "dl", "dt", "dd");
 
-    private record Tok(boolean text, boolean closing, String name, String attrs, String content) {}
+    /** A tag or a piece of text. Text from a CDATA section has the name "#cdata" (kept exactly, not decoded). */
+    private record Tok(boolean text, boolean closing, String name, String attrs, String content) {
+        boolean selfClosing() {
+            return attrs != null && attrs.strip().endsWith("/");
+        }
+    }
 
     private static final class ListCtx {
         final boolean ordered;
@@ -99,7 +104,7 @@ public final class HtmlToMarkdown {
         for (int i = 0; i < tokens.size(); i++) {
             Tok t = tokens.get(i);
             if (t.text()) {
-                handleText(t.content());
+                handleText(t.content(), "#cdata".equals(t.name()));
             } else if (skipDepth > 0) {
                 trackSkip(t);
             } else if (t.closing()) {
@@ -146,6 +151,10 @@ public final class HtmlToMarkdown {
             if (html.startsWith("<!--", lt)) {
                 int close = html.indexOf("-->", lt + 4);
                 end = close < 0 ? n : close + 3; // a comment: dropped
+            } else if (html.startsWith("<![CDATA[", lt)) {
+                int close = html.indexOf("]]>", lt + 9); // Confluence code and link text: exactly as written
+                end = close < 0 ? n : close + 3;
+                tag = new Tok(true, false, "#cdata", null, html.substring(lt + 9, close < 0 ? n : close));
             } else if (lt + 1 < n && (html.charAt(lt + 1) == '!' || html.charAt(lt + 1) == '?')) {
                 int close = html.indexOf('>', lt + 2); // <!DOCTYPE ...>, <![CDATA[...]]>, <?xml ...?>: dropped
                 if (close < 0 || close - lt > MAX_TAG_CHARS) {
@@ -164,7 +173,7 @@ public final class HtmlToMarkdown {
                     i = lt + 1; // "<" followed by a space, a digit, "=": text
                     continue;
                 }
-                while (p < n && (isAsciiLetter(html.charAt(p)) || (html.charAt(p) >= '0' && html.charAt(p) <= '9'))) {
+                while (p < n && isNameChar(html.charAt(p))) { // also Confluence's ac:structured-macro, ri:page
                     p++;
                 }
                 String name = html.substring(nameStart, p).toLowerCase(Locale.ROOT);
@@ -248,6 +257,10 @@ public final class HtmlToMarkdown {
         }
     }
 
+    private static boolean isNameChar(char c) {
+        return isAsciiLetter(c) || (c >= '0' && c <= '9') || c == ':' || c == '-' || c == '_' || c == '.';
+    }
+
     private static boolean isAsciiLetter(char c) {
         return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
     }
@@ -259,18 +272,18 @@ public final class HtmlToMarkdown {
     // ------------------------------------------------------------------ skipping chrome
 
     private void trackSkip(Tok t) {
-        if (t.name().equals(skipName) && !VOID.contains(t.name())) {
+        if (t.name().equals(skipName) && !VOID.contains(t.name()) && !(!t.closing() && t.selfClosing())) {
             skipDepth += t.closing() ? -1 : 1;
         }
     }
 
     // ------------------------------------------------------------------ text
 
-    private void handleText(String raw) {
+    private void handleText(String raw, boolean exact) {
         if (skipDepth > 0) {
             return;
         }
-        String text = decode(raw);
+        String text = exact ? raw : decode(raw);
         if (pre != null) {
             pre.append(text);
             return;
@@ -295,8 +308,10 @@ public final class HtmlToMarkdown {
     private void handleOpen(Tok t, int index) {
         String name = t.name();
         if (SKIP.contains(name) || isChrome(name, t.attrs())) {
-            skipName = name;
-            skipDepth = 1;
+            if (!t.selfClosing()) {
+                skipName = name;
+                skipDepth = 1;
+            }
             return;
         }
         if (pre != null) {
@@ -304,6 +319,10 @@ public final class HtmlToMarkdown {
                 pre.append('\n');
             }
             return; // markup inside <pre> is irrelevant; only its text matters
+        }
+        if (name.indexOf(':') > 0) {
+            confluenceOpen(t, index);
+            return;
         }
         switch (name) {
             case "pre" -> startPre(index);
@@ -395,6 +414,12 @@ public final class HtmlToMarkdown {
                 hrefs.push(safeHref(attr(t.attrs(), "href")));
                 buffers.push(new StringBuilder());
             }
+            case "time" -> {
+                String when = attr(t.attrs(), "datetime");
+                if (!when.isBlank()) {
+                    cur().append(when.strip());
+                }
+            }
             case "img" -> {
                 String src = safeHref(attr(t.attrs(), "src"));
                 String alt = decode(attr(t.attrs(), "alt"));
@@ -412,13 +437,195 @@ public final class HtmlToMarkdown {
         }
     }
 
+    // ------------------------------------------------------------------ Confluence storage format (ac:, ri:)
+
+    /** A Confluence macro being read: its name and its parameters (language, title, ...). */
+    private static final class Macro {
+        final String name;
+        final java.util.Map<String, String> params = new java.util.HashMap<>();
+
+        Macro(String name) {
+            this.name = name;
+        }
+    }
+
+    /** A Confluence link being read: the page, file or address it points to. */
+    private static final class Link {
+        String title = "";
+        String url = "";
+    }
+
+    /** Macros that are not content: anchors, tables of contents, page trees, Jira boxes, ... */
+    private static final Set<String> SKIP_MACROS = Set.of("anchor", "toc", "toc-zone", "children", "pagetree", "pagetreesearch", "jira",
+            "jiraissues", "attachments", "recently-updated", "livesearch", "contentbylabel", "content-report-table", "excerpt-include",
+            "include", "gallery", "profile", "page-index", "space-details", "blog-posts", "related-labels", "popular-labels", "viewfile",
+            "view-file", "multimedia", "widget", "iframe", "html", "roadmap", "chart", "create-from-template", "create-space-button");
+    private static final Set<String> CODE_MACROS = Set.of("code", "noformat", "code-block", "sourcecode");
+    private static final Set<String> BOX_MACROS = Set.of("info", "note", "warning", "tip", "panel", "tip-panel", "note-panel", "warning-panel", "callout");
+    /** Confluence elements that carry no readable content. */
+    private static final Set<String> SKIP_CONFLUENCE = Set.of("ac:image", "ac:emoticon", "ac:placeholder", "ac:task-id", "ac:task-uuid",
+            "ac:task-status", "ri:user", "ac:adf-attribute", "ac:adf-fallback", "ac:inline-comment-marker-ref");
+
+    private final Deque<Macro> macros = new ArrayDeque<>();
+    private final Deque<String> paramNames = new ArrayDeque<>();
+    private final Deque<Link> links = new ArrayDeque<>();
+
+    private void confluenceOpen(Tok t, int index) {
+        String name = t.name();
+        boolean self = t.selfClosing();
+        if (SKIP_CONFLUENCE.contains(name)) {
+            if (!self) {
+                skipName = name;
+                skipDepth = 1;
+            }
+            return;
+        }
+        switch (name) {
+            case "ac:structured-macro", "ac:macro" -> {
+                String macro = attr(t.attrs(), "ac:name").strip().toLowerCase(Locale.ROOT);
+                if (self) {
+                    return; // a macro without content (toc, children, ...)
+                }
+                if (SKIP_MACROS.contains(macro)) {
+                    skipName = name;
+                    skipDepth = 1;
+                    return;
+                }
+                macros.push(new Macro(macro));
+                if (BOX_MACROS.contains(macro) || macro.equals("expand")) {
+                    blankLine();
+                    buffers.push(new StringBuilder());
+                }
+            }
+            case "ac:parameter" -> {
+                if (!self) {
+                    paramNames.push(attr(t.attrs(), "ac:name").strip().toLowerCase(Locale.ROOT));
+                    buffers.push(new StringBuilder()); // a setting of the macro, never page text
+                }
+            }
+            case "ac:plain-text-body" -> {
+                Macro m = macros.peek();
+                if (m != null && CODE_MACROS.contains(m.name)) {
+                    pre = new StringBuilder();
+                    String lang = m.params.getOrDefault("language", "").strip().toLowerCase(Locale.ROOT);
+                    preLang = lang.equals("none") || lang.equals("text") ? "" : lang;
+                } else if (!self) {
+                    skipName = name; // the body of an unknown macro (html, ...): not shown
+                    skipDepth = 1;
+                }
+            }
+            case "ac:link" -> {
+                if (!self) {
+                    links.push(new Link());
+                    buffers.push(new StringBuilder());
+                }
+            }
+            case "ri:page", "ri:blog-post" -> {
+                Link l = links.peek();
+                if (l != null) {
+                    l.title = attr(t.attrs(), "ri:content-title");
+                }
+            }
+            case "ri:attachment" -> {
+                Link l = links.peek();
+                if (l != null) {
+                    l.title = attr(t.attrs(), "ri:filename");
+                }
+            }
+            case "ri:url" -> {
+                Link l = links.peek();
+                if (l != null) {
+                    l.url = safeHref(attr(t.attrs(), "ri:value"));
+                }
+            }
+            case "ri:space" -> {
+                Link l = links.peek();
+                if (l != null && l.title.isEmpty()) {
+                    l.title = attr(t.attrs(), "ri:space-key");
+                }
+            }
+            case "ac:task-list" -> handleOpen(new Tok(false, false, "ul", "", null), index);
+            case "ac:task" -> handleOpen(new Tok(false, false, "li", "", null), index);
+            case "ac:rich-text-body", "ac:layout", "ac:layout-section", "ac:layout-cell" -> blockBreak();
+            default -> { /* ac:task-body, ac:link-body, ac:plain-text-link-body, ac:inline-comment-marker, ...: their text is kept */ }
+        }
+    }
+
+    private void confluenceClose(String name) {
+        switch (name) {
+            case "ac:structured-macro", "ac:macro" -> {
+                Macro m = macros.poll();
+                if (m == null) {
+                    return;
+                }
+                if ((BOX_MACROS.contains(m.name) || m.name.equals("expand")) && buffers.size() > 1) {
+                    String body = tidy(buffers.pop().toString());
+                    String title = m.params.getOrDefault("title", "").strip();
+                    StringBuilder out = cur();
+                    blankLine();
+                    if (m.name.equals("expand")) {
+                        out.append("**").append(title.isEmpty() ? "Details" : title).append("**\n\n").append(body);
+                    } else {
+                        String label = !title.isEmpty() ? title : switch (m.name) {
+                            case "info" -> "Info";
+                            case "note", "note-panel" -> "Note";
+                            case "warning", "warning-panel" -> "Warning";
+                            case "tip", "tip-panel" -> "Tip";
+                            default -> "";
+                        };
+                        String quoted = label.isEmpty() ? body : "**" + label + ":**\n\n" + body;
+                        for (String line : quoted.split("\n", -1)) {
+                            out.append(line.isBlank() ? ">" : "> " + line).append('\n');
+                        }
+                    }
+                    blankLine();
+                } else if (m.name.equals("status")) {
+                    String label = m.params.getOrDefault("title", "").strip();
+                    if (!label.isEmpty()) {
+                        cur().append("**[").append(label).append("]**");
+                    }
+                }
+            }
+            case "ac:parameter" -> {
+                if (buffers.size() > 1 && !paramNames.isEmpty()) {
+                    String value = buffers.pop().toString();
+                    String param = paramNames.pop();
+                    Macro m = macros.peek();
+                    if (m != null) {
+                        m.params.put(param, value.strip());
+                    }
+                }
+            }
+            case "ac:link" -> {
+                if (buffers.size() > 1 && !links.isEmpty()) {
+                    String body = buffers.pop().toString().strip();
+                    Link l = links.pop();
+                    String text = !body.isEmpty() ? body : l.title;
+                    if (!l.url.isEmpty() && !text.isEmpty()) {
+                        cur().append('[').append(text.replace("[", "(").replace("]", ")")).append("](").append(l.url).append(')');
+                    } else {
+                        cur().append(text);
+                    }
+                }
+            }
+            case "ac:task-list" -> handleClose("ul");
+            case "ac:task" -> handleClose("li");
+            case "ac:rich-text-body", "ac:layout", "ac:layout-section", "ac:layout-cell" -> blockBreak();
+            default -> { }
+        }
+    }
+
     // ------------------------------------------------------------------ close tags
 
     private void handleClose(String name) {
         if (pre != null) {
-            if (name.equals("pre")) {
+            if (name.equals("pre") || name.equals("ac:plain-text-body")) {
                 emitPre();
             }
+            return;
+        }
+        if (name.indexOf(':') > 0) {
+            confluenceClose(name);
             return;
         }
         switch (name) {
