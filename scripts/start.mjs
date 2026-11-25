@@ -4,7 +4,9 @@
 //   npm start -- --prod     builds the UI and serves everything from one server (http://localhost:8080)
 //   npm start -- --no-open  do not open a browser
 //   npm start -- --test     run all backend and frontend checks, then exit
-//   npm start -- --check    only check prerequisites
+//   npm start -- --check    only check prerequisites (and the search-ai Kerberos ticket)
+//   npm run searchai        search-ai sign-in test: curl check, kinit if needed, then `questioncrawler searchai whoami`
+//   npm start -- --skip-searchai   do not check/refresh the search-ai Kerberos sign-in (or set QC_SKIP_SEARCHAI=1)
 // No dependencies: plain Node 20+.
 import { spawn, spawnSync } from 'node:child_process'
 import { createWriteStream, existsSync, mkdirSync, readFileSync } from 'node:fs'
@@ -309,6 +311,108 @@ async function prepareFrontend() {
   ok('Frontend packages ready')
 }
 
+
+// ------------------------------------------------------------------ search-ai sign-in (Kerberos)
+const SKIP_SEARCHAI = args.has('--skip-searchai') || /^(1|true|yes)$/i.test(process.env.QC_SKIP_SEARCHAI ?? '')
+const cliBin = () => path.join(BACKEND, 'core', 'build', 'install', 'questioncrawler', 'bin', WIN ? 'questioncrawler.bat' : 'questioncrawler')
+
+/** curl is what talks to search-ai (the JDK cannot do Kerberos): it must exist and support SPNEGO/GSS-API (SSPI on Windows). */
+function checkCurl() {
+  const r = capture('curl', ['-V'])
+  if (r.code !== 0) {
+    warn('curl was not found. search-ai needs curl with Kerberos support (Windows 10+ ships one; Linux: install curl/libcurl4-gnutls or libcurl-gnutls).')
+    return false
+  }
+  const features = /Features:(.*)/.exec(r.out)?.[1] ?? ''
+  if (!/SPNEGO|GSS-API|Kerberos|SSPI/i.test(features)) {
+    warn('This curl has no Kerberos/SPNEGO support, so --negotiate will not work. Install a curl built with GSS-API, or set searchai.curl to one.')
+    return false
+  }
+  ok(`curl with Kerberos support (${/curl [\d.]+/.exec(r.out)?.[0] ?? 'curl'})`)
+  return true
+}
+
+/** True when a valid Kerberos ticket exists (always true on Windows, where SSPI uses the Windows sign-in). */
+async function ensureKerberosTicket() {
+  if (WIN) { ok('Windows: sign-in is handled by SSPI (a 401 later means an IT ticket is needed)'); return true }
+  const valid = () => capture('klist', ['-s']).code === 0
+  const who = () => /(?:Default principal|Principal):\s*(\S+)/.exec(capture('klist').out)?.[1]
+  if (capture('klist', ['-s']).code === 127) { // 127 = program not found (a missing ticket is exit 1)
+    warn('Kerberos tools (klist/kinit) were not found. Install them (Debian/Ubuntu: krb5-user, RHEL: krb5-workstation, macOS: built in).')
+    return false
+  }
+  if (valid()) { ok(`Kerberos ticket is valid${who() ? ` for ${who()}` : ''}`); return true }
+  const principal = process.env.QC_KINIT_PRINCIPAL
+  const keytab = process.env.QC_KINIT_KEYTAB
+  if (keytab && principal) {
+    say(`  ${dim(`No valid ticket: running kinit -kt with the keytab for ${principal}`)}`)
+    await run('kinit', ['-kt', keytab, principal])
+  } else if (process.stdin.isTTY) {
+    say(`  ${dim(`No valid Kerberos ticket: running kinit${principal ? ` ${principal}` : ''} (enter your password)`)}`)
+    await run('kinit', principal ? [principal] : [])
+  } else {
+    warn('No valid Kerberos ticket and no terminal to ask for a password. Run "kinit" yourself, or set QC_KINIT_PRINCIPAL and QC_KINIT_KEYTAB.')
+    return false
+  }
+  if (valid()) { ok(`Kerberos ticket obtained${who() ? ` for ${who()}` : ''}`); return true }
+  warn('kinit did not give a valid ticket. Check your password/principal (QC_KINIT_PRINCIPAL=user@REALM) and try "kinit" by hand.')
+  return false
+}
+
+/** GET a JSON endpoint of our own backend; returns { status, body }. */
+function httpGetText(url) {
+  return new Promise((resolve) => {
+    const req = http.get(url, { timeout: 120000 }, (res) => {
+      let body = ''
+      res.on('data', (d) => { body += d })
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, body }))
+    })
+    req.on('error', (e) => resolve({ status: 0, body: String(e.message) }))
+    req.on('timeout', () => { req.destroy(); resolve({ status: 0, body: 'timeout' }) })
+  })
+}
+
+/** Used while serving: asks the running backend to call search-ai /whoami (same code path the REST API uses). Never fatal. */
+async function searchAiWhoamiViaBackend() {
+  const r = await httpGetText(`http://127.0.0.1:${API_PORT}/api/searchai/whoami`)
+  if (r.status >= 200 && r.status < 300) { ok('search-ai /whoami answered: signed in'); return }
+  let detail = r.body
+  try { detail = JSON.parse(r.body).detail ?? r.body } catch { /* plain text */ }
+  warn(`search-ai /whoami failed (HTTP ${r.status}): ${String(detail).slice(0, 300)}`)
+  warn('The rest of QuestionCrawler works without it. Fix the sign-in (see docs/SEARCH_AI.md), or start with --skip-searchai.')
+}
+
+/** Start-up step: curl check + ticket. Not fatal: search-ai is optional. */
+async function searchAiSignIn() {
+  if (SKIP_SEARCHAI) { say(`\n${dim('search-ai sign-in skipped (--skip-searchai / QC_SKIP_SEARCHAI).')}`); return false }
+  step('search-ai sign-in (Kerberos)')
+  const curlOk = checkCurl()
+  const ticketOk = await ensureKerberosTicket()
+  return curlOk && ticketOk
+}
+
+/** `npm run searchai`: the complete test. Fatal on failure so scripts can rely on the exit code. */
+async function searchAiMode() {
+  const ready = await searchAiSignIn()
+  if (!ready && !SKIP_SEARCHAI) fail('The search-ai sign-in is not ready', ['Fix the warnings above, then run "npm run searchai" again.'])
+  step('Building the command-line tool')
+  const code = await run(quote(GRADLE.cmd), [':core:installDist', '--console=plain', '-q', ...extraGradleArgs()], { cwd: BACKEND })
+  if (code !== 0 || !existsSync(cliBin())) fail('Could not build the command-line tool', ['Run "npm run build:backend" to see the compile error.'])
+  ok('Command-line tool built')
+  step('search-ai /whoami')
+  const r = await runTee(quote(cliBin()), ['searchai', 'whoami'], { cwd: ROOT })
+  if (r.code !== 0) {
+    fail('search-ai /whoami failed', [
+      'Read the "search-ai:" line above; it says what to do. Typical causes:',
+      '  • 401: no/expired Kerberos ticket (run kinit), or on Windows raise an IT ticket',
+      '  • "could not be resolved" / "Could not connect": searchai.baseUri is still the example host, or you are off the VPN',
+      '  • certificate not trusted: set CURL_CA_BUNDLE to your organization CA bundle',
+      '  • the config file: set searchai.baseUri in your questioncrawler.properties (see docs/SEARCH_AI.md)'])
+  }
+  ok('search-ai sign-in works')
+  say(`\n${green('Next:')} ${bold('questioncrawler searchai search "Claude Code" --rows 5')}   ${dim('(scripts/qc.sh searchai search ...)')}`)
+}
+
 // ------------------------------------------------------------------ 3. modes
 async function testMode() {
   step('Backend tests'); let code = await run(quote(GRADLE.cmd), ['test', ...extraGradleArgs()], { cwd: BACKEND })
@@ -340,6 +444,7 @@ async function serve() {
     if (code !== 0) fail('The frontend build failed', ['Scroll up for the error.'])
     ok('Interface built')
   }
+  await searchAiSignIn() // before the backend starts, so it inherits the Kerberos ticket cache
   step('Starting')
   say(`  ${dim('The first start downloads and compiles the backend: this can take a few minutes. Later starts take seconds.')}`)
   const backendCmd = process.env.QC_BACKEND_CMD
@@ -350,6 +455,7 @@ async function serve() {
   const apiUp = await waitFor('the backend', `http://127.0.0.1:${API_PORT}/api/health`, Number(process.env.QC_WAIT_SECONDS ?? 420), () => api.exitCode === null)
   if (!apiUp) { explainBackendFailure(api); shutdown(1); return fail('The backend did not start', ['See the box above for the first problem.']) }
   ok(`Backend is up at http://127.0.0.1:${API_PORT}`)
+  if (!SKIP_SEARCHAI) await searchAiWhoamiViaBackend()
   if (!PROD && !BACKEND_ONLY) {
     // The interface starts only now, so it never forwards requests to a backend that is not there yet.
     say(`  ${dim('Starting the interface…')}`)
@@ -370,10 +476,11 @@ async function serve() {
 // ------------------------------------------------------------------ main
 say(bold('QuestionCrawler'))
 if (!process.env.QC_BACKEND_CMD) await prerequisites()
-if (args.has('--check')) { say(`\n${green('Everything needed is installed.')}`); process.exit(0) }
+if (args.has('--check')) { await searchAiSignIn(); say(`\n${green('Everything needed is installed.')}`); process.exit(0) }
 if (!process.env.QC_BACKEND_CMD) await prepareBackend()
-const needsFrontend = !args.has('--compile') && !BACKEND_ONLY
+const needsFrontend = !args.has('--compile') && !BACKEND_ONLY && !args.has('--searchai')
 if (!process.env.QC_FRONTEND_CMD && needsFrontend) await prepareFrontend()
-if (args.has('--test')) await testMode()
+if (args.has('--searchai')) await searchAiMode()
+else if (args.has('--test')) await testMode()
 else if (args.has('--compile')) await compileMode()
 else await serve()

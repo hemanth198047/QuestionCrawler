@@ -8,6 +8,7 @@
     "start:prod": "node scripts/launch.cjs --prod",
     "test": "node scripts/launch.cjs --test",
     "check": "node scripts/launch.cjs --check",
+    "searchai": "node scripts/launch.cjs --searchai",
     "backend": "node scripts/launch.cjs --backend-only",
     "build:backend": "node scripts/launch.cjs --compile",
     "check:frontend": "node scripts/check-frontend.mjs"

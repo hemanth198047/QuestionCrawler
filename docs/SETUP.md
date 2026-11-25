@@ -117,3 +117,7 @@ A plain copy of the storage root also works when no sync is running.
 ## 8. Copilot
 
 See [COPILOT.md](COPILOT.md).
+
+## search-ai (optional)
+
+`npm start` also checks the Kerberos sign-in for search-ai (curl, `klist`, `kinit`, `/whoami`) and only warns if it is not ready. `npm run searchai` runs just that test. See [SEARCH_AI.md](SEARCH_AI.md).

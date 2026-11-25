@@ -18,6 +18,26 @@ and keeps every answer as a JSON file, so results can be re-read, compared and p
 | `searchai.useCase` | empty | `use_case` sent when a call gives none. |
 | `searchai.rows` | `10` | `rows` sent to `/search` when a call gives none. |
 
+## Sign-in is automated (setup and start)
+
+| Command | What it does with search-ai |
+|---|---|
+| `npm start` (or `./start.sh`, `start.cmd`) | Before the backend starts: checks curl has Kerberos support, checks the ticket with `klist -s`, runs `kinit` if there is none (asks for your password in the terminal). After the backend is up it calls `/whoami` once and prints the result. A problem is a warning only: the rest of the app still starts. |
+| `npm start -- --check` | Prerequisites plus the curl and ticket check. |
+| `npm run searchai` | The full test: curl check, ticket (kinit if needed), builds the CLI, runs `questioncrawler searchai whoami`. Exit code 0 only if signed in. |
+| `--skip-searchai` or `QC_SKIP_SEARCHAI=1` | Skips all of the above. |
+
+Unattended use: set `QC_KINIT_PRINCIPAL=user@REALM` and `QC_KINIT_KEYTAB=/path/user.keytab` and `kinit -kt` runs without a prompt.
+With only `QC_KINIT_PRINCIPAL` set, `kinit <principal>` asks for the password. Windows skips kinit (SSPI uses your Windows sign-in).
+
+## How to test it, step by step
+
+1. Edit your config file (`~/.questioncrawler/config.properties`, or the file you use) and set `searchai.baseUri` to the real host. Run `scripts/qc.sh init` first if you have no config yet.
+2. Run `npm run searchai`. Expect: curl ✓, Kerberos ticket ✓, `Signed in (HTTP 200): ...`, `search-ai sign-in works`.
+3. Run `scripts/qc.sh searchai usecases`, then `scripts/qc.sh searchai search "Claude Code" --rows 5`. Open the stored file (the command prints the id and the folder) and check it matches what the UI shows for the same query.
+4. Try `--use-case <one from usecases>`, `--rows 50 --pages 2` (second file should have `start=50`), `searchai answer "..."`, and `searchai summary "Claude Code" --chunk-id <id from the stored search file>`.
+5. `scripts/qc.sh searchai list` shows everything stored. If paging stops after one page, send me one stored `search` file (remove anything private) so the hit list can be located.
+
 ## Command line
 
 ```bash
