@@ -213,4 +213,15 @@ class SearchAiTest {
         assertTrue(o.toString(StandardCharsets.UTF_8).contains(id));
         assertTrue(Files.exists(tmp.resolve("store/searchai").resolve(id + ".json")));
     }
+
+    @Test
+    void aWhoamiThatIsMissingOnTheServerDoesNotStopTheSearch() {
+        FakeCurl curl = new FakeCurl();
+        curl.answer = url -> url.contains("/whoami") ? "not found\n__QC_HTTP_STATUS__:404" : FakeCurl.ok("{\"results\":[]}");
+        assertEquals(200, new SearchAiClient(options(), curl).search("q", 5, null, null, null).httpStatus());
+
+        FakeCurl refused = new FakeCurl();
+        refused.answer = url -> "no\n__QC_HTTP_STATUS__:401";
+        assertEquals(401, assertThrows(SearchAiException.class, () -> new SearchAiClient(options(), refused).search("q", 5, null, null, null)).httpStatus());
+    }
 }

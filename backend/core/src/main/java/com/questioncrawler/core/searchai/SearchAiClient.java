@@ -221,7 +221,15 @@ public final class SearchAiClient {
 
     private synchronized void ensureSession() {
         if (!sessionSeeded) {
-            whoami();
+            try {
+                whoami();
+            } catch (SearchAiException e) {
+                // Refused or unreachable: that is the real problem, report it. Any other answer (for example 404 because
+                // this server has no /whoami) must not stop the search itself, which then shows its own result.
+                if (e.httpStatus() == 0 || e.httpStatus() == 401 || e.httpStatus() == 403) {
+                    throw e;
+                }
+            }
         }
     }
 

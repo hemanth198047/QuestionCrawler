@@ -36,7 +36,8 @@ export default function SearchAiPage() {
   const loadedUseCases = useRef(false)
 
   const current: SearchAiStatus | null = live ?? (status.kind === 'ok' ? status.data : null)
-  const ready = !!current?.signedIn
+  // The sign-in check is advice, not a gate: once the address is set the person can search, and a failure shows its real reason.
+  const ready = !!current?.configured
 
   useEffect(() => {
     if (!ready || loadedUseCases.current) return
