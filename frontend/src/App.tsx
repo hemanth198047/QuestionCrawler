@@ -1,4 +1,4 @@
-import { Compass, DownloadCloud, FolderTree, LayoutDashboard, LifeBuoy, Plug, Search, Settings as SettingsIcon } from 'lucide-react'
+import { Compass, DownloadCloud, FolderTree, LayoutDashboard, LifeBuoy, Plug, Search, Settings as SettingsIcon, Sparkles } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { OverviewProvider, useOverview } from './components/OverviewContext'
 import { ToastProvider, Banner } from './components/ui'
@@ -13,6 +13,7 @@ import OverviewPage from './pages/OverviewPage'
 import QuestionPage from './pages/Question'
 import { termsFor, termsForKind } from './lib/terms'
 import SettingsPage from './pages/Settings'
+import SearchAiPage from './pages/SearchAi'
 
 function NavItem({ to, icon, label, active, dot, badge }: { to: string; icon: ReactNode; label: string; active: boolean; dot?: boolean; badge?: string }) {
   return (
@@ -43,6 +44,7 @@ function Shell() {
         <div className="nav-group">Work</div>
         <NavItem to="/collect" icon={<DownloadCloud size={19} />} label="Collect" active={is('/collect')} dot={next === 'collect'} badge={overview?.syncRunning ? 'Running' : undefined} />
         <NavItem to="/explore" icon={<Search size={19} />} label="Explore" active={is('/explore') || is('/question')} />
+        <NavItem to="/searchai" icon={<Sparkles size={19} />} label="Search-AI" active={is('/searchai')} />
         <NavItem to="/organize" icon={<FolderTree size={19} />} label="Organize" active={is('/organize')} />
         <div className="nav-group">System</div>
         <NavItem to="/settings" icon={<SettingsIcon size={19} />} label="Settings" active={is('/settings')} />
@@ -83,6 +85,7 @@ function Routes() {
   if (path.startsWith('/collect')) return <CollectPage />
   if (path.startsWith('/explore')) return <ExplorePage params={params} key={params.toString()} />
   if (path.startsWith('/question/')) return <QuestionPage id={decodeURIComponent(path.slice('/question/'.length))} focusAnswerId={params.get('answer')} focusSection={params.get('section')} findQuery={params.get('q')} key={path + '?' + params.toString()} />
+  if (path.startsWith('/searchai')) return <SearchAiPage />
   if (path.startsWith('/organize')) return <OrganizePage tab={path.startsWith('/organize/rules') ? 'rules' : path.startsWith('/organize/discover') ? 'discover' : 'browse'} selected={path.startsWith('/organize/browse/') ? decodeURIComponent(path.slice('/organize/browse/'.length)) : null} />
   if (path.startsWith('/settings')) return <SettingsPage section={path.split('/')[2] ?? null} />
   if (path.startsWith('/help')) return <HelpPage />

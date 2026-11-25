@@ -59,6 +59,11 @@ public record SearchAiOptions(
         defaultUseCase = defaultUseCase == null ? "" : defaultUseCase.strip();
     }
 
+    /** True while the address is still the example from the documentation (nobody has entered the real one). */
+    public boolean isPlaceholderAddress() {
+        return baseUri.toLowerCase(Locale.ROOT).contains(".xx.com");
+    }
+
     /** Reads {@code searchai.*} from the properties file (may be null) and places the store under the storage root. */
     public static SearchAiOptions load(Path configFile, Path storageRoot) {
         Properties p = new Properties();

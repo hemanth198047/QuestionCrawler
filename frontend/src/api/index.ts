@@ -1,6 +1,6 @@
 import type {
   ApiDocsResult, ApiProbe, ConfluenceSpaces, CollectionTest, TagChunk, TagListingState, TagSearch, SavedDocs, CategoryListing, CategorySummary, ConfigView, ConnectionReport, DeleteByTagResult, Issue, Overview, Preset, SaveResult, SearchResponse,
-  SyncReport, SyncState, Taxonomy, TaxonomyView, ThreadView, TopicProposal, TryResult,
+  SearchAiHistoryEntry, SearchAiStatus, SearchAiStored, SyncReport, SyncState, Taxonomy, TaxonomyView, ThreadView, TopicProposal, TryResult,
 } from '../types/api'
 import { del, get, post, put } from './client'
 
@@ -90,3 +90,22 @@ export const startTagListing = (values: Record<string, string>) => post<TagListi
 export const getTagListing = (from: number) => get<TagChunk>(`/tags/listing?from=${from}`)
 export const cancelTagListing = () => post<void>('/tags/listing/cancel', {})
 export const testCollection = (values: Record<string, string>) => post<CollectionTest>('/connection/collect-test', { values })
+
+// Search-AI: the backend signs in with the Kerberos ticket of this computer and keeps every answer on this computer.
+export const getSearchAiStatus = (s?: AbortSignal) => get<SearchAiStatus>('/searchai/status', s)
+export const saveSearchAiAddress = (baseUri: string) => put<SearchAiStatus>('/searchai/settings', { baseUri })
+export const searchAiSearch = (p: { query: string; rows: number; start: number; useCase: string }) => {
+  const qs = new URLSearchParams({ query: p.query.slice(0, MAX_QUERY_CHARS), rows: String(p.rows), start: String(p.start) })
+  if (p.useCase) qs.set('useCase', p.useCase)
+  return post<SearchAiStored[]>(`/searchai/search?${qs.toString()}`)
+}
+export const searchAiAnswer = (query: string, useCase: string) => {
+  const qs = new URLSearchParams({ query: query.slice(0, MAX_QUERY_CHARS) })
+  if (useCase) qs.set('useCase', useCase)
+  return post<SearchAiStored>(`/searchai/answer?${qs.toString()}`)
+}
+export const searchAiSummary = (query: string, chunkId: string) =>
+  post<SearchAiStored>(`/searchai/summary?${new URLSearchParams({ query: query.slice(0, MAX_QUERY_CHARS), chunkId }).toString()}`)
+export const searchAiUseCases = () => post<SearchAiStored>('/searchai/usecases')
+export const getSearchAiHistory = (s?: AbortSignal) => get<SearchAiHistoryEntry[]>('/searchai/history?top=30', s)
+export const getSearchAiStored = (id: string, s?: AbortSignal) => get<SearchAiStored>(`/searchai/stored/${id}`, s)

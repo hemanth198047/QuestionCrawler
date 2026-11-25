@@ -8,10 +8,16 @@ import com.questioncrawler.core.searchai.SearchAiStore;
 import com.questioncrawler.core.searchai.StoredAnswer;
 import com.questioncrawler.core.service.CoreConfig;
 import com.questioncrawler.core.service.Workspace;
+import com.questioncrawler.core.searchai.KerberosTicket;
+import com.questioncrawler.core.searchai.SearchAiStatus;
+import java.net.URI;
 import java.util.List;
+import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -26,12 +32,54 @@ import org.springframework.web.server.ResponseStatusException;
 @RequestMapping("/api/searchai")
 public class SearchAiController {
 
+    /** What the screen shows in the history list: no answer body, so the list stays small. */
+    public record HistoryEntry(String id, String kind, String fetchedAt, String query, Map<String, String> params, int httpStatus) {}
+
+    public record SettingsRequest(String baseUri) {}
+
     private final Workspace workspace;
     private CoreConfig serviceFor;
     private SearchAiService service;
 
     public SearchAiController(Workspace workspace) {
         this.workspace = workspace;
+    }
+
+    /** One call for the screen: address set? ticket? does search-ai let us in? Never fails; problems come back as text. */
+    @GetMapping("/status")
+    public SearchAiStatus status() {
+        SearchAiService svc = service();
+        return SearchAiStatus.check(svc.client().options(), svc.client(), KerberosTicket.probe());
+    }
+
+    /** Saves the search-ai address once (an address without a path gets /searchapi added). Other settings are left alone. */
+    @PutMapping("/settings")
+    public SearchAiStatus saveSettings(@RequestBody SettingsRequest request) {
+        String url = request == null || request.baseUri() == null ? "" : request.baseUri().strip().replaceAll("/+$", "");
+        URI uri;
+        try {
+            uri = URI.create(url);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("That is not a valid address. It looks like https://search-ai.yourcompany.com/searchapi");
+        }
+        if (uri.getScheme() == null || !uri.getScheme().equalsIgnoreCase("https") || uri.getHost() == null) {
+            throw new IllegalArgumentException("The address must start with https:// (it looks like https://search-ai.yourcompany.com/searchapi).");
+        }
+        if (uri.getRawPath() == null || uri.getRawPath().isEmpty()) {
+            url = url + "/searchapi";
+        }
+        var saved = workspace.saveConfig(Map.of("searchai.baseUri", url));
+        if (!saved.saved()) {
+            throw new IllegalArgumentException(saved.issues().stream().filter(i -> "error".equals(i.level())).map(i -> i.message()).findFirst()
+                    .orElse("The address could not be saved."));
+        }
+        return status();
+    }
+
+    @GetMapping("/history")
+    public List<HistoryEntry> history(@RequestParam(name = "top", defaultValue = "30") int top) {
+        return service().store().list(null, Math.min(Math.max(top, 1), 100)).stream()
+                .map(a -> new HistoryEntry(a.id(), a.kind(), a.fetchedAt(), a.params().get("query"), a.params(), a.httpStatus())).toList();
     }
 
     @GetMapping("/whoami")

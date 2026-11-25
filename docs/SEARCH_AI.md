@@ -18,6 +18,18 @@ and keeps every answer as a JSON file, so results can be re-read, compared and p
 | `searchai.useCase` | empty | `use_case` sent when a call gives none. |
 | `searchai.rows` | `10` | `rows` sent to `/search` when a call gives none. |
 
+## In the app (no terminal, no configuration files)
+
+Open **Search-AI** in the left menu.
+
+1. **First time only:** paste the Search-AI address (for example `https://search-ai.yourcompany.com`; `/searchapi` is added if you leave it out). It is saved for you.
+2. The page checks the sign-in by itself. **Connected** means you can search. If not, it says in plain words what to do (be on the company network/VPN, sign in to your computer with your company account) and offers **Check again**.
+3. Type a question and press **Search** (the results list) or **Ask AI** (a written answer with its sources). **Summarize** on a result gives a short summary, **Show more results** loads the next page, and **Area** limits the search to one use case.
+4. Everything is saved on this computer automatically. **Saved on this computer** at the bottom reopens an earlier search without asking Search-AI again.
+
+The app uses the Kerberos ticket of the computer that runs QuestionCrawler. It never asks for or stores a password. Results are shown without
+knowing their exact format: titles, links and text are picked out where they are usually found, and **Show full answer** always shows exactly what Search-AI returned.
+
 ## Sign-in is automated (setup and start)
 
 | Command | What it does with search-ai |

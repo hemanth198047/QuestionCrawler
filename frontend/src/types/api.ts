@@ -133,3 +133,15 @@ export interface CollectionSample { id: string; title: string; tags: string[]; c
 export interface CollectionTest { ok: boolean; problem: string | null; tags: string[]; found: number; shown: number; request: string | null; samples: CollectionSample[]; notes: string[]; tagsAll: boolean }
 export interface ConfluenceSpace { key: string; name: string | null; type: string | null; status: string | null; id: string | null; url: string | null }
 export interface ConfluenceSpaces { ok: boolean; problem: string | null; spaces: ConfluenceSpace[]; complete: boolean; chosen: string[] }
+
+// ---- Search-AI (company search service reached with the Kerberos sign-in) ----
+export interface SearchAiStatus {
+  configured: boolean; baseUri: string; signedIn: boolean
+  /** valid | missing | unknown | not-needed (Windows) */
+  ticket: string; principal: string | null; message: string; hint: string | null
+}
+export interface SearchAiStored {
+  id: string; kind: 'search' | 'answer' | 'summary' | 'usecases'; fetchedAt: string; baseUri: string; endpoint: string; method: string
+  params: Record<string, string>; httpStatus: number; response: unknown; text: string | null
+}
+export interface SearchAiHistoryEntry { id: string; kind: string; fetchedAt: string; query: string | null; params: Record<string, string>; httpStatus: number }
