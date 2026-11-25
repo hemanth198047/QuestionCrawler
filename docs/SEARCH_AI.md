@@ -24,7 +24,7 @@ Open **Search-AI** in the left menu.
 
 1. **First time only:** paste the Search-AI address (for example `https://search-ai.yourcompany.com`; `/searchapi` is added if you leave it out). It is saved for you.
 2. The page checks the sign-in by itself and shows **Connected**, or says in plain words what to do (be on the company network/VPN, sign in to your computer with your company account) and offers **Check again**. The screen uses the Kerberos ticket of the computer that runs QuestionCrawler; it does not open a browser to sign in. (The backend still has a browser sign-in, `POST /api/searchai/sign-in`, but the screen does not use it.)
-3. Type a question and press **Search** (the results list), **Ask AI** (a written answer with its sources) or **Run skill** (both together: the results and the AI answer for the same question). **Summarize** on a result gives a short summary, **Show more results** loads the next page, and **Area** limits the search to one use case.
+3. Type a question and press **Search** (the results list) or **Ask AI** (a written answer with its sources). **Summarize** on a result gives a short summary, **Show more results** loads the next page, and **Area** limits the search to one use case.
 4. Everything is saved on this computer automatically. **Saved on this computer** at the bottom reopens an earlier search without asking Search-AI again.
 
 The app never asks for or stores a password. Results are shown without
@@ -121,3 +121,14 @@ every call from inside your Edge/Chrome window instead. The browser brings its o
 The first call may show the window briefly; sign in there if the company page asks. The Search-AI screen also has
 "Open this search in Search-AI", which opens the website's own results page (`/search?query=...&usecases=default&date_range=ALLTIME`)
 in your browser. Not verified here against the real site: this sandbox has no desktop browser or Search-AI access.
+
+
+## Saving the pages behind results (on demand)
+
+Search-AI shows links and short snippets. Press **Save page** on a result, or **Save these pages for search** above the list
+(the first 25 results), to read the page the link leads to and keep its text on this computer. Nothing is read until you press it.
+
+- Pages behind the company login open the browser window once for sign-in, the same way the Links source works.
+- Saved pages are searched together with everything else the app collected (Confluence, Jive, Stack Overflow...), also when
+  Search-AI or the VPN is not available. They appear under the source name `searchai-pages`.
+- Pressing Save again refreshes the stored copy. A page that cannot be read shows the reason on its result; the others are still saved.

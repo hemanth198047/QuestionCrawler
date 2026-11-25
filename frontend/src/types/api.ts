@@ -146,4 +146,6 @@ export interface SearchAiStored {
   id: string; kind: 'search' | 'answer' | 'summary' | 'usecases'; fetchedAt: string; baseUri: string; endpoint: string; method: string
   params: Record<string, string>; httpStatus: number; response: unknown; text: string | null
 }
+export interface SearchAiSavedResult { url: string; key: string | null; title: string | null; characters: number; updated: boolean; error: string | null }
+export interface SearchAiSavedPage { key: string; url: string; title: string; savedAt: string; characters: number }
 export interface SearchAiHistoryEntry { id: string; kind: string; fetchedAt: string; query: string | null; params: Record<string, string>; httpStatus: number }

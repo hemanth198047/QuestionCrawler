@@ -1,5 +1,5 @@
 import type {
-  ApiDocsResult, ApiProbe, ConfluenceSpaces, CollectionTest, TagChunk, TagListingState, TagSearch, SavedDocs, CategoryListing, CategorySummary, ConfigView, ConnectionReport, DeleteByTagResult, Issue, Overview, Preset, SaveResult, SearchResponse,
+  SearchAiSavedPage, SearchAiSavedResult, ApiDocsResult, ApiProbe, ConfluenceSpaces, CollectionTest, TagChunk, TagListingState, TagSearch, SavedDocs, CategoryListing, CategorySummary, ConfigView, ConnectionReport, DeleteByTagResult, Issue, Overview, Preset, SaveResult, SearchResponse,
   SearchAiHistoryEntry, SearchAiStatus, SearchAiStored, SyncReport, SyncState, Taxonomy, TaxonomyView, ThreadView, TopicProposal, TryResult,
 } from '../types/api'
 import { del, get, post, put } from './client'
@@ -108,6 +108,9 @@ export const searchAiAnswer = (query: string, useCase: string) => {
 }
 export const searchAiSummary = (query: string, chunkId: string) =>
   post<SearchAiStored>(`/searchai/summary?${new URLSearchParams({ query: query.slice(0, MAX_QUERY_CHARS), chunkId }).toString()}`)
+/** Reads the pages the chosen results lead to and stores their content (only when asked); the normal search finds them afterwards. */
+export const saveSearchAiPages = (pages: { url: string; title?: string; query?: string }[]) => post<SearchAiSavedResult[]>('/searchai/pages', pages)
+export const getSearchAiPages = (s?: AbortSignal) => get<SearchAiSavedPage[]>('/searchai/pages', s)
 export const searchAiUseCases = () => post<SearchAiStored>('/searchai/usecases')
 export const getSearchAiHistory = (s?: AbortSignal) => get<SearchAiHistoryEntry[]>('/searchai/history?top=30', s)
 export const getSearchAiStored = (id: string, s?: AbortSignal) => get<SearchAiStored>(`/searchai/stored/${id}`, s)

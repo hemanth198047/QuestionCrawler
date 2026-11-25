@@ -6,6 +6,7 @@ import com.questioncrawler.core.model.CategoryOverride;
 import com.questioncrawler.core.model.Classification;
 import com.questioncrawler.core.model.ThreadRecord;
 import com.questioncrawler.core.model.ThreadStatus;
+import com.questioncrawler.core.model.Question;
 import com.questioncrawler.core.search.SearchIndex;
 import com.questioncrawler.core.search.SearchRequest;
 import com.questioncrawler.core.search.SearchResponse;
@@ -358,6 +359,36 @@ public final class KnowledgeBase {
             deletedIds.sort(Comparator.naturalOrder());
             return new DeleteByTagResult(normalized, deletedIds.size(), deletedAnswers, deletedIds);
         }
+    }
+
+    // ================================================================== single items added outside a collection
+
+    /**
+     * Stores one item that was read on demand (for example a page behind a Search-AI result): normalised, saved like a
+     * collected thread, classified, exported and added to the search index, so the normal search finds it from now on.
+     * An item that was saved before is updated in place.
+     */
+    public ThreadRecord saveItem(String system, Question raw, String scope) {
+        store.ensureReady();
+        Question q = com.questioncrawler.core.normalize.ContentNormalizer.normalize(raw);
+        String now = java.time.Instant.now().toString();
+        String hash = com.questioncrawler.core.util.Hashes.sha256(com.questioncrawler.core.util.Json.writeCompact(q));
+        Optional<ThreadRecord> existing = store.loadThread(system, q.id());
+        List<String> scopes = new ArrayList<>(existing.map(ThreadRecord::scopes).orElse(List.of()));
+        if (scope != null && !scopes.contains(scope)) {
+            scopes.add(scope);
+        }
+        ThreadRecord record = new ThreadRecord(ThreadRecord.SCHEMA_VERSION, system, q, q.id(), now, hash, com.questioncrawler.core.model.ThreadStatus.ACTIVE,
+                now, null, "on-demand", existing.map(ThreadRecord::firstSeenAt).orElse(now), scopes);
+        store.saveThread(record);
+        Pipeline p = new Pipeline();
+        try {
+            p.published(record);
+            p.finish();
+        } finally {
+            p.close();
+        }
+        return record;
     }
 
     // ================================================================== reindex

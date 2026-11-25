@@ -11,6 +11,7 @@ import com.questioncrawler.core.service.Workspace;
 import com.questioncrawler.core.searchai.KerberosTicket;
 import com.questioncrawler.core.searchai.SearchAiBrowserTransport;
 import com.questioncrawler.core.searchai.SearchAiException;
+import com.questioncrawler.core.searchai.SearchAiPageSaver;
 import com.questioncrawler.core.searchai.SearchAiStatus;
 import java.net.URI;
 import java.util.List;
@@ -93,6 +94,28 @@ public class SearchAiController {
                     .orElse("The address could not be saved."));
         }
         return status();
+    }
+
+    /**
+     * Reads the pages the chosen results lead to and stores their content, so the normal search finds it later. Only on demand:
+     * nothing is read until this is called. A page that needs the company login opens the browser window once.
+     */
+    @PostMapping("/pages")
+    public List<SearchAiPageSaver.Saved> savePages(@RequestBody List<SearchAiPageSaver.Request> pages) {
+        CoreConfig config = workspace.config();
+        var net = config.shortLinks() == null ? com.questioncrawler.core.source.ShortLinks.Options.OFF : config.shortLinks();
+        var browser = config.confluence() == null ? com.questioncrawler.core.source.ConfluenceOptions.Browser.DEFAULT : config.confluence().browser();
+        var reader = com.questioncrawler.core.source.WebPageReader.create(net, browser, true, System::getenv);
+        reader.newRun();
+        return new SearchAiPageSaver(workspace.kb(), reader::read).save(pages);
+    }
+
+    /** Pages saved so far (the screen marks these results as saved). */
+    @GetMapping("/pages")
+    public List<SearchAiPageSaver.SavedPage> savedPages() {
+        return new SearchAiPageSaver(workspace.kb(), link -> {
+            throw new com.questioncrawler.core.source.SourceException(com.questioncrawler.core.source.SourceException.Kind.FATAL, "not reading");
+        }).saved();
     }
 
     @GetMapping("/history")
