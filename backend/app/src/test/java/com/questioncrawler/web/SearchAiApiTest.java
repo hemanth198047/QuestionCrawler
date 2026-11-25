@@ -46,6 +46,8 @@ class SearchAiApiTest {
                 .andExpect(jsonPath("$.signedIn").value(false))
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("not set")));
         mvc.perform(get("/api/searchai/history")).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
+        // the cheap check used to decide whether Search-AI can be asked as a fallback: no network, address not set yet
+        mvc.perform(get("/api/searchai/configured")).andExpect(status().isOk()).andExpect(jsonPath("$.configured").value(false));
     }
 
     @Test

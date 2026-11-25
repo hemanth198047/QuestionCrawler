@@ -100,7 +100,7 @@ export function EvidenceCard({ e, onCategory, pageMode, terms, query, onChanged 
 }
 
 /** The page view for a result, opened in find mode with the question asked (and at its section or answer). */
-function inPage(e: Evidence, query?: string): string {
+export function inPage(e: Evidence, query?: string): string {
   const p = new URLSearchParams()
   if (e.answerId) p.set('answer', e.answerId)
   else if (e.section) p.set('section', e.section)

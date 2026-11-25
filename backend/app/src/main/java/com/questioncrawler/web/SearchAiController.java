@@ -55,6 +55,12 @@ public class SearchAiController {
         return SearchAiStatus.check(svc.client().options(), svc.client(), KerberosTicket.probe());
     }
 
+    /** Cheap check (no call to Search-AI): has the address been set? Used to decide whether Search-AI can be asked as a fallback. */
+    @GetMapping("/configured")
+    public Map<String, Boolean> configured() {
+        return Map.of("configured", !service().client().options().isPlaceholderAddress());
+    }
+
     /**
      * Opens the person's browser on Search-AI so they can sign in on the company login page, then returns the new status.
      * Returns when signed in, when the window is closed, or after the sign-in time limit (source.browser.timeoutSeconds).

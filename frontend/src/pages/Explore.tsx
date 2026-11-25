@@ -4,6 +4,8 @@ import { getCategories, search, type AgeParams, MAX_QUERY_CHARS } from '../api'
 import { AgeSlider, type AgeValue } from '../components/AgeSlider'
 import { AnswerCard } from '../components/AnswerCard'
 import { EvidenceCard } from '../components/Evidence'
+import { SearchAiFallback } from '../components/SearchAiFallback'
+import { needsAi } from '../lib/combined'
 import { PageHeader } from '../components/PageHeader'
 import { useOverview } from '../components/OverviewContext'
 import { Badge, Banner, Button, Card, Chip, CopyButton, EmptyState, InfoTip, Skeleton, TagInput } from '../components/ui'
@@ -154,6 +156,7 @@ export default function ExplorePage({ params }: { params: URLSearchParams }) {
             {result.data.freshness && <span className={`small ${result.data.freshness.stale ? 'stale-note' : 'muted'}`}>{result.data.freshness.lastSuccessfulSyncAt ? `Knowledge updated ${timeAgo(result.data.freshness.lastSuccessfulSyncAt)}` : 'Never updated'}{result.data.freshness.stale ? ' · may be out of date' : ''}</span>}
           </div>
           {result.data.answer && <AnswerCard answer={result.data.answer} query={q} />}
+          <SearchAiFallback key={q} q={q} local={result.data.evidence} auto={needsAi(result.data)} />
           {result.data.resultCount > 0 && <h3 className="muted" style={{ margin: '6px 0 0' }}>Where it comes from</h3>}
           {result.data.resultCount === 0 ? (
             <EmptyState icon={<MessageCircleQuestion size={30} />} title="Nothing matches that" action={<>

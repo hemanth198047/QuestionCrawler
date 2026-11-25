@@ -1,14 +1,16 @@
 import { ExternalLink, History, Search, ShieldCheck, Sparkles } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { getSearchAiHistory, getSearchAiPages, getSearchAiStatus, saveSearchAiPages, getSearchAiStored, saveSearchAiAddress, searchAiAnswer, searchAiSearch, searchAiSummary, searchAiUseCases } from '../api'
+import { NO_AGE, getSearchAiHistory, getSearchAiPages, search as searchStored, getSearchAiStatus, saveSearchAiPages, getSearchAiStored, saveSearchAiAddress, searchAiAnswer, searchAiSearch, searchAiSummary, searchAiUseCases } from '../api'
 import { ApiError } from '../api/client'
+import { LocalFindings } from '../components/LocalFindings'
 import { Markdown } from '../components/Markdown'
 import { PageHeader } from '../components/PageHeader'
-import { Badge, Banner, Button, Card, Chip, EmptyState, Skeleton, Spinner } from '../components/ui'
+import { Badge, Banner, Button, Card, Chip, CopyButton, EmptyState, Skeleton, Spinner } from '../components/ui'
+import { answerWithSources } from '../lib/combined'
 import { timeAgo } from '../lib/format'
 import { type AnswerView, type Hit, extractAnswer, extractHits, extractUseCases, plain, safeUrl, searchPageUrl } from '../lib/searchai'
 import { useRemote } from '../lib/useRemote'
-import type { SearchAiStatus, SearchAiStored } from '../types/api'
+import type { Evidence, SearchAiStatus, SearchAiStored } from '../types/api'
 
 const PAGE_SIZES = [10, 25, 50]
 const message = (e: unknown) => (e instanceof Error ? e.message : 'Something went wrong')
@@ -29,6 +31,7 @@ export default function SearchAiPage() {
   const [pages, setPages] = useState<Hit[][]>([])
   const [rawPages, setRawPages] = useState<unknown[]>([])
   const [answer, setAnswer] = useState<AnswerView | null>(null)
+  const [local, setLocal] = useState<Evidence[] | null>(null) // what is already stored on this computer for the asked question
   const [busy, setBusy] = useState<'' | 'search' | 'answer' | 'more'>('')
   const [error, setError] = useState('')
   const [summaries, setSummaries] = useState<Record<string, string>>({})
@@ -73,7 +76,7 @@ export default function SearchAiPage() {
 
   async function runSearch() {
     const q = query.trim(); if (!q) return
-    setBusy('search'); setError(''); setAnswer(null); setSummaries({}); setPages([]); setRawPages([]); setAsked(q)
+    setBusy('search'); setError(''); setAnswer(null); setLocal(null); setSummaries({}); setPages([]); setRawPages([]); setAsked(q)
     try {
       const [stored] = await searchAiSearch({ query: q, rows, start: 0, useCase })
       showSearch(stored, false); history.reload()
@@ -90,9 +93,14 @@ export default function SearchAiPage() {
 
   async function runAnswer() {
     const q = query.trim(); if (!q) return
-    setBusy('answer'); setError(''); setAsked(q)
+    setBusy('answer'); setError(''); setAsked(q); setLocal(null)
     try {
-      setAnswer(extractAnswer((await searchAiAnswer(q, useCase)).response)); history.reload()
+      // The AI answer and what is already stored on this computer are asked together; the stored part never blocks the answer.
+      const [ai, stored] = await Promise.all([
+        searchAiAnswer(q, useCase),
+        searchStored({ q, tags: [], category: '', top: 5, age: NO_AGE }).then((r) => r.evidence, () => [] as Evidence[]),
+      ])
+      setAnswer(extractAnswer(ai.response)); setLocal(stored); history.reload()
     } catch (e) { fail(e) } finally { setBusy('') }
   }
 
@@ -129,7 +137,7 @@ export default function SearchAiPage() {
       const s = await getSearchAiStored(id)
       setQuery(s.params.query ?? ''); setAsked(s.params.query ?? ''); setSummaries({})
       if (s.kind === 'search') { setAnswer(null); showSearch(s, false) }
-      else { setPages([]); setRawPages([]); setAnswer(extractAnswer(s.response ?? s.text)) }
+      else { setPages([]); setRawPages([]); setLocal(null); setAnswer(extractAnswer(s.response ?? s.text)) }
     } catch (e) { setError(message(e)) }
   }
 
@@ -212,6 +220,11 @@ export default function SearchAiPage() {
           <Raw value={answer.raw} />
         </Card>
       )}
+
+      {answer && local !== null && (local.length > 0
+        ? <LocalFindings evidence={local} query={asked} title="Also found in what is already stored on this computer" />
+        : <p className="muted small">Nothing stored on this computer matches this question yet. Use <strong>Save page</strong> on the sources above to keep them for next time.</p>)}
+      {answer && <div><CopyButton text={answerWithSources(asked, answer, local ?? [])} label="Copy answer with sources" /></div>}
 
       {pages.length > 0 && (
         <section className="stack" aria-live="polite">

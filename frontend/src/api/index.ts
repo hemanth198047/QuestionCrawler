@@ -114,6 +114,7 @@ export const saveSearchAiPages = (pages: { url: string; title?: string; query?: 
 export const confirmResult = (source: string, questionId: string, by: string, note: string) => post<Verification>('/verified', { source, questionId, by, note })
 export const unconfirmResult = (source: string, questionId: string) => del<{ removed: boolean }>(`/verified?${new URLSearchParams({ source, questionId }).toString()}`)
 export const getConfirmed = (s?: AbortSignal) => get<ConfirmedItem[]>('/verified', s)
+export const getSearchAiConfigured = (s?: AbortSignal) => get<{ configured: boolean }>('/searchai/configured', s)
 export const getGaps = (days: number, s?: AbortSignal) => get<GapReport>(`/gaps?days=${days}`, s)
 export const clearSearchLog = () => del<{ cleared: boolean }>('/gaps')
 export const getSearchAiPages = (s?: AbortSignal) => get<SearchAiSavedPage[]>('/searchai/pages', s)

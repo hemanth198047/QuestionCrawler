@@ -155,3 +155,14 @@ match (for example after someone saved the right page, or confirmed an answer).
 
 What was searched is kept only on this computer (`<storage-root>/state/search-log.json`, the latest 2000 searches). **Forget what was
 searched** on that page deletes it.
+
+## Stored knowledge and AI answers, together
+
+- **Ask AI** (Search-AI screen) asks Search-AI and, at the same time, searches everything already stored on this computer. The AI
+  answer comes first, then "Also found in what is already stored", numbered [S1], [S2]... with each item's source, who confirmed it
+  and a link to the original. **Copy answer with sources** puts the answer and both source lists in one text.
+- **Explore** works the other way round: when what is stored finds nothing or only weak matches, Search-AI is asked automatically
+  and its answer is shown above the stored results, labelled "Written by an AI model" and "Not found in what is stored here", with its
+  sources as [A1], [A2]... (**Save page** keeps one for the next search). When the stored results are good, **Also ask Search-AI** is
+  offered instead. If Search-AI is not set up or cannot be reached, the reason is shown and the stored results still appear.
+- Only the question text is sent to Search-AI, and only when Search-AI is asked (automatically in the weak-match case above).
