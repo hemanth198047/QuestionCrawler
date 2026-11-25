@@ -1,10 +1,9 @@
 import { ExternalLink, History, Search, ShieldCheck, Sparkles } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { getSearchAiHistory, getSearchAiStatus, getSearchAiStored, saveSearchAiAddress, searchAiAnswer, searchAiSearch, searchAiSignIn, searchAiSummary, searchAiUseCases } from '../api'
+import { getSearchAiHistory, getSearchAiStatus, getSearchAiStored, saveSearchAiAddress, searchAiAnswer, searchAiSearch, searchAiSummary, searchAiUseCases } from '../api'
 import { ApiError } from '../api/client'
 import { Markdown } from '../components/Markdown'
 import { PageHeader } from '../components/PageHeader'
-import { SignInWindowHint } from '../components/SignInWindowHint'
 import { Badge, Banner, Button, Card, Chip, EmptyState, Skeleton, Spinner } from '../components/ui'
 import { timeAgo } from '../lib/format'
 import { type AnswerView, type Hit, extractAnswer, extractHits, extractUseCases, plain, safeUrl } from '../lib/searchai'
@@ -30,14 +29,11 @@ export default function SearchAiPage() {
   const [pages, setPages] = useState<Hit[][]>([])
   const [rawPages, setRawPages] = useState<unknown[]>([])
   const [answer, setAnswer] = useState<AnswerView | null>(null)
-  const [busy, setBusy] = useState<'' | 'search' | 'answer' | 'more'>('')
+  const [busy, setBusy] = useState<'' | 'search' | 'answer' | 'skill' | 'more'>('')
   const [error, setError] = useState('')
   const [summaries, setSummaries] = useState<Record<string, string>>({})
   const [summarizing, setSummarizing] = useState('')
   const loadedUseCases = useRef(false)
-  const autoSignIn = useRef(false)
-  const [signing, setSigning] = useState(false)
-  const [signInProblem, setSignInProblem] = useState('') // why the last browser sign-in did not work
 
   const current: SearchAiStatus | null = live ?? (status.kind === 'ok' ? status.data : null)
   const ready = !!current?.signedIn
@@ -47,24 +43,6 @@ export default function SearchAiPage() {
     loadedUseCases.current = true
     searchAiUseCases().then((r) => setUseCases(extractUseCases(r.response))).catch(() => undefined) // optional: the box just stays hidden
   }, [ready])
-
-  async function signInWithBrowser() {
-    setSigning(true); setError(''); setSignInProblem('')
-    try {
-      const s = await searchAiSignIn()
-      setLive(s)
-      if (!s.signedIn) setSignInProblem(s.message)
-    } catch (e) { setSignInProblem(message(e)) } finally { setSigning(false) }
-  }
-
-  // Search-AI said "not signed in": open the browser sign-in once by itself (like Confluence); the button covers every later try.
-  useEffect(() => {
-    if (current?.configured && !current.signedIn && current.needsSignIn && !autoSignIn.current && !changing) {
-      autoSignIn.current = true
-      void signInWithBrowser()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [current?.configured, current?.signedIn, current?.needsSignIn])
 
   const recheck = () => { setLive(null); status.reload() }
   const fail = (e: unknown) => { setError(message(e)); if (e instanceof ApiError && (e.status === 401 || e.status === 502)) recheck() }
@@ -108,6 +86,21 @@ export default function SearchAiPage() {
     } catch (e) { fail(e) } finally { setBusy('') }
   }
 
+  /** "Run skill": the search results and the AI answer for the same question, requested together and shown together. */
+  async function runSkill() {
+    const q = query.trim(); if (!q) return
+    setBusy('skill'); setError(''); setAsked(q); setSummaries({}); setPages([]); setRawPages([])
+    try {
+      const [searchStored, answerStored] = await Promise.all([
+        searchAiSearch({ query: q, rows, start: 0, useCase }),
+        searchAiAnswer(q, useCase),
+      ])
+      showSearch(searchStored[0], false)
+      setAnswer(extractAnswer(answerStored.response))
+      history.reload()
+    } catch (e) { fail(e) } finally { setBusy('') }
+  }
+
   async function summarize(h: Hit) {
     if (!h.chunkId) return
     setSummarizing(h.chunkId)
@@ -138,19 +131,19 @@ export default function SearchAiPage() {
 
   return (
     <div className="stack" style={{ gap: 26 }}>
-      <PageHeader eyebrow="Search-AI" title="Search the company's Search-AI"
-        subtitle="Search or ask a question and get the same results you see on the Search-AI site. Every result is also saved on this computer so you can open it again." />
+      <PageHeader eyebrow="MSSearch-AI" title="Search the company's MSSearch-AI"
+        subtitle="Use Search, Ask AI, or Run skill. All responses are fetched by the backend and saved on this computer so you can open them again." />
 
       {status.kind === 'loading' && !live && <Skeleton h={90} r={18} />}
       {status.kind === 'error' && !live && <Banner tone="bad" title="Could not check Search-AI">{status.message}</Banner>}
 
       {current && (!current.configured || changing) && (
         <Card className="rise">
-          <h3>{current.configured ? 'Change the Search-AI address' : 'One-time step: where is Search-AI?'}</h3>
-          <p className="muted" style={{ margin: '6px 0 14px' }}>Ask your team for the Search-AI web address, or copy it from the address bar of the Search-AI API. You only do this once.</p>
+          <h3>{current.configured ? 'Change the MSSearch-AI address' : 'One-time step: where is MSSearch-AI?'}</h3>
+          <p className="muted" style={{ margin: '6px 0 14px' }}>Ask your team for the MSSearch-AI web address, or copy it from the address bar of the search API. You only do this once.</p>
           <form className="row" onSubmit={(e) => { e.preventDefault(); void saveAddress() }}>
             <input className="input" style={{ flex: 1, minWidth: 260 }} type="url" required value={address} onChange={(e) => setAddress(e.target.value)}
-              placeholder="https://search-ai.yourcompany.com/searchapi" aria-label="Search-AI address" />
+              placeholder="https://mssearch-ai.webfarm.ms.com/searchapi" aria-label="MSSearch-AI address" />
             <Button type="submit" variant="primary" busy={saving}>Save and connect</Button>
             {changing && <Button type="button" variant="ghost" onClick={() => { setChanging(false); setAddressError('') }}>Cancel</Button>}
           </form>
@@ -163,13 +156,9 @@ export default function SearchAiPage() {
             <div className="row"><Badge tone="ok" icon={<ShieldCheck size={14} />}>Connected</Badge><span className="muted small">{host}{current.principal ? ` · ${current.principal}` : ''}</span></div>
             <Button variant="ghost" size="sm" onClick={() => setChanging(true)}>Change address</Button>
           </div>
-        : <Banner tone="bad" title={current.needsSignIn ? 'Sign in to Search-AI' : 'Not connected to Search-AI yet'}
-            action={<div className="row">
-              {current.needsSignIn && <Button variant="primary" busy={signing} onClick={() => void signInWithBrowser()}>Sign in with my browser</Button>}
-              <Button busy={status.refreshing} onClick={recheck}>Check again</Button><Button variant="ghost" onClick={() => setChanging(true)}>Change address</Button></div>}>
-            <div>{current.needsSignIn ? 'Search-AI needs you to sign in. A browser window opens on the company login page: sign in there as usual and it closes by itself.' : (current.hint ?? current.message)}</div>
-            {signInProblem && !signing && <div className="small" style={{ marginTop: 8, color: 'var(--bad)' }}>The browser sign-in did not work: {signInProblem}</div>}
-            <div style={{ marginTop: 10 }}><SignInWindowHint active={signing} /></div>
+        : <Banner tone="bad" title="Not connected to MSSearch-AI yet"
+            action={<div className="row"><Button variant="primary" busy={status.refreshing} onClick={recheck}>Check again</Button><Button variant="ghost" onClick={() => setChanging(true)}>Change address</Button></div>}>
+            <div>{current.hint ?? current.message}</div>
             <details style={{ marginTop: 8 }}><summary className="small muted">Technical details</summary><div className="small" style={{ marginTop: 6 }}>{current.message}</div></details>
           </Banner>)}
 
@@ -180,6 +169,7 @@ export default function SearchAiPage() {
             <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="What do you want to find or ask?" aria-label="Search-AI query" disabled={!ready} />
             <Button type="submit" variant="primary" size="lg" busy={busy === 'search'} disabled={!ready || !query.trim() || busy !== ''}>Search</Button>
             <Button type="button" size="lg" icon={<Sparkles size={17} />} busy={busy === 'answer'} disabled={!ready || !query.trim() || busy !== ''} onClick={() => void runAnswer()}>Ask AI</Button>
+            <Button type="button" size="lg" busy={busy === 'skill'} disabled={!ready || !query.trim() || busy !== ''} onClick={() => void runSkill()}>Run skill</Button>
           </div>
           <div className="row" style={{ marginTop: 12, flexWrap: 'wrap' }}>
             {useCases.length > 0 && (
@@ -196,7 +186,7 @@ export default function SearchAiPage() {
       </Card>
 
       {error && <Banner tone="bad" title="That did not work">{error}</Banner>}
-      {(busy === 'search' || busy === 'answer') && <div className="row muted"><Spinner label={busy === 'answer' ? 'Asking Search-AI…' : 'Searching…'} /></div>}
+      {(busy === 'search' || busy === 'answer' || busy === 'skill') && <div className="row muted"><Spinner label={busy === 'answer' ? 'Asking MSSearch-AI…' : busy === 'skill' ? 'Running mssearch skill…' : 'Searching…'} /></div>}
 
       {answer && (
         <Card className="rise">
@@ -213,12 +203,12 @@ export default function SearchAiPage() {
         <section className="stack" aria-live="polite">
           <h2>{total === 0 ? 'No results' : `${total} result${total === 1 ? '' : 's'} for “${asked}”`}</h2>
           {total === 0
-            ? <EmptyState icon={<Search size={30} />} title="Search-AI found nothing for that">Try different words or choose “All areas”. If you expected results, open “Show full answer” to see exactly what came back.</EmptyState>
+            ? <EmptyState icon={<Search size={30} />} title="MSSearch-AI found nothing for that">Try different words or choose “All areas”. If you expected results, open “Show full answer” to see exactly what came back.</EmptyState>
             : <div className="stack-sm">{pages.flat().map((h) => (
                 <HitCard key={h.key} hit={h} summary={h.chunkId ? summaries[h.chunkId] : undefined} summarizing={summarizing === h.chunkId} onSummarize={h.chunkId ? () => void summarize(h) : undefined} />))}</div>}
           {hasMore && <div><Button busy={busy === 'more'} disabled={busy !== ''} onClick={() => void runMore()}>Show more results</Button></div>}
           <Raw value={rawPages.length === 1 ? rawPages[0] : rawPages} label="Show full answer" />
-          <p className="muted small">Everything shown comes from Search-AI and is displayed as reading material only. Check the original source before relying on it.</p>
+          <p className="muted small">Everything shown comes from MSSearch-AI and is displayed as reading material only. Check the original source before relying on it.</p>
         </section>
       )}
 
