@@ -11,7 +11,6 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { appendFileSync, createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
-import readline from 'node:readline/promises'
 import http from 'node:http'
 import net from 'node:net'
 import path from 'node:path'
@@ -326,37 +325,24 @@ function locateConfig() {
 }
 
 /**
- * Makes sure the configuration has searchai.baseUri (older files from `init` do not). Adds the searchai.* block, and asks for the
- * real address (or takes QC_SEARCHAI_BASE_URI). An existing real address is never touched.
+ * Never asks anything in the terminal: the address is entered once in the app (Search-AI screen).
+ * Only if QC_SEARCHAI_BASE_URI is set (for unattended installs) is it written to the configuration.
  */
 async function ensureSearchAiConfig() {
   const file = locateConfig()
-  if (!file) { warn('No configuration file yet. Run "scripts/qc.sh init" (creates ~/.questioncrawler/config.properties), then run this again.'); return }
-  let text = readFileSync(file, 'utf8')
-  const line = /^[ \t]*searchai\.baseUri[ \t]*[=:][ \t]*(.*)$/m.exec(text)
-  const isPlaceholder = (v) => !v || /\.xx\.com/i.test(v)
-  if (line && !isPlaceholder(line[1].trim())) { ok(`search-ai address: ${line[1].trim()}`); return }
-  let url = (process.env.QC_SEARCHAI_BASE_URI ?? '').trim()
-  if (!url && process.stdin.isTTY && process.stdout.isTTY) {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
-    url = (await rl.question(`  search-ai API base address (https://.../searchapi), Enter to skip: `)).trim()
-    rl.close()
+  const line = file ? /^[ \t]*searchai\.baseUri[ \t]*[=:][ \t]*(.*)$/m.exec(readFileSync(file, 'utf8')) : null
+  const configured = !!line && !/\.xx\.com/i.test(line[1].trim()) && line[1].trim() !== ''
+  if (configured) { ok(`Search-AI address: ${line[1].trim()}`); return }
+  const url = (process.env.QC_SEARCHAI_BASE_URI ?? '').trim().replace(/\/+$/, '')
+  if (file && /^https:\/\/[^/\s]+/i.test(url)) {
+    const text = readFileSync(file, 'utf8')
+    writeFileSync(file, line
+      ? text.replace(/^([ \t]*searchai\.baseUri[ \t]*[=:][ \t]*).*$/m, `$1${url}`)
+      : `${text.replace(/\s*$/, '')}\n\nsearchai.baseUri=${url}\n`)
+    ok(`Search-AI address saved from QC_SEARCHAI_BASE_URI: ${url}`)
+    return
   }
-  if (url && !/^https:\/\/[^/\s]+/i.test(url)) { warn(`"${url}" is not an https:// address, ignored.`); url = '' }
-  url = url.replace(/\/+$/, '')
-  if (!line) {
-    const example = path.join(ROOT, 'config', 'questioncrawler.example.properties')
-    const full = existsSync(example) ? readFileSync(example, 'utf8') : ''
-    const at = full.indexOf('# ---- search-ai')
-    const block = at >= 0 ? full.slice(at) : '# ---- search-ai ----\nsearchai.baseUri=https://search-ai.webfarm.xx.com/searchapi\n'
-    text = `${text.replace(/\s*$/, '')}\n\n${block.replace(/^searchai\.baseUri=.*$/m, `searchai.baseUri=${url || 'https://search-ai.webfarm.xx.com/searchapi'}`)}`
-    writeFileSync(file, text)
-    ok(`Added the searchai.* settings to ${file}`)
-  } else if (url) {
-    writeFileSync(file, text.replace(/^([ \t]*searchai\.baseUri[ \t]*[=:][ \t]*).*$/m, `$1${url}`))
-    ok(`searchai.baseUri set in ${file}`)
-  }
-  if (!url) warn(`searchai.baseUri is still the example address. Edit it in ${file} (key spelling: searchai.baseUri), or run again with QC_SEARCHAI_BASE_URI=https://.../searchapi`)
+  say(`  ${dim('Search-AI address not set yet. Nothing to do here: open "Search-AI" in the app and enter it once.')}`)
 }
 
 /** curl is what talks to search-ai (the JDK cannot do Kerberos): it must exist and support SPNEGO/GSS-API (SSPI on Windows). */
