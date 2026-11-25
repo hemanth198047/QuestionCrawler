@@ -8,6 +8,7 @@ import { PageHeader } from '../components/PageHeader'
 import { useOverview } from '../components/OverviewContext'
 import { Badge, Banner, Button, Card, Chip, CopyButton, EmptyState, InfoTip, Skeleton, TagInput } from '../components/ui'
 import { ageLabel, timeAgo } from '../lib/format'
+import { sourceLabel } from '../lib/sources'
 import { termsFor } from '../lib/terms'
 import { go, useRemote } from '../lib/useRemote'
 
@@ -49,6 +50,7 @@ export default function ExplorePage({ params }: { params: URLSearchParams }) {
   const qAge = useMemo(() => fromParams(params, 'maxQuestionAge', 'minQuestionAge'), [params])
   const aAge = useMemo(() => fromParams(params, 'maxAnswerAge', 'minAnswerAge'), [params])
   const [input, setInput] = useState(q)
+  const [onlySource, setOnlySource] = useState('')
   const [tagDraft, setTagDraft] = useState(tags)
   const [catDraft, setCatDraft] = useState(category)
   const [qDraft, setQDraft] = useState<AgeValue>(qAge)
@@ -161,7 +163,21 @@ export default function ExplorePage({ params }: { params: URLSearchParams }) {
                 ? 'Try different words, a space label such as space:ENG, or a wider age range. Related forms (configure/configuring, runbook/playbook) are already expanded — still no AI model.'
                 : 'Try different words, an exact error message, or a wider age range. Related wording is expanded lightly; this is still lexical search, not an AI model.'}</EmptyState>
           ) : (
-            <div className="stack-sm">{result.data.evidence.map((e) => <EvidenceCard key={`${e.questionId}-${e.answerId ?? 'q'}-${e.sectionIndex}`} e={e} query={q} pageMode={isWiki} terms={terms} onCategory={(id) => navigate({ category: id })} />)}</div>
+            <>
+              {(() => {
+                const all = result.data?.evidence ?? []
+                const counts = new Map<string, number>()
+                all.forEach((e) => { if (e.source) counts.set(e.source, (counts.get(e.source) ?? 0) + 1) })
+                if (counts.size < 2) return null
+                return (
+                  <div className="row" style={{ flexWrap: 'wrap', gap: 6 }} role="group" aria-label="Where the results come from">
+                    <Chip onClick={() => setOnlySource('')} active={!counts.has(onlySource)}>All sources ({all.length})</Chip>
+                    {[...counts.entries()].map(([id, n]) => <Chip key={id} onClick={() => setOnlySource(id)} active={onlySource === id}>{sourceLabel(id)} ({n})</Chip>)}
+                  </div>)
+              })()}
+              <div className="stack-sm">{result.data.evidence.filter((e) => !onlySource || e.source === onlySource || !result.data?.evidence.some((x) => x.source === onlySource))
+                .map((e) => <EvidenceCard key={`${e.source}-${e.questionId}-${e.answerId ?? 'q'}-${e.sectionIndex}`} e={e} query={q} pageMode={isWiki} terms={terms} onCategory={(id) => navigate({ category: id })} onChanged={result.reload} />)}</div>
+            </>
           )}
           {result.data.truncated && <p className="muted small">{result.data.omittedForBudget} lower-ranked passage(s) were left out to keep this readable.</p>}
           <p className="muted small"><InfoTip term="untrusted" /> Everything shown was written by other people and is displayed as reading material only. Check the original source before relying on it.</p>

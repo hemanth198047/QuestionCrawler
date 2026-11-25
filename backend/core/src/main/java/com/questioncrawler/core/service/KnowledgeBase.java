@@ -182,7 +182,66 @@ public final class KnowledgeBase {
         store.ensureReady();
         upgradeIndexIfOlder();
         SearchResponse response = new SearchService(store.paths().indexDir(), taxonomy, clock).search(request);
-        return response.withFreshness(freshness());
+        return withConfirmations(response).withFreshness(freshness());
+    }
+
+    /** Confirmed items come first (the order inside each group is kept), and every result says who confirmed it. */
+    private SearchResponse withConfirmations(SearchResponse response) {
+        Map<String, com.questioncrawler.core.search.Verification> confirmed = verified().all();
+        if (confirmed.isEmpty() || response.evidence().isEmpty()) {
+            return response;
+        }
+        List<com.questioncrawler.core.search.Evidence> marked = new ArrayList<>();
+        for (var e : response.evidence()) {
+            var v = e.source() == null ? null : confirmed.get(VerifiedAnswers.keyOf(e.source(), e.questionId()));
+            marked.add(v == null ? e : e.withVerified(v));
+        }
+        List<com.questioncrawler.core.search.Evidence> ordered = new ArrayList<>();
+        marked.stream().filter(e -> e.verified() != null).forEach(ordered::add);
+        marked.stream().filter(e -> e.verified() == null).forEach(ordered::add);
+        List<com.questioncrawler.core.search.Evidence> ranked = new ArrayList<>();
+        for (int i = 0; i < ordered.size(); i++) {
+            ranked.add(ordered.get(i).withRank(i + 1));
+        }
+        return new SearchResponse(response.query(), response.tagFilter(), response.categoryFilter(), response.ageFilter(), response.resultCount(),
+                response.confidence(), response.truncated(), response.omittedForBudget(), response.freshness(), response.notice(), ranked, response.answer());
+    }
+
+    public VerifiedAnswers verified() {
+        return new VerifiedAnswers(store, clock);
+    }
+
+    /** One confirmed item with its title, for the list on the screen. */
+    public record ConfirmedItem(String source, String questionId, String title, String url, com.questioncrawler.core.search.Verification verification) {}
+
+    /** Confirms a stored item as correct. The item must exist. */
+    public com.questioncrawler.core.search.Verification confirm(String source, String questionId, String by, String note) {
+        if (store.loadThread(source, questionId).isEmpty()) {
+            throw new IllegalArgumentException("That item is not stored on this computer (any more).");
+        }
+        return verified().verify(source, questionId, by, note);
+    }
+
+    public boolean unconfirm(String source, String questionId) {
+        return verified().remove(source, questionId);
+    }
+
+    public List<ConfirmedItem> confirmedItems() {
+        List<ConfirmedItem> out = new ArrayList<>();
+        verified().all().forEach((key, v) -> {
+            int i = key.indexOf(':');
+            if (i <= 0) {
+                return;
+            }
+            String source = key.substring(0, i);
+            String id = key.substring(i + 1);
+            var t = store.loadThread(source, id);
+            if (t.isPresent() && t.get().question() != null) {
+                out.add(new ConfirmedItem(source, id, t.get().question().title(), t.get().question().url(), v));
+            }
+        });
+        out.sort((a, b) -> String.valueOf(b.verification().at()).compareTo(String.valueOf(a.verification().at())));
+        return out;
     }
 
     /**

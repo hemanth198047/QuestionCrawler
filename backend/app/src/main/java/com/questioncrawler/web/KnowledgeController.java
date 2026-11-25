@@ -30,6 +30,9 @@ public class KnowledgeController {
     /** confirm must be true; the reserved tag "all" is refused by the core. */
     public record DeleteByTagRequest(String tag, boolean confirm) {}
 
+    /** A person confirming a result: who (blank = this computer's user name) and an optional note. */
+    public record ConfirmRequest(String source, String questionId, String by, String note) {}
+
     private final Workspace workspace;
 
     public KnowledgeController(Workspace workspace) {
@@ -89,6 +92,26 @@ public class KnowledgeController {
                                           @RequestParam(name = "source", required = false) String source) {
         return workspace.kb().category(id, new AgeFilter(maxQuestionAge, minQuestionAge, null, null), source)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown category " + id));
+    }
+
+    /** Confirms a stored item as correct: it is shown first in search from now on, with who confirmed it and when. */
+    @PostMapping("/verified")
+    public com.questioncrawler.core.search.Verification confirm(@RequestBody ConfirmRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("Say which item to confirm.");
+        }
+        return workspace.kb().confirm(request.source(), request.questionId(), request.by(), request.note());
+    }
+
+    /** Takes a confirmation back. */
+    @DeleteMapping("/verified")
+    public java.util.Map<String, Boolean> unconfirm(@RequestParam("source") String source, @RequestParam("questionId") String questionId) {
+        return java.util.Map.of("removed", workspace.kb().unconfirm(source, questionId));
+    }
+
+    @GetMapping("/verified")
+    public List<com.questioncrawler.core.service.KnowledgeBase.ConfirmedItem> confirmed() {
+        return workspace.kb().confirmedItems();
     }
 
     @PostMapping("/reindex")

@@ -35,7 +35,34 @@ public record Evidence(
         String sectionUrl,
         int sectionIndex,
         /** The sentences, steps or code of this passage that answer the question (in page order); empty when the passage is short. */
-        List<String> relevant) {
+        List<String> relevant,
+        /** The source the item was collected from (for example confluence, or searchai-pages for pages saved from Search-AI); null for an older index. */
+        String source,
+        /** Set when a person confirmed this item; null otherwise. */
+        Verification verified) {
+
+    /** Without source and confirmation (they are added by the search). */
+    public Evidence(int rank, String type, String questionId, String answerId, String title, String passage, String sourceUrl,
+                    String questionUrl, List<String> categories, List<String> categoryNames, List<String> tags, boolean accepted,
+                    Integer votes, String author, String createdAt, String questionCreatedAt, String sourceModifiedAt, String lastSyncedAt,
+                    double score, double termCoverage, String threadStatus, List<String> flags, boolean untrusted, String section,
+                    String sectionUrl, int sectionIndex, List<String> relevant) {
+        this(rank, type, questionId, answerId, title, passage, sourceUrl, questionUrl, categories, categoryNames, tags, accepted, votes,
+                author, createdAt, questionCreatedAt, sourceModifiedAt, lastSyncedAt, score, termCoverage, threadStatus, flags, untrusted,
+                section, sectionUrl, sectionIndex, relevant, null, null);
+    }
+
+    public Evidence withRank(int newRank) {
+        return new Evidence(newRank, type, questionId, answerId, title, passage, sourceUrl, questionUrl, categories, categoryNames, tags, accepted,
+                votes, author, createdAt, questionCreatedAt, sourceModifiedAt, lastSyncedAt, score, termCoverage, threadStatus, flags, untrusted,
+                section, sectionUrl, sectionIndex, relevant, source, verified);
+    }
+
+    public Evidence withVerified(Verification v) {
+        return new Evidence(rank, type, questionId, answerId, title, passage, sourceUrl, questionUrl, categories, categoryNames, tags, accepted,
+                votes, author, createdAt, questionCreatedAt, sourceModifiedAt, lastSyncedAt, score, termCoverage, threadStatus, flags, untrusted,
+                section, sectionUrl, sectionIndex, relevant, source, v);
+    }
 
     /** Without relevant parts (they are added by the search). */
     public Evidence(int rank, String type, String questionId, String answerId, String title, String passage, String sourceUrl,

@@ -99,8 +99,8 @@ class PlainEnglishSearchTest {
     }
 
     @Test
-    void indexVersionIsFour() {
-        assertEquals(4, SearchIndex.INDEX_VERSION);
-        assertEquals(4, SearchIndex.readVersion(indexDir));
+    void indexVersionIsFive() {
+        assertEquals(5, SearchIndex.INDEX_VERSION);
+        assertEquals(5, SearchIndex.readVersion(indexDir));
     }
 }

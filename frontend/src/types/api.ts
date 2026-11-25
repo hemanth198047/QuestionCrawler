@@ -79,7 +79,13 @@ export interface Evidence {
   section: string | null; sectionUrl: string | null; sectionIndex: number
   /** The sentences, steps or code of this passage that answer the question (empty when the passage is short) */
   relevant?: string[]
+  /** Where the item was collected from (null for an index built before sources were recorded: press Reindex) */
+  source?: string | null
+  /** Set when a person confirmed this result is correct */
+  verified?: Verification | null
 }
+export interface Verification { by: string; at: string; note: string | null }
+export interface ConfirmedItem { source: string; questionId: string; title: string; url: string | null; verification: Verification }
 export interface AnswerPoint {
   text: string; kind: 'sentence' | 'list' | 'table' | 'code'; evidenceRank: number; questionId: string; answerId: string | null
   title: string; section: string | null; sourceUrl: string | null; sectionUrl: string | null; match: number

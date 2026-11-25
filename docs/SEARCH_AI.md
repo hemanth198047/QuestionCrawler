@@ -132,3 +132,16 @@ Search-AI shows links and short snippets. Press **Save page** on a result, or **
 - Saved pages are searched together with everything else the app collected (Confluence, Jive, Stack Overflow...), also when
   Search-AI or the VPN is not available. They appear under the source name `searchai-pages`.
 - Pressing Save again refreshes the stored copy. A page that cannot be read shows the reason on its result; the others are still saved.
+
+## One search over everything, and confirmed answers
+
+The normal **Search** page searches everything this app has stored: Confluence, Jive, Stack Overflow and the pages you saved
+from Search-AI. Every result shows where it comes from, and when results come from more than one source, chips above the list
+(for example "Search-AI (saved page) (3)") narrow them to one source.
+
+**Confirm it works** (on every result) lets a person say "this answered it": their name (remembered on that computer), the date and
+an optional note such as "fixed it on the gateway". Confirmed results are shown first with a **Confirmed** badge and the note, and
+**Remove confirmation** takes it back. Confirmations are kept in `<storage-root>/state/verified-answers.json`, so they survive
+re-collecting and re-indexing, and the same file can be shared with a team by sharing that storage folder.
+
+The first start after this update rebuilds the search index once (nothing is downloaded again) so that old results also know their source.

@@ -37,7 +37,7 @@ import org.apache.lucene.store.NIOFSDirectory;
 public final class SearchIndex implements AutoCloseable {
 
     /** Bumped when token expansion changes (plain-English stems) or indexed text shape changes (comments). */
-    public static final int INDEX_VERSION = 4; // 4: pages are indexed per section/passage with heading paths (pieces of very long tokens are indexed for new pages; older ones are found by exact text)
+    public static final int INDEX_VERSION = 5; // 5: the source of each item is stored so results can say where they come from. 4: 4: pages are indexed per section/passage with heading paths (pieces of very long tokens are indexed for new pages; older ones are found by exact text)
 
     static final String F_KEY = "key";
     static final String F_TYPE = "type";
@@ -69,6 +69,7 @@ public final class SearchIndex implements AutoCloseable {
     static final String S_SECTION = "s_section";
     static final String S_SECTION_HEADING = "s_section_heading";
     static final String S_SECTION_INDEX = "s_section_index";
+    static final String S_SOURCE = "s_source";
 
     private final Path dir;
     private Directory directory;
@@ -190,6 +191,7 @@ public final class SearchIndex implements AutoCloseable {
         for (String cat : categoryIds) {
             d.add(new StringField(F_CAT, cat, Field.Store.NO));
         }
+        d.add(new StoredField(S_SOURCE, thread.sourceSystem() == null ? "" : thread.sourceSystem()));
         d.add(new StoredField(S_TITLE, q.title()));
         d.add(new StoredField(S_TEXT, text));
         d.add(new StoredField(S_URL, (isAnswer ? answer.url() : q.url()) == null ? "" : (isAnswer ? answer.url() : q.url())));
