@@ -94,6 +94,8 @@ export const testCollection = (values: Record<string, string>) => post<Collectio
 // Search-AI: the backend signs in with the Kerberos ticket of this computer and keeps every answer on this computer.
 export const getSearchAiStatus = (s?: AbortSignal) => get<SearchAiStatus>('/searchai/status', s)
 export const saveSearchAiAddress = (baseUri: string) => put<SearchAiStatus>('/searchai/settings', { baseUri })
+/** Opens the person's browser on Search-AI (company login page); returns when signed in or when the window is closed / times out. */
+export const searchAiSignIn = () => post<SearchAiStatus>('/searchai/sign-in')
 export const searchAiSearch = (p: { query: string; rows: number; start: number; useCase: string }) => {
   const qs = new URLSearchParams({ query: p.query.slice(0, MAX_QUERY_CHARS), rows: String(p.rows), start: String(p.start) })
   if (p.useCase) qs.set('useCase', p.useCase)

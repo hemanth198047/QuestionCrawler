@@ -4,19 +4,19 @@ package com.questioncrawler.core.searchai;
  * What the screen needs to know in one answer: is an address set, is there a ticket, does search-ai let us in.
  * Never throws: every problem becomes a plain-language {@code message} and a {@code hint} on what to do.
  */
-public record SearchAiStatus(boolean configured, String baseUri, boolean signedIn, String ticket, String principal, String message, String hint) {
+public record SearchAiStatus(boolean configured, String baseUri, boolean signedIn, String ticket, String principal, String message, String hint, boolean needsSignIn) {
 
     public static SearchAiStatus check(SearchAiOptions options, SearchAiClient client, KerberosTicket ticket) {
         String t = ticket.state();
         if (options.isPlaceholderAddress()) {
             return new SearchAiStatus(false, options.baseUri(), false, t, ticket.principal(),
-                    "Search-AI's address is not set yet.", "Enter the address once below (it ends with /searchapi).");
+                    "Search-AI's address is not set yet.", "Enter the address once below (it ends with /searchapi).", false);
         }
         try {
             client.whoami();
-            return new SearchAiStatus(true, options.baseUri(), true, t, ticket.principal(), "Connected to Search-AI.", null);
+            return new SearchAiStatus(true, options.baseUri(), true, t, ticket.principal(), "Connected to Search-AI.", null, false);
         } catch (SearchAiException e) {
-            return new SearchAiStatus(true, options.baseUri(), false, t, ticket.principal(), e.getMessage(), hint(e, t));
+            return new SearchAiStatus(true, options.baseUri(), false, t, ticket.principal(), e.getMessage(), hint(e, t), e.httpStatus() == 401 || e.httpStatus() == 403);
         }
     }
 

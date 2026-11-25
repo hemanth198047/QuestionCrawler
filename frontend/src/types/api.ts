@@ -139,6 +139,8 @@ export interface SearchAiStatus {
   configured: boolean; baseUri: string; signedIn: boolean
   /** valid | missing | unknown | not-needed (Windows) */
   ticket: string; principal: string | null; message: string; hint: string | null
+  /** Search-AI refused the sign-in: offer "Sign in with my browser" */
+  needsSignIn: boolean
 }
 export interface SearchAiStored {
   id: string; kind: 'search' | 'answer' | 'summary' | 'usecases'; fetchedAt: string; baseUri: string; endpoint: string; method: string

@@ -21,6 +21,7 @@ import java.util.Properties;
  * @param defaultUseCase use_case sent when a call gives none (empty = none)
  * @param defaultRows    rows sent for /search when a call gives none
  * @param storeDir       where fetched answers are stored (under the storage root)
+ * @param browser        the browser used for "sign in with my browser" (source.browser.* settings; loginUrl = searchai.loginUrl)
  */
 public record SearchAiOptions(
         String baseUri,
@@ -29,7 +30,13 @@ public record SearchAiOptions(
         int timeoutSeconds,
         String defaultUseCase,
         int defaultRows,
-        Path storeDir) {
+        Path storeDir,
+        com.questioncrawler.core.source.ConfluenceOptions.Browser browser) {
+
+    /** Without browser settings (defaults: Edge or Chrome found automatically). */
+    public SearchAiOptions(String baseUri, Path cookieJar, String curlCommand, int timeoutSeconds, String defaultUseCase, int defaultRows, Path storeDir) {
+        this(baseUri, cookieJar, curlCommand, timeoutSeconds, defaultUseCase, defaultRows, storeDir, null);
+    }
 
     public static final String DEFAULT_BASE_URI = "https://search-ai.webfarm.xx.com/searchapi";
 
@@ -55,6 +62,7 @@ public record SearchAiOptions(
         if (defaultRows < 1) {
             throw new IllegalArgumentException("searchai.rows must be at least 1");
         }
+        browser = browser == null ? com.questioncrawler.core.source.ConfluenceOptions.Browser.DEFAULT : browser;
         curlCommand = curlCommand == null || curlCommand.isBlank() ? "curl" : curlCommand.strip();
         defaultUseCase = defaultUseCase == null ? "" : defaultUseCase.strip();
     }
@@ -82,7 +90,12 @@ public record SearchAiOptions(
                 intValue(p, "searchai.timeoutSeconds", 60),
                 p.getProperty("searchai.useCase", ""),
                 intValue(p, "searchai.rows", 10),
-                storageRoot.toAbsolutePath().normalize().resolve("searchai"));
+                storageRoot.toAbsolutePath().normalize().resolve("searchai"),
+                new com.questioncrawler.core.source.ConfluenceOptions.Browser(
+                        p.getProperty("source.browser.path", ""),
+                        p.getProperty("source.browser.profileDir", ""),
+                        p.getProperty("searchai.loginUrl", ""),
+                        intValue(p, "source.browser.timeoutSeconds", 300)));
     }
 
     private static int intValue(Properties p, String key, int fallback) {

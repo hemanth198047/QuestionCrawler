@@ -1,9 +1,10 @@
 import { ExternalLink, History, Search, ShieldCheck, Sparkles } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { getSearchAiHistory, getSearchAiStatus, getSearchAiStored, saveSearchAiAddress, searchAiAnswer, searchAiSearch, searchAiSummary, searchAiUseCases } from '../api'
+import { getSearchAiHistory, getSearchAiStatus, getSearchAiStored, saveSearchAiAddress, searchAiAnswer, searchAiSearch, searchAiSignIn, searchAiSummary, searchAiUseCases } from '../api'
 import { ApiError } from '../api/client'
 import { Markdown } from '../components/Markdown'
 import { PageHeader } from '../components/PageHeader'
+import { SignInWindowHint } from '../components/SignInWindowHint'
 import { Badge, Banner, Button, Card, Chip, EmptyState, Skeleton, Spinner } from '../components/ui'
 import { timeAgo } from '../lib/format'
 import { type AnswerView, type Hit, extractAnswer, extractHits, extractUseCases, plain, safeUrl } from '../lib/searchai'
@@ -34,6 +35,9 @@ export default function SearchAiPage() {
   const [summaries, setSummaries] = useState<Record<string, string>>({})
   const [summarizing, setSummarizing] = useState('')
   const loadedUseCases = useRef(false)
+  const autoSignIn = useRef(false)
+  const [signing, setSigning] = useState(false)
+  const [signInProblem, setSignInProblem] = useState('') // why the last browser sign-in did not work
 
   const current: SearchAiStatus | null = live ?? (status.kind === 'ok' ? status.data : null)
   const ready = !!current?.signedIn
@@ -43,6 +47,24 @@ export default function SearchAiPage() {
     loadedUseCases.current = true
     searchAiUseCases().then((r) => setUseCases(extractUseCases(r.response))).catch(() => undefined) // optional: the box just stays hidden
   }, [ready])
+
+  async function signInWithBrowser() {
+    setSigning(true); setError(''); setSignInProblem('')
+    try {
+      const s = await searchAiSignIn()
+      setLive(s)
+      if (!s.signedIn) setSignInProblem(s.message)
+    } catch (e) { setSignInProblem(message(e)) } finally { setSigning(false) }
+  }
+
+  // Search-AI said "not signed in": open the browser sign-in once by itself (like Confluence); the button covers every later try.
+  useEffect(() => {
+    if (current?.configured && !current.signedIn && current.needsSignIn && !autoSignIn.current && !changing) {
+      autoSignIn.current = true
+      void signInWithBrowser()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current?.configured, current?.signedIn, current?.needsSignIn])
 
   const recheck = () => { setLive(null); status.reload() }
   const fail = (e: unknown) => { setError(message(e)); if (e instanceof ApiError && (e.status === 401 || e.status === 502)) recheck() }
@@ -141,8 +163,13 @@ export default function SearchAiPage() {
             <div className="row"><Badge tone="ok" icon={<ShieldCheck size={14} />}>Connected</Badge><span className="muted small">{host}{current.principal ? ` · ${current.principal}` : ''}</span></div>
             <Button variant="ghost" size="sm" onClick={() => setChanging(true)}>Change address</Button>
           </div>
-        : <Banner tone="bad" title="Not connected to Search-AI yet" action={<div className="row"><Button variant="primary" busy={status.refreshing} onClick={recheck}>Check again</Button><Button onClick={() => setChanging(true)}>Change address</Button></div>}>
-            <div>{current.hint ?? current.message}</div>
+        : <Banner tone="bad" title={current.needsSignIn ? 'Sign in to Search-AI' : 'Not connected to Search-AI yet'}
+            action={<div className="row">
+              {current.needsSignIn && <Button variant="primary" busy={signing} onClick={() => void signInWithBrowser()}>Sign in with my browser</Button>}
+              <Button busy={status.refreshing} onClick={recheck}>Check again</Button><Button variant="ghost" onClick={() => setChanging(true)}>Change address</Button></div>}>
+            <div>{current.needsSignIn ? 'Search-AI needs you to sign in. A browser window opens on the company login page: sign in there as usual and it closes by itself.' : (current.hint ?? current.message)}</div>
+            {signInProblem && !signing && <div className="small" style={{ marginTop: 8, color: 'var(--bad)' }}>The browser sign-in did not work: {signInProblem}</div>}
+            <div style={{ marginTop: 10 }}><SignInWindowHint active={signing} /></div>
             <details style={{ marginTop: 8 }}><summary className="small muted">Technical details</summary><div className="small" style={{ marginTop: 6 }}>{current.message}</div></details>
           </Banner>)}
 

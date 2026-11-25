@@ -32,6 +32,8 @@ public final class SearchAiClient {
     private final SearchAiOptions options;
     private final CurlRunner curl;
     private volatile boolean sessionSeeded;
+    /** Cookie header from "sign in with my browser"; sent from a private temp file, never on the command line. */
+    private volatile String browserCookie;
 
     public SearchAiClient(SearchAiOptions options) {
         this(options, new CurlRunner.Process());
@@ -44,6 +46,26 @@ public final class SearchAiClient {
 
     public SearchAiOptions options() {
         return options;
+    }
+
+    /** Use the session of a browser sign-in for every call from now on. */
+    public void useBrowserCookie(String cookieHeader) {
+        this.browserCookie = cookieHeader;
+        this.sessionSeeded = true;
+    }
+
+    public boolean usesBrowserSession() {
+        return browserCookie != null;
+    }
+
+    /** True when search-ai accepts this Cookie header (one /whoami call that is neither refused nor redirected to a login page). */
+    public boolean accepts(String cookieHeader) {
+        try {
+            call("GET", "/whoami", new LinkedHashMap<>(), false, cookieHeader);
+            return true;
+        } catch (SearchAiException e) {
+            return false;
+        }
     }
 
     /** GET /whoami. Also seeds the cookie jar. */
@@ -93,15 +115,29 @@ public final class SearchAiClient {
     // ------------------------------------------------------------------ internals
 
     private SearchAiResponse call(String method, String endpoint, Map<String, String> params, boolean jsonBody) {
+        return call(method, endpoint, params, jsonBody, browserCookie);
+    }
+
+    private SearchAiResponse call(String method, String endpoint, Map<String, String> params, boolean jsonBody, String cookie) {
         if (!endpoint.equals("/whoami")) {
             ensureSession();
         }
         String url = options.baseUri() + endpoint + queryString(params);
-        List<String> command = new ArrayList<>(List.of(options.curlCommand(), "-sS", "--negotiate", "-u", ":", "--location-trusted",
+        // With a browser session no redirect is followed: the cookie must never be sent on to another host (the login page).
+        List<String> command = new ArrayList<>(List.of(options.curlCommand(), "-sS", "--negotiate", "-u", ":"));
+        if (cookie == null) {
+            command.add("--location-trusted");
+        }
+        command.addAll(List.of(
                 "-c", options.cookieJar().toString(), "-b", options.cookieJar().toString(),
                 "--max-time", String.valueOf(options.timeoutSeconds()),
                 "-H", "Accept: application/json",
                 "-w", STATUS_MARKER + "%{http_code}"));
+        Path headerFile = null;
+        if (cookie != null) {
+            headerFile = writeCookieHeader(cookie);
+            command.addAll(List.of("-H", "@" + headerFile));
+        }
         if (method.equals("POST")) {
             command.add("-X");
             command.add("POST");
@@ -112,7 +148,18 @@ public final class SearchAiClient {
         command.add(url);
         prepareCookieJar();
 
-        CurlRunner.Result result = curl.run(command, options.timeoutSeconds());
+        CurlRunner.Result result;
+        try {
+            result = curl.run(command, options.timeoutSeconds());
+        } finally {
+            if (headerFile != null) {
+                try {
+                    Files.deleteIfExists(headerFile);
+                } catch (IOException ignored) {
+                    // a leftover owner-only temp file; the next call replaces it
+                }
+            }
+        }
         if (result.exitCode() != 0) {
             throw new SearchAiException(curlFailure(result), 0);
         }
@@ -128,6 +175,13 @@ public final class SearchAiClient {
         } catch (NumberFormatException e) {
             throw new SearchAiException("curl returned an unreadable HTTP status for " + method + " " + endpoint + ".");
         }
+        if (status >= 300 && status < 400 && cookie != null) {
+            browserCookie = browserCookie != null && browserCookie.equals(cookie) ? null : browserCookie; // expired: ask for a new sign-in
+            throw new SearchAiException(method + " " + endpoint + " was sent to a sign-in page (HTTP " + status + "): the browser sign-in has expired.", 401);
+        }
+        if (status == 401 && cookie != null && cookie.equals(browserCookie)) {
+            browserCookie = null;
+        }
         if (status < 200 || status >= 300) {
             throw new SearchAiException(statusFailure(method, endpoint, status, body), status);
         }
@@ -140,8 +194,29 @@ public final class SearchAiClient {
         }
         if (json == null) {
             text = body;
+            String head = body.stripLeading().toLowerCase(java.util.Locale.ROOT);
+            if (head.startsWith("<!doctype html") || head.startsWith("<html")) {
+                // A web page where data was expected is the company sign-in page (the redirect was followed and ended there).
+                throw new SearchAiException(method + " " + endpoint + " answered with a web page, which is usually the company sign-in page.", 401);
+            }
         }
         return new SearchAiResponse(endpoint, method, new LinkedHashMap<>(params), status, json, text);
+    }
+
+    private static Path headerFileIn(Path dir) throws IOException {
+        return Files.createTempFile(dir, ".qc-hdr-", ".txt"); // owner-only on POSIX systems
+    }
+
+    private Path writeCookieHeader(String cookie) {
+        try {
+            Path dir = options.cookieJar().toAbsolutePath().getParent();
+            Files.createDirectories(dir);
+            Path f = headerFileIn(dir);
+            Files.writeString(f, "Cookie: " + cookie.replace("\r", "").replace("\n", "") + "\n", StandardCharsets.UTF_8);
+            return f;
+        } catch (IOException e) {
+            throw new SearchAiException("Cannot prepare the sign-in header file: " + e.getMessage(), 0, e);
+        }
     }
 
     private synchronized void ensureSession() {
