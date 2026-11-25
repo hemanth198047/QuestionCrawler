@@ -21,6 +21,7 @@ import java.util.Properties;
  * @param defaultUseCase use_case sent when a call gives none (empty = none)
  * @param defaultRows    rows sent for /search when a call gives none
  * @param storeDir       where fetched answers are stored (under the storage root)
+ * @param transport      auto (curl first, then the signed-in browser), curl, or browser (always through your browser window)
  * @param browser        the browser used for "sign in with my browser" (source.browser.* settings; loginUrl = searchai.loginUrl)
  */
 public record SearchAiOptions(
@@ -31,11 +32,18 @@ public record SearchAiOptions(
         String defaultUseCase,
         int defaultRows,
         Path storeDir,
-        com.questioncrawler.core.source.ConfluenceOptions.Browser browser) {
+        com.questioncrawler.core.source.ConfluenceOptions.Browser browser,
+        String transport) {
+
+    /** Without a transport setting ("auto"). */
+    public SearchAiOptions(String baseUri, Path cookieJar, String curlCommand, int timeoutSeconds, String defaultUseCase, int defaultRows, Path storeDir,
+                           com.questioncrawler.core.source.ConfluenceOptions.Browser browser) {
+        this(baseUri, cookieJar, curlCommand, timeoutSeconds, defaultUseCase, defaultRows, storeDir, browser, "auto");
+    }
 
     /** Without browser settings (defaults: Edge or Chrome found automatically). */
     public SearchAiOptions(String baseUri, Path cookieJar, String curlCommand, int timeoutSeconds, String defaultUseCase, int defaultRows, Path storeDir) {
-        this(baseUri, cookieJar, curlCommand, timeoutSeconds, defaultUseCase, defaultRows, storeDir, null);
+        this(baseUri, cookieJar, curlCommand, timeoutSeconds, defaultUseCase, defaultRows, storeDir, null, "auto");
     }
 
     public static final String DEFAULT_BASE_URI = "https://search-ai.webfarm.xx.com/searchapi";
@@ -65,6 +73,10 @@ public record SearchAiOptions(
         browser = browser == null ? com.questioncrawler.core.source.ConfluenceOptions.Browser.DEFAULT : browser;
         curlCommand = curlCommand == null || curlCommand.isBlank() ? "curl" : curlCommand.strip();
         defaultUseCase = defaultUseCase == null ? "" : defaultUseCase.strip();
+        transport = transport == null ? "auto" : transport.strip().toLowerCase(Locale.ROOT);
+        if (!transport.equals("auto") && !transport.equals("curl") && !transport.equals("browser")) {
+            throw new IllegalArgumentException("searchai.transport must be auto, curl or browser: " + transport);
+        }
     }
 
     /** True while the address is still the example from the documentation (nobody has entered the real one). */
@@ -95,7 +107,8 @@ public record SearchAiOptions(
                         p.getProperty("source.browser.path", ""),
                         p.getProperty("source.browser.profileDir", ""),
                         p.getProperty("searchai.loginUrl", ""),
-                        intValue(p, "source.browser.timeoutSeconds", 300)));
+                        intValue(p, "source.browser.timeoutSeconds", 300)),
+                p.getProperty("searchai.transport", "auto"));
     }
 
     private static int intValue(Properties p, String key, int fallback) {

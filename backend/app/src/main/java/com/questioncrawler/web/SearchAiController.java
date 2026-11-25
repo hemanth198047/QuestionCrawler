@@ -9,7 +9,7 @@ import com.questioncrawler.core.searchai.StoredAnswer;
 import com.questioncrawler.core.service.CoreConfig;
 import com.questioncrawler.core.service.Workspace;
 import com.questioncrawler.core.searchai.KerberosTicket;
-import com.questioncrawler.core.searchai.SearchAiBrowserSignIn;
+import com.questioncrawler.core.searchai.SearchAiBrowserTransport;
 import com.questioncrawler.core.searchai.SearchAiException;
 import com.questioncrawler.core.searchai.SearchAiStatus;
 import java.net.URI;
@@ -62,7 +62,8 @@ public class SearchAiController {
     public SearchAiStatus signIn() {
         SearchAiService svc = service();
         try {
-            SearchAiBrowserSignIn.signIn(svc.client().options(), svc.client(), System::getenv);
+            svc.client().useBrowser();
+            svc.client().whoami();
         } catch (SearchAiException e) {
             return new SearchAiStatus(true, svc.client().options().baseUri(), false, KerberosTicket.probe().state(), null, e.getMessage(),
                     "The browser sign-in did not finish. Press \"Sign in with my browser\" to try again (this needs a desktop session with Edge or Chrome).", true);
@@ -148,7 +149,11 @@ public class SearchAiController {
         CoreConfig config = workspace.config();
         if (service == null || serviceFor != config) {
             SearchAiOptions options = SearchAiOptions.load(config.configFile(), config.storageRoot());
-            service = new SearchAiService(new SearchAiClient(options), new SearchAiStore(options.storeDir()));
+            SearchAiClient client = new SearchAiClient(options);
+            if (!"curl".equals(options.transport())) {
+                client.withBrowser(new SearchAiBrowserTransport(options, System::getenv));
+            }
+            service = new SearchAiService(client, new SearchAiStore(options.storeDir()));
             serviceFor = config;
         }
         return service;

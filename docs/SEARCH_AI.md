@@ -106,3 +106,18 @@ Each file holds what was asked (endpoint, query-string parameters, base address)
 - No UI screen: use the CLI or the REST calls above.
 - Stored answers are not merged into the local Lucene search index.
 - `summary` needs a `chunkid` taken from a stored search answer; its field name in the answer is not documented, so it is not extracted automatically.
+
+
+## Using your own signed-in browser (no Kerberos or curl needed)
+
+If Search-AI answers in your browser (for example `/searchapi/whoami`) but the app's own Kerberos call fails, the app can make
+every call from inside your Edge/Chrome window instead. The browser brings its own sign-in, so the app does no authentication.
+
+- `searchai.transport=auto` (default): curl first; if it is refused or unavailable, the app opens one browser window on
+  Search-AI, reads through it (kept minimised, closed with the app) and keeps using it.
+- `searchai.transport=browser`: always through the browser window.
+- `searchai.transport=curl`: Kerberos/curl only.
+
+The first call may show the window briefly; sign in there if the company page asks. The Search-AI screen also has
+"Open this search in Search-AI", which opens the website's own results page (`/search?query=...&usecases=default&date_range=ALLTIME`)
+in your browser. Not verified here against the real site: this sandbox has no desktop browser or Search-AI access.

@@ -6,7 +6,7 @@ import { Markdown } from '../components/Markdown'
 import { PageHeader } from '../components/PageHeader'
 import { Badge, Banner, Button, Card, Chip, EmptyState, Skeleton, Spinner } from '../components/ui'
 import { timeAgo } from '../lib/format'
-import { type AnswerView, type Hit, extractAnswer, extractHits, extractUseCases, plain, safeUrl } from '../lib/searchai'
+import { type AnswerView, type Hit, extractAnswer, extractHits, extractUseCases, plain, safeUrl, searchPageUrl } from '../lib/searchai'
 import { useRemote } from '../lib/useRemote'
 import type { SearchAiStatus, SearchAiStored } from '../types/api'
 
@@ -128,6 +128,7 @@ export default function SearchAiPage() {
     : []
   const total = pages.reduce((n, p) => n + p.length, 0)
   const hasMore = pages.length > 0 && pages[pages.length - 1].length >= rows
+  const pageUrl = searchPageUrl(current?.baseUri, query, useCase)
   const host = current?.baseUri.replace(/^https?:\/\//, '').replace(/\/.*$/, '')
 
   return (
@@ -183,6 +184,7 @@ export default function SearchAiPage() {
               <select className="select" value={rows} onChange={(e) => setRows(Number(e.target.value))} aria-label="Results per page">
                 {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
               </select></label>
+            {pageUrl && <a className="small" href={pageUrl} target="_blank" rel="noopener noreferrer">Open this search in Search-AI</a>}
           </div>
         </form>
       </Card>

@@ -87,3 +87,13 @@ export function extractUseCases(json: unknown): string[] {
   if (isObj(json)) return Object.keys(json)
   return []
 }
+
+/** The Search-AI website's own results page for a query (the address its search box produces), or undefined without a valid base. */
+export function searchPageUrl(baseUri: string | undefined, query: string, useCase?: string): string | undefined {
+  try {
+    const u = new URL(baseUri ?? '')
+    if (u.protocol !== 'https:' || !query.trim()) return undefined
+    const p = new URLSearchParams({ query: query.trim(), usecases: useCase || 'default', date_range: 'ALLTIME' })
+    return `${u.origin}/search?${p.toString()}`
+  } catch { return undefined }
+}

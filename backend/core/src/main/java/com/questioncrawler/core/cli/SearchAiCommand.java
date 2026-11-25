@@ -63,7 +63,11 @@ final class SearchAiCommand {
     }
 
     private static SearchAiService service(SearchAiOptions options, SearchAiStore store) {
-        return new SearchAiService(new SearchAiClient(options), store);
+        SearchAiClient client = new SearchAiClient(options);
+        if (!"curl".equals(options.transport())) {
+            client.withBrowser(new com.questioncrawler.core.searchai.SearchAiBrowserTransport(options, System::getenv));
+        }
+        return new SearchAiService(client, store);
     }
 
     private int whoami(Args a, SearchAiService service) {

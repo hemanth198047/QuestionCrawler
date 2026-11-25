@@ -29,8 +29,18 @@ public final class SearchAiClient {
     private static final int MAX_QUERY_LENGTH = 2000;
     private static final int ERROR_SNIPPET = 300;
 
+    /** One answer from the transport: the HTTP status and the body. */
+    public record Reply(int status, String body) {}
+
+    /** Sends a request somewhere other than curl (the signed-in browser window). Throws SearchAiException on failure. */
+    public interface Transport {
+        Reply send(String method, String url, String body) throws IOException;
+    }
+
     private final SearchAiOptions options;
     private final CurlRunner curl;
+    private volatile Transport browser;
+    private volatile boolean browserInUse;
     private volatile boolean sessionSeeded;
     /** Cookie header from "sign in with my browser"; sent from a private temp file, never on the command line. */
     private volatile String browserCookie;
@@ -46,6 +56,25 @@ public final class SearchAiClient {
 
     public SearchAiOptions options() {
         return options;
+    }
+
+    /** Sets the browser transport; used when searchai.transport is "browser", or as the fallback in "auto". */
+    public SearchAiClient withBrowser(Transport transport) {
+        this.browser = transport;
+        this.browserInUse = "browser".equals(options.transport());
+        return this;
+    }
+
+    /** Use the signed-in browser window for every call from now on (needs {@link #withBrowser}). */
+    public void useBrowser() {
+        if (browser == null) {
+            throw new SearchAiException("The browser connection is not available here.", 0);
+        }
+        browserInUse = true;
+    }
+
+    public boolean readsThroughBrowser() {
+        return browserInUse;
     }
 
     /** Use the session of a browser sign-in for every call from now on. */
@@ -119,6 +148,44 @@ public final class SearchAiClient {
     }
 
     private SearchAiResponse call(String method, String endpoint, Map<String, String> params, boolean jsonBody, String cookie) {
+        if (browserInUse) {
+            return viaBrowser(method, endpoint, params, jsonBody);
+        }
+        try {
+            return viaCurl(method, endpoint, params, jsonBody, cookie);
+        } catch (SearchAiException e) {
+            // "auto": curl could not get in (no ticket, no curl, refused): use the browser the person is already signed in with.
+            boolean canFallBack = browser != null && "auto".equals(options.transport()) && cookie == null
+                    && (e.httpStatus() == 0 || e.httpStatus() == 401 || e.httpStatus() == 403);
+            if (!canFallBack) {
+                throw e;
+            }
+            browserInUse = true;
+            try {
+                return viaBrowser(method, endpoint, params, jsonBody);
+            } catch (SearchAiException again) {
+                browserInUse = false; // keep trying curl first next time
+                throw again;
+            }
+        }
+    }
+
+    private SearchAiResponse viaBrowser(String method, String endpoint, Map<String, String> params, boolean jsonBody) {
+        Transport t = browser;
+        if (t == null) {
+            throw new SearchAiException("The browser connection is not available here.", 0);
+        }
+        String url = options.baseUri() + endpoint + queryString(params);
+        Reply reply;
+        try {
+            reply = t.send(method, url, jsonBody ? "{}" : (method.equals("POST") ? "" : null));
+        } catch (IOException e) {
+            throw new SearchAiException("The browser window could not be used: " + e.getMessage(), 0, e);
+        }
+        return finish(method, endpoint, params, reply.status(), reply.body());
+    }
+
+    private SearchAiResponse viaCurl(String method, String endpoint, Map<String, String> params, boolean jsonBody, String cookie) {
         if (!endpoint.equals("/whoami")) {
             ensureSession();
         }
@@ -182,6 +249,10 @@ public final class SearchAiClient {
         if (status == 401 && cookie != null && cookie.equals(browserCookie)) {
             browserCookie = null;
         }
+        return finish(method, endpoint, params, status, body);
+    }
+
+    private SearchAiResponse finish(String method, String endpoint, Map<String, String> params, int status, String body) {
         if (status < 200 || status >= 300) {
             throw new SearchAiException(statusFailure(method, endpoint, status, body), status);
         }

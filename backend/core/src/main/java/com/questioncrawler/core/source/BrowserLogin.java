@@ -64,6 +64,14 @@ public final class BrowserLogin {
             return null;
         }
 
+        /**
+         * Like {@link #fetchInPage(String, String, Map)} for any method and an optional text body (used for API calls such
+         * as POST). Null when this session cannot do it.
+         */
+        default HttpSourceClient.Response fetchInPage(String method, String url, String origin, Map<String, String> headers, String body) throws IOException {
+            return method == null || method.equalsIgnoreCase("GET") ? fetchInPage(url, origin, headers) : null;
+        }
+
         /** Minimises the window (it stays open so the app can keep reading through it). */
         default void minimize() {
         }
@@ -800,7 +808,12 @@ public final class BrowserLogin {
         }
 
         @Override
-        public synchronized HttpSourceClient.Response fetchInPage(String url, String origin, Map<String, String> headers) throws IOException {
+        public HttpSourceClient.Response fetchInPage(String url, String origin, Map<String, String> headers) throws IOException {
+            return fetchInPage("GET", url, origin, headers, null);
+        }
+
+        @Override
+        public synchronized HttpSourceClient.Response fetchInPage(String method, String url, String origin, Map<String, String> headers, String body) throws IOException {
             // Run from a page of the site itself, so the browser sends everything it signs in with.
             String at = evaluate("location.origin", 10);
             if (at == null || !at.equalsIgnoreCase(origin)) {
@@ -824,10 +837,13 @@ public final class BrowserLogin {
                     }
                 }
             }
-            String js = "(async (u, h) => { try { const r = await fetch(u, { credentials: 'include', headers: h });"
+            String js = "(async (u, h, m, b) => { try { const o = { method: m, credentials: 'include', headers: h }; if (b !== null) { o.body = b; }"
+                    + " const r = await fetch(u, o);"
                     + " const t = await r.text(); return JSON.stringify({ s: r.status, u: r.url, ty: r.headers.get('content-type') || '', r: r.redirected, b: t }); }"
                     + " catch (e) { return JSON.stringify({ s: 0, e: String(e) }); } })(" + Json.MAPPER.writeValueAsString(url) + ", "
-                    + Json.MAPPER.writeValueAsString(headers == null ? Map.of() : headers) + ")";
+                    + Json.MAPPER.writeValueAsString(headers == null ? Map.of() : headers) + ", "
+                    + Json.MAPPER.writeValueAsString(method == null ? "GET" : method.toUpperCase(Locale.ROOT)) + ", "
+                    + (body == null ? "null" : Json.MAPPER.writeValueAsString(body)) + ")";
             String raw = evaluate(js, 120);
             JsonNode r = Json.MAPPER.readTree(raw == null ? "{}" : raw);
             int status = r.path("s").asInt(0);
