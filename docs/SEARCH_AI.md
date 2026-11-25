@@ -145,3 +145,13 @@ an optional note such as "fixed it on the gateway". Confirmed results are shown 
 re-collecting and re-indexing, and the same file can be shared with a team by sharing that storage folder.
 
 The first start after this update rebuilds the search index once (nothing is downloaded again) so that old results also know their source.
+
+## Knowledge gaps
+
+The **Knowledge gaps** page lists the questions that found nothing, or only weak matches, in this app's stored knowledge or in
+Search-AI, and were not answered by a later search. They are sorted by how often they were asked, over the last 7, 30 or 90 days,
+and can be copied as a list for the people who own the documentation. A question leaves the list once a later search finds a good
+match (for example after someone saved the right page, or confirmed an answer).
+
+What was searched is kept only on this computer (`<storage-root>/state/search-log.json`, the latest 2000 searches). **Forget what was
+searched** on that page deletes it.

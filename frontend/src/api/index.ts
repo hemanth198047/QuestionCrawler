@@ -1,5 +1,5 @@
 import type {
-  ConfirmedItem, Verification, SearchAiSavedPage, SearchAiSavedResult, ApiDocsResult, ApiProbe, ConfluenceSpaces, CollectionTest, TagChunk, TagListingState, TagSearch, SavedDocs, CategoryListing, CategorySummary, ConfigView, ConnectionReport, DeleteByTagResult, Issue, Overview, Preset, SaveResult, SearchResponse,
+  GapReport, ConfirmedItem, Verification, SearchAiSavedPage, SearchAiSavedResult, ApiDocsResult, ApiProbe, ConfluenceSpaces, CollectionTest, TagChunk, TagListingState, TagSearch, SavedDocs, CategoryListing, CategorySummary, ConfigView, ConnectionReport, DeleteByTagResult, Issue, Overview, Preset, SaveResult, SearchResponse,
   SearchAiHistoryEntry, SearchAiStatus, SearchAiStored, SyncReport, SyncState, Taxonomy, TaxonomyView, ThreadView, TopicProposal, TryResult,
 } from '../types/api'
 import { del, get, post, put } from './client'
@@ -114,6 +114,8 @@ export const saveSearchAiPages = (pages: { url: string; title?: string; query?: 
 export const confirmResult = (source: string, questionId: string, by: string, note: string) => post<Verification>('/verified', { source, questionId, by, note })
 export const unconfirmResult = (source: string, questionId: string) => del<{ removed: boolean }>(`/verified?${new URLSearchParams({ source, questionId }).toString()}`)
 export const getConfirmed = (s?: AbortSignal) => get<ConfirmedItem[]>('/verified', s)
+export const getGaps = (days: number, s?: AbortSignal) => get<GapReport>(`/gaps?days=${days}`, s)
+export const clearSearchLog = () => del<{ cleared: boolean }>('/gaps')
 export const getSearchAiPages = (s?: AbortSignal) => get<SearchAiSavedPage[]>('/searchai/pages', s)
 export const searchAiUseCases = () => post<SearchAiStored>('/searchai/usecases')
 export const getSearchAiHistory = (s?: AbortSignal) => get<SearchAiHistoryEntry[]>('/searchai/history?top=30', s)

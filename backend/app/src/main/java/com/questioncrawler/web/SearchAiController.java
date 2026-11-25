@@ -137,7 +137,18 @@ public class SearchAiController {
             @RequestParam(name = "useCase", required = false) String useCase,
             @RequestParam(name = "sortBy", required = false) String sortBy,
             @RequestParam(name = "pages", defaultValue = "1") int pages) {
-        return service().search(query, rows, start, useCase, sortBy, pages);
+        List<StoredAnswer> stored = service().search(query, rows, start, useCase, sortBy, pages);
+        if ((start == null || start == 0) && !stored.isEmpty()) {
+            // Search-AI itself came back empty (first page only): that question is a gap in what the organisation has written down.
+            var json = stored.get(0).response();
+            int hits = json == null ? -1 : com.questioncrawler.core.searchai.ResultList.count(json);
+            if (hits == 0) {
+                workspace.kb().searchLog().record(query, "search-ai", 0, "NONE");
+            } else if (hits > 0) {
+                workspace.kb().searchLog().record(query, "search-ai", hits, "MEDIUM");
+            }
+        }
+        return stored;
     }
 
     @PostMapping("/answer")

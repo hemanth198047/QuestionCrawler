@@ -182,7 +182,14 @@ public final class KnowledgeBase {
         store.ensureReady();
         upgradeIndexIfOlder();
         SearchResponse response = new SearchService(store.paths().indexDir(), taxonomy, clock).search(request);
-        return withConfirmations(response).withFreshness(freshness());
+        SearchResponse shown = withConfirmations(response).withFreshness(freshness());
+        searchLog().record(request.query(), "local", shown.resultCount(), shown.confidence());
+        return shown;
+    }
+
+    /** What was searched and whether it was answered; its unanswered questions are the "gaps" in the knowledge. */
+    public SearchLog searchLog() {
+        return new SearchLog(store, clock);
     }
 
     /** Confirmed items come first (the order inside each group is kept), and every result says who confirmed it. */

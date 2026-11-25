@@ -114,6 +114,19 @@ public class KnowledgeController {
         return workspace.kb().confirmedItems();
     }
 
+    /** Questions that found nothing or only weak matches and were not answered later (newest and most-asked first). */
+    @GetMapping("/gaps")
+    public com.questioncrawler.core.service.SearchLog.Report gaps(@RequestParam(name = "days", defaultValue = "30") int days) {
+        return workspace.kb().searchLog().report(days);
+    }
+
+    /** Forgets what was searched on this computer. */
+    @DeleteMapping("/gaps")
+    public java.util.Map<String, Boolean> clearSearchLog() {
+        workspace.kb().searchLog().clear();
+        return java.util.Map.of("cleared", true);
+    }
+
     @PostMapping("/reindex")
     public Views.ReindexResult reindex() {
         return workspace.kb().reindex();

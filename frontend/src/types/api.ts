@@ -155,3 +155,6 @@ export interface SearchAiStored {
 export interface SearchAiSavedResult { url: string; key: string | null; title: string | null; characters: number; updated: boolean; error: string | null }
 export interface SearchAiSavedPage { key: string; url: string; title: string; savedAt: string; characters: number }
 export interface SearchAiHistoryEntry { id: string; kind: string; fetchedAt: string; query: string | null; params: Record<string, string>; httpStatus: number }
+
+export interface SearchGap { query: string; timesAsked: number; lastAskedAt: string; where: 'local' | 'search-ai'; bestConfidence: string; bestResults: number }
+export interface GapReport { days: number; searches: number; answered: number; gapCount: number; gaps: SearchGap[] }
