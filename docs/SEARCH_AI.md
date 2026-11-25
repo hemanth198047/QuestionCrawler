@@ -32,7 +32,7 @@ With only `QC_KINIT_PRINCIPAL` set, `kinit <principal>` asks for the password. W
 
 ## How to test it, step by step
 
-1. Edit your config file (`~/.questioncrawler/config.properties`, or the file you use) and set `searchai.baseUri` to the real host. Run `scripts/qc.sh init` first if you have no config yet.
+1. Run `npm start -- --check` (or `npm run searchai`). If your config file has no `searchai.*` settings (files made by an older `init` do not), it adds them and asks for the API address; or pass `QC_SEARCHAI_BASE_URI=https://.../searchapi`. You can also edit `searchai.baseUri` by hand (the key is case-sensitive). No config file yet? Run `scripts/qc.sh init` first.
 2. Run `npm run searchai`. Expect: curl ✓, Kerberos ticket ✓, `Signed in (HTTP 200): ...`, `search-ai sign-in works`.
 3. Run `scripts/qc.sh searchai usecases`, then `scripts/qc.sh searchai search "Claude Code" --rows 5`. Open the stored file (the command prints the id and the folder) and check it matches what the UI shows for the same query.
 4. Try `--use-case <one from usecases>`, `--rows 50 --pages 2` (second file should have `start=50`), `searchai answer "..."`, and `searchai summary "Claude Code" --chunk-id <id from the stored search file>`.
