@@ -157,9 +157,10 @@ export default function SearchAiPage() {
             <div className="row"><Badge tone="ok" icon={<ShieldCheck size={14} />}>Connected</Badge><span className="muted small">{host}{current.principal ? ` · ${current.principal}` : ''}</span></div>
             <Button variant="ghost" size="sm" onClick={() => setChanging(true)}>Change address</Button>
           </div>
-        : <Banner tone="bad" title="Not connected to MSSearch-AI yet"
+        : <Banner tone="warn" title="MSSearch-AI connection not confirmed yet"
             action={<div className="row"><Button variant="primary" busy={status.refreshing} onClick={recheck}>Check again</Button><Button variant="ghost" onClick={() => setChanging(true)}>Change address</Button></div>}>
-            <div>{current.hint ?? current.message}</div>
+            <div>You can still use Search, Ask AI and Run skill: they connect on their own and show the exact reason here if something fails.</div>
+            <div className="small muted" style={{ marginTop: 6 }}>{current.hint ?? current.message}</div>
             <details style={{ marginTop: 8 }}><summary className="small muted">Technical details</summary><div className="small" style={{ marginTop: 6 }}>{current.message}</div></details>
           </Banner>)}
 
