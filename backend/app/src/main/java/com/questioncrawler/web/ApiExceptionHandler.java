@@ -33,4 +33,10 @@ public class ApiExceptionHandler {
     public ProblemDetail store(StoreException e) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, e.getMessage());
     }
+
+    /** search-ai refused or could not be reached: 401 stays 401 (run kinit on the server), everything else is a bad gateway. */
+    @ExceptionHandler(com.questioncrawler.core.searchai.SearchAiException.class)
+    public ProblemDetail searchAi(com.questioncrawler.core.searchai.SearchAiException e) {
+        return ProblemDetail.forStatusAndDetail(e.httpStatus() == 401 ? HttpStatus.UNAUTHORIZED : HttpStatus.BAD_GATEWAY, e.getMessage());
+    }
 }

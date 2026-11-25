@@ -73,6 +73,7 @@ and press *Check access*.
 - [docs/PAGE_ANSWERS.md](docs/PAGE_ANSWERS.md): how questions are answered from pages (paragraphs, not Q&A), quoted word for word, no AI model
 - [docs/CONFLUENCE_BROWSER_LOGIN.md](docs/CONFLUENCE_BROWSER_LOGIN.md): Confluence behind a company login page (SSO): sign in with your own browser
 - [docs/CONFLUENCE_TVM.md](docs/CONFLUENCE_TVM.md): Confluence with company sign-in (Kerberos + Token Vending Machine, REST API v2, web proxy)
+- [docs/SEARCH_AI.md](docs/SEARCH_AI.md): querying the search-ai REST API (Kerberos) from the CLI or REST API and storing the answers
 - [docs/UI_GUIDE.md](docs/UI_GUIDE.md): each screen, and the API behind it
 - [docs/STACKOVERFLOW.md](docs/STACKOVERFLOW.md): trying a real public site
 - [docs/AGE_FILTERS.md](docs/AGE_FILTERS.md): filtering by age of questions and answers

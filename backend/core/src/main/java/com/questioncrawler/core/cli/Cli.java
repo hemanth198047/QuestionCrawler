@@ -52,6 +52,7 @@ public final class Cli {
               override clear <id>          Remove a manual override
               backup [--out <file>]        Back up the durable data to a zip file
               restore <file> --yes         Restore a backup (then run reindex)
+              searchai <sub-command>       Query the search-ai REST API (Kerberos) and store the answers; see below
               demo                         Offline demonstration with synthetic data
 
             Common options:
@@ -69,7 +70,8 @@ public final class Cli {
                             --max-answer-age <age>     only answers created within this age (newer than)
                             --min-answer-age <age>     only answers older than this age
                             A question filter excludes the whole thread; an answer filter excludes only answers.
-            """;
+
+            """ + SearchAiCommand.USAGE;
 
     private final PrintStream out;
     private final PrintStream err;
@@ -109,6 +111,7 @@ public final class Cli {
                 case "override" -> override(a);
                 case "backup" -> backup(a);
                 case "restore" -> restore(a);
+                case "searchai" -> searchAi(a);
                 case "demo" -> new DemoRunner(out).run(a.value("--storage") == null ? null : Path.of(a.value("--storage")));
                 default -> throw new UsageException("Unknown command: " + command);
             };
@@ -335,6 +338,15 @@ public final class Cli {
             throw new UsageException("Unknown override action: " + action);
         }
         return 0;
+    }
+
+    private int searchAi(Args a) {
+        Path file = CoreConfig.locate(a.value("--config"));
+        Map<String, String> overrides = new HashMap<>();
+        if (a.value("--storage") != null) {
+            overrides.put("storage.root", Path.of(a.value("--storage")).toAbsolutePath().toString());
+        }
+        return new SearchAiCommand(out, err).run(a, CoreConfig.load(file, overrides));
     }
 
     private int backup(Args a) throws IOException {

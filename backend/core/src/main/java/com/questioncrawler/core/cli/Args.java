@@ -18,7 +18,8 @@ final class Args {
     private static final Set<String> BOOLEAN = Set.of("--full", "--json", "--partial-tags", "--connect", "--force", "--keep", "--yes", "--help", "-h");
     private static final Set<String> VALUE = Set.of("--config", "--storage", "--tag", "--tag-mode", "--category", "--top", "--max-chars",
             "--max-passage-chars", "--format", "--out", "--note",
-            "--max-question-age", "--min-question-age", "--max-answer-age", "--min-answer-age");
+            "--max-question-age", "--min-question-age", "--max-answer-age", "--min-answer-age",
+            "--use-case", "--rows", "--start", "--sort-by", "--chunk-id", "--pages", "--kind");
 
     final List<String> positional = new ArrayList<>();
     private final Map<String, List<String>> values = new HashMap<>();
